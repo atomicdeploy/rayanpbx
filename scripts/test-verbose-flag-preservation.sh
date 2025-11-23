@@ -109,6 +109,10 @@ test_mock_script_execution() {
     
     # Create a temporary directory for testing
     TEST_DIR=$(mktemp -d)
+    if [ -z "$TEST_DIR" ] || [ ! -d "$TEST_DIR" ]; then
+        print_fail "Failed to create temporary directory"
+        return 1
+    fi
     cd "$TEST_DIR"
     
     # Create mock install script with the fix

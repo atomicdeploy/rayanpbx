@@ -54,6 +54,10 @@ echo ""
 
 # Create a temporary test environment
 TEST_DIR=$(mktemp -d)
+if [ -z "$TEST_DIR" ] || [ ! -d "$TEST_DIR" ]; then
+    print_error "Failed to create temporary directory"
+    exit 1
+fi
 echo -e "${DIM}Test directory: $TEST_DIR${RESET}"
 
 cd "$TEST_DIR"
