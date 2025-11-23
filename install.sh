@@ -1643,7 +1643,7 @@ else
 fi
 
 go mod download
-go build -o /usr/local/bin/rayanpbx-tui main.go config.go asterisk.go diagnostics.go usage.go
+go build -o /usr/local/bin/rayanpbx-tui .
 chmod +x /usr/local/bin/rayanpbx-tui
 
 print_success "TUI built: /usr/local/bin/rayanpbx-tui"

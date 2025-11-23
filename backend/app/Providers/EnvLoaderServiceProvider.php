@@ -56,9 +56,16 @@ class EnvLoaderServiceProvider extends ServiceProvider
             }
 
             try {
-                // Load and override existing values
+                // Use createMutable to allow overriding existing values
                 $dotenv = Dotenv::createMutable($path);
-                $dotenv->load();
+                
+                // For the first path, use load(); for subsequent paths, use overload()
+                // overload() will override existing environment variables
+                if (empty($loadedPaths)) {
+                    $dotenv->load();
+                } else {
+                    $dotenv->overload();
+                }
                 
                 $loadedPaths[] = $envFile;
             } catch (\Exception $e) {

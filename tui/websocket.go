@@ -293,18 +293,15 @@ func loadConfig() (string, string, string, error) {
 		"/etc/rayanpbx/.env",
 	}
 	
-	// Add project root .env
+	// Add project root .env (find by looking for VERSION file)
 	currentDir, _ := os.Getwd()
+	projectRootFound := false
 	for i := 0; i < 3; i++ {
-		envPath := filepath.Join(currentDir, ".env")
 		versionPath := filepath.Join(currentDir, "VERSION")
 		
-		if _, err := os.Stat(envPath); err == nil {
-			envPaths = append(envPaths, envPath)
-			break
-		}
 		if _, err := os.Stat(versionPath); err == nil {
 			envPaths = append(envPaths, filepath.Join(currentDir, ".env"))
+			projectRootFound = true
 			break
 		}
 		
@@ -314,6 +311,9 @@ func loadConfig() (string, string, string, error) {
 		}
 		currentDir = parentDir
 	}
+	
+	// If no VERSION file found, don't add a project root path
+	// (it will be covered by current directory if needed)
 	
 	// Add current directory .env
 	cwd, _ := os.Getwd()
