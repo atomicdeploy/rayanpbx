@@ -1574,12 +1574,22 @@ chown -R www-data:www-data /opt/rayanpbx/backend
 print_verbose "Setting permissions for Laravel storage and cache directories..."
 # Storage directory needs to be writable by web server
 if [ -d /opt/rayanpbx/backend/storage ]; then
-    chmod -R 775 /opt/rayanpbx/backend/storage
+    # Set directories to 775
+    find /opt/rayanpbx/backend/storage -type d -exec chmod 775 {} \;
+    # Set regular files to 664 (readable/writable by owner and group)
+    find /opt/rayanpbx/backend/storage -type f -exec chmod 664 {} \;
+    # .gitignore files should be 644 (not executable, readable by all)
+    find /opt/rayanpbx/backend/storage -type f -name ".gitignore" -exec chmod 644 {} \;
     print_verbose "Set permissions on storage directory"
 fi
 
 if [ -d /opt/rayanpbx/backend/bootstrap/cache ]; then
-    chmod -R 775 /opt/rayanpbx/backend/bootstrap/cache
+    # Set directories to 775
+    find /opt/rayanpbx/backend/bootstrap/cache -type d -exec chmod 775 {} \;
+    # Set regular files to 664 (readable/writable by owner and group)
+    find /opt/rayanpbx/backend/bootstrap/cache -type f -exec chmod 664 {} \;
+    # .gitignore files should be 644 (not executable, readable by all)
+    find /opt/rayanpbx/backend/bootstrap/cache -type f -name ".gitignore" -exec chmod 644 {} \;
     print_verbose "Set permissions on bootstrap/cache directory"
 fi
 
