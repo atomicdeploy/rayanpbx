@@ -17,7 +17,6 @@ NC='\033[0m' # No Color
 # VT-100 Styles
 BOLD='\033[1m'
 UNDERLINE='\033[4m'
-RESET='\033[0m'
 
 # Emojis
 CHECK="✅"
@@ -299,8 +298,8 @@ cmd_system_update() {
 main() {
     if [ $# -eq 0 ]; then
         # Display colorful usage message with VT-100 styling
-        echo -e "${CYAN}${BOLD}Usage:${RESET} ${YELLOW}${BOLD}rayanpbx-cli${RESET} ${GREEN}${UNDERLINE}<command>${RESET} ${BLUE}[options]${NC}"
-        echo -e "${CYAN}Run '${YELLOW}${BOLD}rayanpbx-cli help${RESET}${CYAN}' for more information${NC}"
+        echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
+        echo -e "${CYAN}Run '${YELLOW}${BOLD}rayanpbx-cli help${NC}${CYAN}' for more information${NC}"
         exit 2
     fi
     
