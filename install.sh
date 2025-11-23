@@ -1293,10 +1293,9 @@ print_success "Permissions set for backend"
 
 # Configure frontend to be served by Apache (proxying to Node.js)
 print_info "Setting up Apache virtual host for Nuxt frontend..."
-cat > /etc/apache2/sites-available/rayanpbx-frontend.conf << EOF
+cat > /etc/apache2/sites-available/rayanpbx-frontend.conf << 'EOF'
 <VirtualHost *:8080>
     ServerName rayanpbx.local
-    ServerAlias $SERVER_IP
 
     ProxyPreserveHost On
     ProxyPass / http://localhost:3000/
@@ -1305,12 +1304,15 @@ cat > /etc/apache2/sites-available/rayanpbx-frontend.conf << EOF
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} =websocket [NC]
-    RewriteRule /(.*)  ws://localhost:3000/\$1 [P,L]
+    RewriteRule /(.*)  ws://localhost:3000/$1 [P,L]
 
-    ErrorLog \${APACHE_LOG_DIR}/rayanpbx-frontend-error.log
-    CustomLog \${APACHE_LOG_DIR}/rayanpbx-frontend-access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/rayanpbx-frontend-error.log
+    CustomLog ${APACHE_LOG_DIR}/rayanpbx-frontend-access.log combined
 </VirtualHost>
 EOF
+
+# Add ServerAlias with actual IP after file creation
+sed -i "/ServerName rayanpbx.local/a\    ServerAlias $SERVER_IP" /etc/apache2/sites-available/rayanpbx-frontend.conf
 
 print_success "Frontend virtual host configured"
 

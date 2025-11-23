@@ -27,18 +27,21 @@ ROCKET="🚀"
 
 # Configuration
 RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
-API_BASE_URL="http://localhost/api"
 ENV_FILE="$RAYANPBX_ROOT/.env"
 
-# Load configuration
+# Load configuration from .env file
 if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
     # Build API URL from environment variables if available
     if [ -n "$API_BASE_URL" ]; then
+        # API_BASE_URL from env should be like "http://localhost" without /api
         API_BASE_URL="${API_BASE_URL}/api"
     else
         API_BASE_URL="http://localhost/api"
     fi
+else
+    # Default if no .env file
+    API_BASE_URL="http://localhost/api"
 fi
 
 # Helper functions
