@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\TrunkController;
 use App\Http\Controllers\Api\StatusController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\ConsoleController;
+use App\Http\Controllers\Api\HelpController;
+use App\Http\Controllers\Api\TrafficController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -56,4 +58,27 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/console/dialplan', [ConsoleController::class, 'dialplan']);
     Route::get('/console/peers', [ConsoleController::class, 'peers']);
     Route::get('/console/session', [ConsoleController::class, 'session']);
+    
+    // AI Help & Explanations
+    Route::post('/help/explain', [HelpController::class, 'explain']);
+    Route::post('/help/error', [HelpController::class, 'explainError']);
+    Route::post('/help/codec', [HelpController::class, 'explainCodec']);
+    Route::post('/help/field', [HelpController::class, 'getFieldHelp']);
+    Route::post('/help/batch', [HelpController::class, 'explainBatch']);
+    
+    // Traffic Analysis
+    Route::post('/traffic/start', [TrafficController::class, 'start']);
+    Route::post('/traffic/stop', [TrafficController::class, 'stop']);
+    Route::get('/traffic/status', [TrafficController::class, 'status']);
+    Route::get('/traffic/analyze', [TrafficController::class, 'analyze']);
+    Route::post('/traffic/clear', [TrafficController::class, 'clear']);
+});
+
+// Health check endpoint (public)
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'healthy',
+        'timestamp' => now()->toISOString(),
+        'version' => '1.0.0',
+    ]);
 });
