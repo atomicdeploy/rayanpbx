@@ -42,7 +42,10 @@ ENV_FILE="$RAYANPBX_ROOT/.env"
 
 # Load configuration
 if [ -f "$ENV_FILE" ]; then
+    # Temporarily disable 'unset variable' errors to allow variable expansion in .env
+    set +u
     source "$ENV_FILE"
+    set -u
     API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
 fi
 
