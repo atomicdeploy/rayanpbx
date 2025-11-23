@@ -32,14 +32,23 @@ export const useAuthStore = defineStore('auth', {
       } catch (error: any) {
         console.error('Login error:', error)
         
-        // Check if error has a response (meaning we got a response from server)
-        if (error.response) {
-          // We got a response from the server
-          if (error.response.status === 422 || error.response.status === 401) {
+        // Check if error has a status code (meaning we got a response from server)
+        if (error.status || error.statusCode) {
+          const status = error.status || error.statusCode
+          
+          // Invalid credentials
+          if (status === 422 || status === 401) {
             this.lastError = 'invalid_credentials'
             return { success: false, error: 'invalid_credentials' }
           }
-          // Other server errors
+          
+          // Other server errors - check if there's a message from backend
+          if (error.data?.message) {
+            this.lastError = error.data.message
+            return { success: false, error: error.data.message }
+          }
+          
+          // Fallback to unknown error
           this.lastError = 'unknown_error'
           return { success: false, error: 'unknown_error' }
         }

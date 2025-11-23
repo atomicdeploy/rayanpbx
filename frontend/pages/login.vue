@@ -162,8 +162,11 @@ const handleLogin = async () => {
       error.value = t('auth.backendUnreachable')
     } else if (result.error === 'invalid_credentials') {
       error.value = t('auth.loginError')
-    } else {
+    } else if (result.error === 'unknown_error') {
       error.value = t('auth.unknownError')
+    } else {
+      // Display the actual error message from the backend
+      error.value = result.error
     }
   }
 
