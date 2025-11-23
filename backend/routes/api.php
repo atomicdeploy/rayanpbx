@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\ConsoleController;
 use App\Http\Controllers\Api\HelpController;
 use App\Http\Controllers\Api\TrafficController;
+use App\Http\Controllers\Api\AsteriskStatusController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -72,6 +73,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/traffic/status', [TrafficController::class, 'status']);
     Route::get('/traffic/analyze', [TrafficController::class, 'analyze']);
     Route::post('/traffic/clear', [TrafficController::class, 'clear']);
+    
+    // Asterisk Real-time Status
+    Route::post('/asterisk/endpoint/status', [AsteriskStatusController::class, 'getEndpointStatus']);
+    Route::get('/asterisk/endpoints', [AsteriskStatusController::class, 'getAllEndpoints']);
+    Route::post('/asterisk/channel/codec', [AsteriskStatusController::class, 'getChannelCodec']);
+    Route::post('/asterisk/channel/rtp', [AsteriskStatusController::class, 'getRTPStats']);
+    Route::post('/asterisk/trunk/status', [AsteriskStatusController::class, 'getTrunkStatus']);
+    Route::get('/asterisk/status/complete', [AsteriskStatusController::class, 'getCompleteStatus']);
 });
 
 // Health check endpoint (public)
