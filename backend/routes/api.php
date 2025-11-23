@@ -29,6 +29,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/extensions/{id}', [ExtensionController::class, 'update']);
     Route::delete('/extensions/{id}', [ExtensionController::class, 'destroy']);
     Route::post('/extensions/{id}/toggle', [ExtensionController::class, 'toggle']);
+    Route::get('/extensions/{id}/verify', [ExtensionController::class, 'verify']);
+    Route::get('/extensions/asterisk/endpoints', [ExtensionController::class, 'asteriskEndpoints']);
     
     // Trunks
     Route::get('/trunks', [TrunkController::class, 'index']);

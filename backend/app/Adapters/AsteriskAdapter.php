@@ -137,6 +137,41 @@ class AsteriskAdapter
     }
     
     /**
+     * Ensure PJSIP transport configuration exists
+     */
+    public function ensureTransportConfig()
+    {
+        try {
+            $config = @file_get_contents($this->pjsipConfig) ?: '';
+            
+            // Check if transport configuration exists
+            if (str_contains($config, '[transport-udp]') && str_contains($config, 'type=transport')) {
+                return true; // Transport already configured
+            }
+            
+            // Add basic transport configuration at the beginning
+            $transportConfig = "; BEGIN MANAGED - RayanPBX Transport\n";
+            $transportConfig .= "[transport-udp]\n";
+            $transportConfig .= "type=transport\n";
+            $transportConfig .= "protocol=udp\n";
+            $transportConfig .= "bind=0.0.0.0:5060\n";
+            $transportConfig .= "; END MANAGED - RayanPBX Transport\n\n";
+            
+            // Prepend transport config if [general] exists, otherwise add at start
+            if (str_contains($config, '[general]')) {
+                $config = str_replace('[general]', $transportConfig . '[general]', $config);
+            } else {
+                $config = $transportConfig . $config;
+            }
+            
+            return file_put_contents($this->pjsipConfig, $config) !== false;
+        } catch (Exception $e) {
+            report($e);
+            return false;
+        }
+    }
+    
+    /**
      * Generate PJSIP trunk configuration
      */
     public function generatePjsipTrunk($trunk)
@@ -240,6 +275,65 @@ class AsteriskAdapter
     }
     
     /**
+     * Generate internal dialplan for extensions
+     */
+    public function generateInternalDialplan($extensions)
+    {
+        $config = "\n; BEGIN MANAGED - RayanPBX Internal Extensions\n";
+        $config .= "[internal]\n";
+        
+        // Add individual extension rules
+        foreach ($extensions as $extension) {
+            if (!$extension->enabled) continue;
+            
+            $extNum = $extension->extension_number;
+            $config .= "exten => {$extNum},1,NoOp(Call to extension {$extNum})\n";
+            $config .= " same => n,Dial(PJSIP/{$extNum},30)\n";
+            
+            // Add voicemail if enabled
+            if ($extension->voicemail_enabled) {
+                $config .= " same => n,VoiceMail({$extNum}@default,u)\n";
+            }
+            
+            $config .= " same => n,Hangup()\n\n";
+        }
+        
+        // Add pattern matching for extension-to-extension calls
+        $config .= "; Pattern match for all extensions\n";
+        $config .= "exten => _1XXX,1,NoOp(Extension to extension call: \${EXTEN})\n";
+        $config .= " same => n,Dial(PJSIP/\${EXTEN},30)\n";
+        $config .= " same => n,Hangup()\n\n";
+        
+        $config .= "; END MANAGED - RayanPBX Internal Extensions\n";
+        
+        return $config;
+    }
+    
+    /**
+     * Write dialplan configuration to extensions.conf
+     */
+    public function writeDialplanConfig($content, $identifier)
+    {
+        try {
+            // Read existing config
+            $existingConfig = @file_get_contents($this->extensionsConfig) ?: '';
+            
+            // Remove old managed section for this identifier
+            $pattern = "/; BEGIN MANAGED - {$identifier}.*?; END MANAGED - {$identifier}\n/s";
+            $existingConfig = preg_replace($pattern, '', $existingConfig);
+            
+            // Append new config
+            $newConfig = $existingConfig . $content;
+            
+            // Write to file (requires proper permissions)
+            return file_put_contents($this->extensionsConfig, $newConfig) !== false;
+        } catch (Exception $e) {
+            report($e);
+            return false;
+        }
+    }
+    
+    /**
      * Generate dialplan for trunk routing
      */
     public function generateDialplan($trunks)
@@ -313,25 +407,57 @@ class AsteriskAdapter
         }
         
         try {
+            // Reload PJSIP
             $this->sendCommand($socket, [
-                'Action' => 'Reload',
-                'Module' => 'res_pjsip.so'
+                'Action' => 'PJSIPReload'
             ]);
             
-            $this->readResponse($socket);
+            $response = $this->readResponse($socket);
+            $pjsipSuccess = str_contains($response, 'Success') || str_contains($response, 'Response: Success');
             
+            // Reload dialplan
             $this->sendCommand($socket, [
                 'Action' => 'DialplanReload'
             ]);
             
-            $this->readResponse($socket);
+            $response = $this->readResponse($socket);
+            $dialplanSuccess = str_contains($response, 'Success') || str_contains($response, 'Response: Success');
             
             fclose($socket);
-            return true;
+            
+            return $pjsipSuccess && $dialplanSuccess;
         } catch (Exception $e) {
             report($e);
-            fclose($socket);
+            if (is_resource($socket)) {
+                fclose($socket);
+            }
             return false;
+        }
+    }
+    
+    /**
+     * Reload Asterisk using CLI (alternative method)
+     */
+    public function reloadCLI()
+    {
+        try {
+            // Reload PJSIP via CLI
+            $pjsipOutput = shell_exec("asterisk -rx 'pjsip reload' 2>&1");
+            
+            // Reload dialplan via CLI
+            $dialplanOutput = shell_exec("asterisk -rx 'dialplan reload' 2>&1");
+            
+            return [
+                'success' => true,
+                'pjsip_output' => $pjsipOutput,
+                'dialplan_output' => $dialplanOutput,
+            ];
+        } catch (Exception $e) {
+            report($e);
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
         }
     }
     
@@ -364,5 +490,169 @@ class AsteriskAdapter
             fclose($socket);
             return 'unknown';
         }
+    }
+    
+    /**
+     * Get PJSIP endpoint details from Asterisk
+     */
+    public function getPjsipEndpoint($endpoint)
+    {
+        try {
+            $command = "pjsip show endpoint {$endpoint}";
+            $output = shell_exec("asterisk -rx " . escapeshellarg($command) . " 2>&1");
+            
+            if (empty($output) || str_contains($output, 'Unable to find object') || str_contains($output, 'No objects found')) {
+                return null;
+            }
+            
+            return $this->parsePjsipEndpointDetail($output);
+        } catch (Exception $e) {
+            report($e);
+            return null;
+        }
+    }
+    
+    /**
+     * Get all PJSIP endpoints from Asterisk
+     */
+    public function getAllPjsipEndpoints()
+    {
+        try {
+            $command = "pjsip show endpoints";
+            $output = shell_exec("asterisk -rx " . escapeshellarg($command) . " 2>&1");
+            
+            if (empty($output) || str_contains($output, 'No objects found')) {
+                return [];
+            }
+            
+            return $this->parsePjsipEndpointsList($output);
+        } catch (Exception $e) {
+            report($e);
+            return [];
+        }
+    }
+    
+    /**
+     * Parse PJSIP endpoint list output
+     */
+    private function parsePjsipEndpointsList($output)
+    {
+        $endpoints = [];
+        $lines = explode("\n", $output);
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            // Skip header and empty lines
+            if (empty($line) || str_contains($line, 'Endpoint:') && str_contains($line, 'State')) {
+                continue;
+            }
+            
+            // Match endpoint lines: "Endpoint:  <name>  <state>  <aors>  <contacts>"
+            if (preg_match('/^\s*(\S+)\s+(\S+)\s+(\S+)/', $line, $matches)) {
+                $endpoints[] = [
+                    'name' => $matches[1],
+                    'state' => $matches[2],
+                    'contacts' => isset($matches[3]) && $matches[3] !== 'n/a' ? $matches[3] : '0',
+                ];
+            }
+        }
+        
+        return $endpoints;
+    }
+    
+    /**
+     * Parse detailed PJSIP endpoint output
+     */
+    private function parsePjsipEndpointDetail($output)
+    {
+        $details = [
+            'endpoint' => null,
+            'state' => 'Unavailable',
+            'contacts' => [],
+            'transport' => null,
+            'auth' => null,
+        ];
+        
+        $lines = explode("\n", $output);
+        $inContactSection = false;
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            
+            // Parse endpoint name
+            if (preg_match('/Endpoint:\s+<Endpoint\/(\S+)>/', $line, $matches)) {
+                $details['endpoint'] = $matches[1];
+            }
+            
+            // Parse DeviceState
+            if (preg_match('/DeviceState\s*:\s*(\S+)/', $line, $matches)) {
+                $details['state'] = $matches[1];
+            }
+            
+            // Parse Transport
+            if (preg_match('/transport\s*:\s*(\S+)/', $line, $matches)) {
+                $details['transport'] = $matches[1];
+            }
+            
+            // Parse auth
+            if (preg_match('/auth\s*:\s*(\S+)/', $line, $matches)) {
+                $details['auth'] = $matches[1];
+            }
+            
+            // Parse contacts section
+            if (str_contains($line, 'Contact:')) {
+                $inContactSection = true;
+                if (preg_match('/Contact:\s+([^\/]+)\/(\S+)/', $line, $matches)) {
+                    $details['contacts'][] = [
+                        'uri' => $matches[2],
+                        'status' => str_contains($line, 'Avail') ? 'Available' : 'Unavailable',
+                    ];
+                }
+            } elseif ($inContactSection && preg_match('/(\S+@[\d.]+:\d+)/', $line, $matches)) {
+                $lastContact = end($details['contacts']);
+                if ($lastContact && empty($lastContact['uri'])) {
+                    $details['contacts'][count($details['contacts']) - 1]['uri'] = $matches[1];
+                }
+            }
+        }
+        
+        return $details;
+    }
+    
+    /**
+     * Verify if endpoint exists in Asterisk
+     */
+    public function verifyEndpointExists($endpoint)
+    {
+        $details = $this->getPjsipEndpoint($endpoint);
+        return $details !== null && isset($details['endpoint']);
+    }
+    
+    /**
+     * Get endpoint registration status
+     */
+    public function getEndpointRegistrationStatus($endpoint)
+    {
+        $details = $this->getPjsipEndpoint($endpoint);
+        
+        if (!$details) {
+            return [
+                'registered' => false,
+                'status' => 'Not Found',
+                'contacts' => 0,
+            ];
+        }
+        
+        $hasActiveContacts = !empty($details['contacts']) && 
+                            count(array_filter($details['contacts'], function($c) {
+                                return isset($c['status']) && $c['status'] === 'Available';
+                            })) > 0;
+        
+        return [
+            'registered' => $hasActiveContacts,
+            'status' => $details['state'],
+            'contacts' => count($details['contacts']),
+            'details' => $details,
+        ];
     }
 }
