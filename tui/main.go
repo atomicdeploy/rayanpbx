@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -66,6 +67,18 @@ const (
 	trunkFieldPriority
 )
 
+// Default port values
+const (
+	DefaultSIPPort = "5060"
+)
+
+// Default extension values
+const (
+	DefaultExtensionContext   = "from-internal"
+	DefaultExtensionTransport = "transport-udp"
+	DefaultMaxContacts        = 1
+)
+
 type screen int
 
 const (
@@ -79,6 +92,14 @@ const (
 	usageScreen
 	createExtensionScreen
 	createTrunkScreen
+	diagnosticsMenuScreen
+	diagTestExtensionScreen
+	diagTestTrunkScreen
+	diagTestRoutingScreen
+	diagPortTestScreen
+	editExtensionScreen
+	deleteExtensionScreen
+	extensionDetailsScreen
 )
 
 type model struct {
@@ -103,9 +124,34 @@ type model struct {
 	// CLI usage navigation
 	usageCommands []UsageCommand
 	usageCursor   int
+
+	// Diagnostics
+	diagnosticsManager *DiagnosticsManager
+	diagnosticsMenu    []string
+	diagnosticsOutput  string
+	
+	// Configuration management
+	configManager *AsteriskConfigManager
+	verbose       bool
+	
+	// Extension/Trunk selection
+	selectedExtensionIdx int
+	selectedTrunkIdx     int
 }
 
-func initialModel(db *sql.DB, config *Config) model {
+// isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
+func (m model) isDiagnosticsInputScreen() bool {
+	return m.currentScreen == diagTestExtensionScreen ||
+		m.currentScreen == diagTestTrunkScreen ||
+		m.currentScreen == diagTestRoutingScreen ||
+		m.currentScreen == diagPortTestScreen
+}
+
+func initialModel(db *sql.DB, config *Config, verbose bool) model {
+	asteriskManager := NewAsteriskManager()
+	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
+	configManager := NewAsteriskConfigManager(verbose)
+	
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
@@ -118,9 +164,23 @@ func initialModel(db *sql.DB, config *Config) model {
 			"📖 CLI Usage Guide",
 			"❌ Exit",
 		},
-		cursor: 0,
-		db:     db,
-		config: config,
+		cursor:             0,
+		db:                 db,
+		config:             config,
+		diagnosticsManager: diagnosticsManager,
+		configManager:      configManager,
+		verbose:            verbose,
+		diagnosticsMenu: []string{
+			"🏥 Run System Health Check",
+			"💻 Show System Information",
+			"🔍 Enable SIP Debugging",
+			"🔇 Disable SIP Debugging",
+			"📞 Test Extension Registration",
+			"🔗 Test Trunk Connectivity",
+			"🛣️  Test Call Routing",
+			"🌐 Test Port Connectivity",
+			"🔙 Back to Main Menu",
+		},
 	}
 }
 
@@ -146,6 +206,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor > 0 {
 					m.usageCursor--
 				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Navigate diagnostics menu
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			} else if m.currentScreen == extensionsScreen {
+				// Navigate extensions list
+				if m.selectedExtensionIdx > 0 {
+					m.selectedExtensionIdx--
+				}
 			} else if m.cursor > 0 {
 				m.cursor--
 			}
@@ -155,6 +225,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate usage commands
 				if m.usageCursor < len(m.usageCommands)-1 {
 					m.usageCursor++
+				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Navigate diagnostics menu
+				if m.cursor < len(m.diagnosticsMenu)-1 {
+					m.cursor++
+				}
+			} else if m.currentScreen == extensionsScreen {
+				// Navigate extensions list
+				if m.selectedExtensionIdx < len(m.extensions)-1 {
+					m.selectedExtensionIdx++
 				}
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
@@ -166,6 +246,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.initCreateExtension()
 			} else if m.currentScreen == trunksScreen {
 				m.initCreateTrunk()
+			}
+		
+		case "e":
+			// Edit button - edit selected extension/trunk
+			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
+				if m.selectedExtensionIdx < len(m.extensions) {
+					m.initEditExtension()
+				}
+			}
+		
+		case "d":
+			// Delete button - delete selected extension/trunk
+			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
+				if m.selectedExtensionIdx < len(m.extensions) {
+					m.currentScreen = deleteExtensionScreen
+				}
+			}
+		
+		case "y":
+			// Confirm deletion
+			if m.currentScreen == deleteExtensionScreen {
+				m.deleteExtension()
 			}
 
 		case "enter":
@@ -190,7 +292,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 2:
 					m.currentScreen = asteriskScreen
 				case 3:
-					m.currentScreen = diagnosticsScreen
+					m.currentScreen = diagnosticsMenuScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.diagnosticsOutput = ""
 				case 4:
 					m.currentScreen = statusScreen
 				case 5:
@@ -207,13 +313,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor < len(m.usageCommands) {
 					m.executeCommand(m.usageCommands[m.usageCursor].Command)
 				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Handle diagnostics menu selection
+				m.handleDiagnosticsMenuSelection()
 			}
 
 		case "esc":
 			if m.currentScreen != mainMenu {
-				m.currentScreen = mainMenu
-				m.errorMsg = ""
-				m.successMsg = ""
+				// If in a diagnostics submenu, go back to diagnostics menu
+				if m.isDiagnosticsInputScreen() {
+					m.currentScreen = diagnosticsMenuScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.diagnosticsOutput = ""
+				} else if m.currentScreen == diagnosticsMenuScreen {
+					m.currentScreen = mainMenu
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.diagnosticsOutput = ""
+				} else if m.currentScreen == deleteExtensionScreen {
+					m.currentScreen = extensionsScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else {
+					m.currentScreen = mainMenu
+					m.errorMsg = ""
+					m.successMsg = ""
+				}
 			}
 		}
 
@@ -253,6 +380,16 @@ func (m model) View() string {
 		s += m.renderAsterisk()
 	case diagnosticsScreen:
 		s += m.renderDiagnostics()
+	case diagnosticsMenuScreen:
+		s += m.renderDiagnosticsMenu()
+	case diagTestExtensionScreen:
+		s += m.renderDiagTestExtension()
+	case diagTestTrunkScreen:
+		s += m.renderDiagTestTrunk()
+	case diagTestRoutingScreen:
+		s += m.renderDiagTestRouting()
+	case diagPortTestScreen:
+		s += m.renderDiagPortTest()
 	case statusScreen:
 		s += m.renderStatus()
 	case logsScreen:
@@ -261,6 +398,10 @@ func (m model) View() string {
 		s += m.renderUsage()
 	case createExtensionScreen:
 		s += m.renderCreateExtension()
+	case editExtensionScreen:
+		s += m.renderEditExtension()
+	case deleteExtensionScreen:
+		s += m.renderDeleteExtension()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
 	}
@@ -270,11 +411,19 @@ func (m model) View() string {
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
-		s += helpStyle.Render("↑/↓: Navigate • a: Add Extension • ESC: Back • q: Quit")
+		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • ESC: Back • q: Quit")
 	} else if m.currentScreen == trunksScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
+	} else if m.currentScreen == diagnosticsMenuScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back to Main Menu • q: Quit")
+	} else if m.isDiagnosticsInputScreen() {
+		if m.inputMode {
+			s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
+		} else {
+			s += helpStyle.Render("ESC: Back to Diagnostics Menu • q: Quit")
+		}
 	} else if m.inputMode {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else {
@@ -309,13 +458,19 @@ func (m model) renderExtensions() string {
 	} else {
 		content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
 
-		for _, ext := range m.extensions {
+		for i, ext := range m.extensions {
 			status := "🔴 Disabled"
 			if ext.Enabled {
 				status = "🟢 Enabled"
 			}
 
-			line := fmt.Sprintf("  %s - %s (%s)\n",
+			cursor := " "
+			if i == m.selectedExtensionIdx {
+				cursor = "▶"
+			}
+			
+			line := fmt.Sprintf("%s %s - %s (%s)\n",
+				cursor,
 				successStyle.Render(ext.ExtensionNumber),
 				ext.Name,
 				status,
@@ -324,7 +479,7 @@ func (m model) renderExtensions() string {
 		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Tip: Extensions allow users to make and receive calls")
+	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete")
 
 	return menuStyle.Render(content)
 }
@@ -443,6 +598,152 @@ func (m model) renderDiagnostics() string {
 	return menuStyle.Render(content)
 }
 
+func (m model) renderDiagnosticsMenu() string {
+	content := infoStyle.Render("🔍 Diagnostics & Debugging Menu") + "\n\n"
+
+	// Display diagnostics output if any
+	if m.diagnosticsOutput != "" {
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+		content += m.diagnosticsOutput + "\n"
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+	}
+
+	content += "Select a diagnostic operation:\n\n"
+
+	for i, item := range m.diagnosticsMenu {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		} else {
+			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagTestExtension() string {
+	content := infoStyle.Render("📞 Test Extension Registration") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter extension number>")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Enter the extension number to test")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagTestTrunk() string {
+	content := infoStyle.Render("🔗 Test Trunk Connectivity") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter trunk name>")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Enter the trunk name to test")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagTestRouting() string {
+	content := infoStyle.Render("🛣️  Test Call Routing") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			if field == "From Extension" {
+				value = helpStyle.Render("<enter source extension>")
+			} else {
+				value = helpStyle.Render("<enter destination number>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Test routing from an extension to a destination")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagPortTest() string {
+	content := infoStyle.Render("🌐 Test Port Connectivity") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			if field == "Host" {
+				value = helpStyle.Render("<enter host/IP>")
+			} else {
+				value = helpStyle.Render("<enter port number>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Test network connectivity to a host and port")
+
+	return menuStyle.Render(content)
+}
+
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
 
@@ -534,13 +835,30 @@ func (m *model) initCreateTrunk() {
 	m.successMsg = ""
 }
 
+// initEditExtension initializes the extension edit form
+func (m *model) initEditExtension() {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		return
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	m.currentScreen = editExtensionScreen
+	m.inputMode = true
+	m.inputFields = []string{"Extension Number", "Name", "Password"}
+	// Pre-fill with current values (password will be empty for security)
+	m.inputValues = []string{ext.ExtensionNumber, ext.Name, ""}
+	m.inputCursor = 0
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
 // handleInputMode handles keyboard input when in input mode
 func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		// Cancel input
 		m.inputMode = false
-		if m.currentScreen == createExtensionScreen {
+		if m.currentScreen == createExtensionScreen || m.currentScreen == editExtensionScreen {
 			m.currentScreen = extensionsScreen
 		} else if m.currentScreen == createTrunkScreen {
 			m.currentScreen = trunksScreen
@@ -566,8 +884,18 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Submit the form
 			if m.currentScreen == createExtensionScreen {
 				m.createExtension()
+			} else if m.currentScreen == editExtensionScreen {
+				m.editExtension()
 			} else if m.currentScreen == createTrunkScreen {
 				m.createTrunk()
+			} else if m.currentScreen == diagTestExtensionScreen {
+				m.executeDiagTestExtension()
+			} else if m.currentScreen == diagTestTrunkScreen {
+				m.executeDiagTestTrunk()
+			} else if m.currentScreen == diagTestRoutingScreen {
+				m.executeDiagTestRouting()
+			} else if m.currentScreen == diagPortTestScreen {
+				m.executeDiagPortTest()
 			}
 		}
 
@@ -650,24 +978,45 @@ func (m *model) createExtension() {
 	}
 
 	// Insert into database with default configuration values
-	// Note: Default context is 'from-internal' (standard internal dial context)
-	// Note: Default transport is 'transport-udp' (standard UDP transport)
-	// Note: Extensions are enabled by default
-	// TODO: Consider extracting these defaults as constants for better maintainability
-	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, created_at, updated_at)
-			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, NOW(), NOW())`
+	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`
 
-	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword])
+	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword],
+		DefaultExtensionContext, DefaultExtensionTransport, DefaultMaxContacts)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
 		return
 	}
 
-	// Success - reload extensions and return to list
-	m.successMsg = fmt.Sprintf("Extension %s created successfully!", m.inputValues[extFieldNumber])
+	// Create extension object for config generation
+	ext := Extension{
+		ExtensionNumber: m.inputValues[extFieldNumber],
+		Name:            m.inputValues[extFieldName],
+		Secret:          m.inputValues[extFieldPassword],
+		Context:         DefaultExtensionContext,
+		Transport:       DefaultExtensionTransport,
+		Enabled:         true,
+		MaxContacts:     DefaultMaxContacts,
+	}
+
+	// Generate and write PJSIP configuration
+	config := m.configManager.GeneratePjsipEndpoint(ext)
+	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		m.errorMsg = fmt.Sprintf("Extension created in DB but failed to write config: %v", err)
+		m.successMsg = fmt.Sprintf("Extension %s created (DB only - config write failed)", m.inputValues[extFieldNumber])
+	} else {
+		// Reload Asterisk
+		if err := m.configManager.ReloadAsterisk(); err != nil {
+			m.errorMsg = fmt.Sprintf("Config written but Asterisk reload failed: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s created and config written (reload failed)", m.inputValues[extFieldNumber])
+		} else {
+			m.successMsg = fmt.Sprintf("Extension %s created and activated!", m.inputValues[extFieldNumber])
+		}
+	}
+
 	m.inputMode = false
 
-	// Reload extensions
+	// Reload extensions list
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
 	}
@@ -708,7 +1057,332 @@ func (m *model) createTrunk() {
 	m.currentScreen = trunksScreen
 }
 
+// editExtension updates an existing extension
+func (m *model) editExtension() {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		m.errorMsg = "No extension selected"
+		return
+	}
+	
+	// Validate inputs
+	if m.inputValues[extFieldNumber] == "" || m.inputValues[extFieldName] == "" {
+		m.errorMsg = "Extension number and name are required"
+		return
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	oldNumber := ext.ExtensionNumber
+	newNumber := m.inputValues[extFieldNumber]
+	
+	// Build update query - only update password if provided
+	var query string
+	var args []interface{}
+	
+	if m.inputValues[extFieldPassword] != "" {
+		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword], ext.ID}
+	} else {
+		query = `UPDATE extensions SET extension_number = ?, name = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName], ext.ID}
+	}
+	
+	_, err := m.db.Exec(query, args...)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to update extension: %v", err)
+		return
+	}
+	
+	// If extension number changed, remove old config
+	if oldNumber != newNumber {
+		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
+	}
+	
+	// Update extension object
+	ext.ExtensionNumber = newNumber
+	ext.Name = m.inputValues[extFieldName]
+	if m.inputValues[extFieldPassword] != "" {
+		ext.Secret = m.inputValues[extFieldPassword]
+	}
+	
+	// Generate and write updated config
+	config := m.configManager.GeneratePjsipEndpoint(ext)
+	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		m.errorMsg = fmt.Sprintf("Extension updated in DB but failed to write config: %v", err)
+		m.successMsg = fmt.Sprintf("Extension %s updated (config write failed)", newNumber)
+	} else {
+		// Reload Asterisk
+		if err := m.configManager.ReloadAsterisk(); err != nil {
+			m.errorMsg = fmt.Sprintf("Config written but Asterisk reload failed: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s updated (reload failed)", newNumber)
+		} else {
+			m.successMsg = fmt.Sprintf("Extension %s updated successfully!", newNumber)
+		}
+	}
+	
+	m.inputMode = false
+	
+	// Reload extensions list
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+	}
+	
+	m.currentScreen = extensionsScreen
+}
+
+// deleteExtension deletes an extension from database and config
+func (m *model) deleteExtension() {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		m.errorMsg = "No extension selected"
+		return
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	
+	// Delete from database
+	query := `DELETE FROM extensions WHERE id = ?`
+	_, err := m.db.Exec(query, ext.ID)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to delete extension: %v", err)
+		return
+	}
+	
+	// Remove from config
+	if err := m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		m.errorMsg = fmt.Sprintf("Extension deleted from DB but failed to remove config: %v", err)
+		m.successMsg = fmt.Sprintf("Extension %s deleted (config removal failed)", ext.ExtensionNumber)
+	} else {
+		// Reload Asterisk
+		if err := m.configManager.ReloadAsterisk(); err != nil {
+			m.errorMsg = fmt.Sprintf("Config removed but Asterisk reload failed: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s deleted (reload failed)", ext.ExtensionNumber)
+		} else {
+			m.successMsg = fmt.Sprintf("Extension %s deleted successfully!", ext.ExtensionNumber)
+		}
+	}
+	
+	// Reload extensions list
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+		// Adjust selection if needed
+		if len(m.extensions) == 0 {
+			m.selectedExtensionIdx = 0
+		} else if m.selectedExtensionIdx >= len(m.extensions) {
+			m.selectedExtensionIdx = len(m.extensions) - 1
+		}
+	}
+	
+	m.currentScreen = extensionsScreen
+}
+
+// renderEditExtension renders the extension edit form
+func (m model) renderEditExtension() string {
+	content := infoStyle.Render("✏️  Edit Extension") + "\n\n"
+	
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		content += errorStyle.Render("No extension selected") + "\n"
+		return menuStyle.Render(content)
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			if field == "Password" {
+				value = helpStyle.Render("<leave empty to keep current>")
+			} else {
+				value = helpStyle.Render("<enter value>")
+			}
+		} else if field == "Password" {
+			value = "********"
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Leave password empty to keep current password")
+
+	return menuStyle.Render(content)
+}
+
+// renderDeleteExtension renders the delete confirmation screen
+func (m model) renderDeleteExtension() string {
+	content := infoStyle.Render("🗑️  Delete Extension") + "\n\n"
+	
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		content += errorStyle.Render("No extension selected") + "\n"
+		return menuStyle.Render(content)
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	
+	content += errorStyle.Render("⚠️  WARNING: This action cannot be undone!") + "\n\n"
+	content += fmt.Sprintf("You are about to delete extension:\n")
+	content += fmt.Sprintf("  Number: %s\n", successStyle.Render(ext.ExtensionNumber))
+	content += fmt.Sprintf("  Name: %s\n", ext.Name)
+	content += fmt.Sprintf("  Status: %s\n\n", func() string {
+		if ext.Enabled {
+			return "🟢 Enabled"
+		}
+		return "🔴 Disabled"
+	}())
+	
+	content += "This will:\n"
+	content += "  • Remove extension from database\n"
+	content += "  • Remove PJSIP configuration\n"
+	content += "  • Reload Asterisk\n\n"
+	
+	content += helpStyle.Render("Press 'y' to confirm, ESC to cancel")
+
+	return menuStyle.Render(content)
+}
+
+// handleDiagnosticsMenuSelection handles diagnostics menu selection
+func (m *model) handleDiagnosticsMenuSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	m.diagnosticsOutput = ""
+
+	switch m.cursor {
+	case 0: // Run System Health Check
+		m.diagnosticsManager.RunHealthCheck()
+		// Capture output will be shown in the menu
+		m.successMsg = "Health check completed"
+	case 1: // Show System Information
+		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
+	case 2: // Enable SIP Debugging
+		if err := m.diagnosticsManager.EnableSIPDebug(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
+		} else {
+			m.successMsg = "SIP debugging enabled"
+		}
+	case 3: // Disable SIP Debugging
+		if err := m.diagnosticsManager.DisableSIPDebug(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to disable SIP debug: %v", err)
+		} else {
+			m.successMsg = "SIP debugging disabled"
+		}
+	case 4: // Test Extension Registration
+		m.currentScreen = diagTestExtensionScreen
+		m.inputMode = true
+		m.inputFields = []string{"Extension Number"}
+		m.inputValues = []string{""}
+		m.inputCursor = 0
+	case 5: // Test Trunk Connectivity
+		m.currentScreen = diagTestTrunkScreen
+		m.inputMode = true
+		m.inputFields = []string{"Trunk Name"}
+		m.inputValues = []string{""}
+		m.inputCursor = 0
+	case 6: // Test Call Routing
+		m.currentScreen = diagTestRoutingScreen
+		m.inputMode = true
+		m.inputFields = []string{"From Extension", "To Number"}
+		m.inputValues = []string{"", ""}
+		m.inputCursor = 0
+	case 7: // Test Port Connectivity
+		m.currentScreen = diagPortTestScreen
+		m.inputMode = true
+		m.inputFields = []string{"Host", "Port"}
+		m.inputValues = []string{"", DefaultSIPPort}
+		m.inputCursor = 0
+	case 8: // Back to Main Menu
+		m.currentScreen = mainMenu
+		m.cursor = 0
+	}
+}
+
+// executeDiagTestExtension executes extension registration test
+func (m *model) executeDiagTestExtension() {
+	if m.inputValues[0] == "" {
+		m.errorMsg = "Extension number is required"
+		return
+	}
+
+	if err := m.diagnosticsManager.TestExtensionRegistration(m.inputValues[0]); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Extension %s test completed", m.inputValues[0])
+	}
+
+	m.inputMode = false
+}
+
+// executeDiagTestTrunk executes trunk connectivity test
+func (m *model) executeDiagTestTrunk() {
+	if m.inputValues[0] == "" {
+		m.errorMsg = "Trunk name is required"
+		return
+	}
+
+	if err := m.diagnosticsManager.TestTrunkConnectivity(m.inputValues[0]); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Trunk %s test completed", m.inputValues[0])
+	}
+
+	m.inputMode = false
+}
+
+// executeDiagTestRouting executes call routing test
+func (m *model) executeDiagTestRouting() {
+	if m.inputValues[0] == "" || m.inputValues[1] == "" {
+		m.errorMsg = "Both from extension and to number are required"
+		return
+	}
+
+	if err := m.diagnosticsManager.TestCallRouting(m.inputValues[0], m.inputValues[1]); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Routing test completed for %s -> %s", m.inputValues[0], m.inputValues[1])
+	}
+
+	m.inputMode = false
+}
+
+// executeDiagPortTest executes port connectivity test
+func (m *model) executeDiagPortTest() {
+	if m.inputValues[0] == "" || m.inputValues[1] == "" {
+		m.errorMsg = "Both host and port are required"
+		return
+	}
+
+	// Convert port to int and validate
+	port, err := strconv.Atoi(m.inputValues[1])
+	if err != nil {
+		m.errorMsg = "Invalid port number"
+		return
+	}
+	
+	// Validate port range
+	if port < 1 || port > 65535 {
+		m.errorMsg = "Port must be between 1 and 65535"
+		return
+	}
+
+	if err := m.diagnosticsManager.CheckPortConnectivity(m.inputValues[0], port); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Port test completed for %s:%d", m.inputValues[0], port)
+	}
+
+	m.inputMode = false
+}
+
 func main() {
+	// Parse flags
+	verbose := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--verbose" {
+			verbose = true
+		}
+	}
+	
 	// Check for version flag
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
 		cyan := color.New(color.FgCyan, color.Bold)
@@ -736,6 +1410,7 @@ func main() {
 		fmt.Println("OPTIONS:")
 		fmt.Println("    -h, --help       Show this help message")
 		fmt.Println("    -v, --version    Show version information")
+		fmt.Println("    --verbose        Show detailed information about config file updates")
 		fmt.Println()
 		fmt.Println("FEATURES:")
 		fmt.Println("    • Interactive terminal UI for managing RayanPBX")
@@ -775,10 +1450,13 @@ func main() {
 
 	fmt.Println()
 	cyan.Println("🚀 Starting TUI interface...")
+	if verbose {
+		cyan.Println("   Verbose mode enabled")
+	}
 	fmt.Println()
 
 	// Start TUI
-	p := tea.NewProgram(initialModel(db, config), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(db, config, verbose), tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
 		red.Printf("❌ Error: %v\n", err)
