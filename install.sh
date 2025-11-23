@@ -50,50 +50,48 @@ STEP_NUMBER=0
 # ════════════════════════════════════════════════════════════════════════
 
 show_version() {
-    echo "RayanPBX Installation Script v${SCRIPT_VERSION}"
-    echo "For Ubuntu 24.04 LTS"
+    echo -e "${CYAN}${BOLD}RayanPBX Installation Script${RESET} ${GREEN}v${SCRIPT_VERSION}${RESET}"
+    echo -e "${DIM}For Ubuntu 24.04 LTS${RESET}"
     exit 0
 }
 
 show_help() {
-    cat << EOF
-RayanPBX Installation Script v${SCRIPT_VERSION}
-
-USAGE:
-    sudo ./install.sh [OPTIONS]
-
-DESCRIPTION:
-    Installs and configures RayanPBX with Asterisk 22, including all
-    required dependencies (MariaDB, PHP 8.3, Node.js 24, Go 1.23).
-
-OPTIONS:
-    -h, --help          Show this help message and exit
-    -v, --verbose       Enable verbose output (shows detailed execution)
-    -V, --version       Show script version and exit
-    --dry-run           Simulate installation without making changes (not yet implemented)
-
-REQUIREMENTS:
-    - Ubuntu 24.04 LTS (recommended)
-    - Root privileges (run with sudo)
-    - Internet connection
-    - At least 4GB RAM
-    - At least 10GB free disk space
-
-EXAMPLES:
-    # Standard installation
-    sudo ./install.sh
-
-    # Verbose installation (helpful for debugging)
-    sudo ./install.sh --verbose
-
-    # Show version
-    ./install.sh --version
-
-DOCUMENTATION:
-    GitHub: https://github.com/atomicdeploy/rayanpbx
-    Issues: https://github.com/atomicdeploy/rayanpbx/issues
-
-EOF
+    echo -e "${CYAN}${BOLD}RayanPBX Installation Script${RESET} ${GREEN}v${SCRIPT_VERSION}${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}USAGE:${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh [OPTIONS]${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}DESCRIPTION:${RESET}"
+    echo -e "    Installs and configures RayanPBX with Asterisk 22, including all"
+    echo -e "    required dependencies (MariaDB, PHP 8.3, Node.js 24, Go 1.23)."
+    echo ""
+    echo -e "${YELLOW}${BOLD}OPTIONS:${RESET}"
+    echo -e "    ${GREEN}-h, --help${RESET}          Show this help message and exit"
+    echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
+    echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
+    echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
+    echo ""
+    echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
+    echo -e "    ${CYAN}•${RESET} Ubuntu 24.04 LTS (recommended)"
+    echo -e "    ${CYAN}•${RESET} Root privileges (run with sudo)"
+    echo -e "    ${CYAN}•${RESET} Internet connection"
+    echo -e "    ${CYAN}•${RESET} At least 4GB RAM"
+    echo -e "    ${CYAN}•${RESET} At least 10GB free disk space"
+    echo ""
+    echo -e "${YELLOW}${BOLD}EXAMPLES:${RESET}"
+    echo -e "    ${DIM}# Standard installation${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Verbose installation (helpful for debugging)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --verbose${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Show version${RESET}"
+    echo -e "    ${WHITE}./install.sh --version${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}DOCUMENTATION:${RESET}"
+    echo -e "    ${BLUE}GitHub:${RESET}  https://github.com/atomicdeploy/rayanpbx"
+    echo -e "    ${BLUE}Issues:${RESET}  https://github.com/atomicdeploy/rayanpbx/issues"
+    echo ""
     exit 0
 }
 
