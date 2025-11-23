@@ -162,9 +162,18 @@ fi
 next_step "Package Manager Setup"
 if ! command -v nala &> /dev/null; then
     print_progress "Installing nala package manager..."
-    apt-get update -qq
-    apt-get install -y nala > /dev/null 2>&1
-    print_success "nala installed"
+    if ! apt-get update -qq 2>&1; then
+        print_error "Failed to update package lists"
+        print_warning "Check your internet connection and repository configuration"
+        exit 1
+    fi
+    if ! apt-get install -y nala > /dev/null 2>&1; then
+        print_error "Failed to install nala package manager"
+        print_warning "Falling back to apt-get for remaining operations"
+        # Don't exit, just use apt-get instead
+    else
+        print_success "nala installed"
+    fi
 else
     print_success "nala already installed"
 fi
@@ -172,8 +181,28 @@ fi
 # System update
 next_step "System Update"
 print_progress "Updating package lists and upgrading system..."
-nala update > /dev/null 2>&1
-nala upgrade -y > /dev/null 2>&1
+
+# Determine which package manager to use
+PKG_MGR="nala"
+if ! command -v nala &> /dev/null; then
+    PKG_MGR="apt-get"
+fi
+
+if ! $PKG_MGR update > /dev/null 2>&1; then
+    print_error "Failed to update package lists"
+    print_warning "This may cause issues with package installation"
+    print_warning "Check your internet connection and /etc/apt/sources.list"
+    echo -e "${YELLOW}Continue anyway? (y/n)${RESET}"
+    read -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+if ! $PKG_MGR upgrade -y > /dev/null 2>&1; then
+    print_warning "System upgrade encountered issues but will continue"
+fi
 print_success "System updated"
 
 # Install dependencies
@@ -201,8 +230,13 @@ print_info "Installing essential packages..."
 for package in "${PACKAGES[@]}"; do
     if ! dpkg -l | grep -q "^ii  $package "; then
         echo -e "${DIM}   Installing $package...${RESET}"
-        nala install -y "$package" > /dev/null 2>&1
-        print_success "✓ $package"
+        if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
+            print_error "Failed to install $package"
+            print_warning "Some features may not work without $package"
+            # Continue with other packages
+        else
+            print_success "✓ $package"
+        fi
     else
         echo -e "${DIM}   ✓ $package (already installed)${RESET}"
     fi
@@ -212,19 +246,29 @@ done
 next_step "GitHub CLI Installation"
 if ! check_installed "gh" "GitHub CLI"; then
     print_progress "Installing GitHub CLI..."
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-    nala update > /dev/null 2>&1
-    nala install -y gh > /dev/null 2>&1
-    print_success "GitHub CLI installed"
+    if curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null; then
+        chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        $PKG_MGR update > /dev/null 2>&1
+        if ! $PKG_MGR install -y gh > /dev/null 2>&1; then
+            print_warning "Failed to install GitHub CLI (optional)"
+        else
+            print_success "GitHub CLI installed"
+        fi
+    else
+        print_warning "Failed to download GitHub CLI keyring (optional)"
+    fi
 fi
 
 # MySQL/MariaDB Installation
 next_step "Database Setup (MySQL/MariaDB)"
 if ! command -v mysql &> /dev/null; then
     print_progress "Installing MariaDB..."
-    nala install -y mariadb-server mariadb-client > /dev/null 2>&1
+    if ! $PKG_MGR install -y mariadb-server mariadb-client > /dev/null 2>&1; then
+        print_error "Failed to install MariaDB"
+        print_warning "Database is required for RayanPBX to function"
+        exit 1
+    fi
     systemctl enable mariadb
     systemctl start mariadb
     print_success "MariaDB installed and started"
@@ -276,20 +320,25 @@ fi
 print_progress "Creating RayanPBX database..."
 ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
 
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
+if mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
 CREATE DATABASE IF NOT EXISTS rayanpbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON rayanpbx.* TO 'rayanpbx'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-
-print_success "Database 'rayanpbx' created"
+then
+    print_success "Database 'rayanpbx' created"
+else
+    print_error "Failed to create database"
+    print_warning "Check your MySQL root password and database access"
+    exit 1
+fi
 
 # PHP 8.3 Installation
 next_step "PHP 8.3 Installation"
 if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
     print_progress "Installing PHP 8.3 and extensions..."
-    nala install -y \
+    if ! $PKG_MGR install -y \
         php8.3 \
         php8.3-cli \
         php8.3-fpm \
@@ -300,7 +349,11 @@ if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
         php8.3-zip \
         php8.3-gd \
         php8.3-bcmath \
-        php8.3-redis > /dev/null 2>&1
+        php8.3-redis > /dev/null 2>&1; then
+        print_error "Failed to install PHP 8.3"
+        print_warning "PHP is required for the backend API"
+        exit 1
+    fi
     print_success "PHP 8.3 installed"
 else
     print_success "PHP 8.3 already installed"
@@ -311,10 +364,15 @@ php -v | head -1
 next_step "Composer Installation"
 if ! check_installed "composer" "Composer"; then
     print_progress "Installing Composer..."
-    curl -sS https://getcomposer.org/installer | php > /dev/null 2>&1
-    mv composer.phar /usr/local/bin/composer
-    chmod +x /usr/local/bin/composer
-    print_success "Composer installed"
+    if curl -sS https://getcomposer.org/installer | php > /dev/null 2>&1; then
+        mv composer.phar /usr/local/bin/composer
+        chmod +x /usr/local/bin/composer
+        print_success "Composer installed"
+    else
+        print_error "Failed to install Composer"
+        print_warning "Composer is required for backend dependencies"
+        exit 1
+    fi
 fi
 composer --version | head -1
 
@@ -322,9 +380,17 @@ composer --version | head -1
 next_step "Node.js 24 Installation"
 if ! command -v node &> /dev/null || ! node -v | grep -q "v24"; then
     print_progress "Installing Node.js 24..."
-    curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1
-    nala install -y nodejs > /dev/null 2>&1
-    print_success "Node.js 24 installed"
+    if curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1; then
+        if ! $PKG_MGR install -y nodejs > /dev/null 2>&1; then
+            print_error "Failed to install Node.js"
+            print_warning "Node.js is required for the frontend"
+            exit 1
+        fi
+        print_success "Node.js 24 installed"
+    else
+        print_error "Failed to add Node.js repository"
+        exit 1
+    fi
 else
     print_success "Node.js 24 already installed"
 fi
@@ -334,9 +400,17 @@ npm -v
 # PM2 Installation
 print_info "Installing PM2 process manager..."
 if ! command -v pm2 &> /dev/null; then
-    npm install -g pm2 > /dev/null 2>&1
-    pm2 startup systemd -u www-data --hp /var/www > /dev/null 2>&1
-    print_success "PM2 installed"
+    if npm install -g pm2 > /dev/null 2>&1; then
+        # pm2 startup may fail if www-data user doesn't exist yet or if systemd is not available
+        # We use '|| true' to allow this to fail gracefully without stopping the installation
+        # PM2 startup can be configured manually later if needed
+        pm2 startup systemd -u www-data --hp /var/www > /dev/null 2>&1 || true
+        print_success "PM2 installed"
+    else
+        print_error "Failed to install PM2"
+        print_warning "PM2 is required for process management"
+        exit 1
+    fi
 else
     print_success "PM2 already installed"
 fi
@@ -346,12 +420,22 @@ pm2 -v
 next_step "Go 1.23 Installation"
 if ! check_installed "go" "Go"; then
     print_progress "Installing Go 1.23..."
-    wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
-    tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz > /dev/null 2>&1
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-    export PATH=$PATH:/usr/local/go/bin
-    rm go1.23.4.linux-amd64.tar.gz
-    print_success "Go 1.23 installed"
+    if wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz; then
+        if tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz > /dev/null 2>&1; then
+            echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+            export PATH=$PATH:/usr/local/go/bin
+            rm go1.23.4.linux-amd64.tar.gz
+            print_success "Go 1.23 installed"
+        else
+            print_error "Failed to extract Go"
+            rm -f go1.23.4.linux-amd64.tar.gz
+            exit 1
+        fi
+    else
+        print_error "Failed to download Go"
+        print_warning "Go is required for TUI and WebSocket server"
+        exit 1
+    fi
 fi
 /usr/local/go/bin/go version
 
