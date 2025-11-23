@@ -42,7 +42,7 @@ func TestUsageCommandsGeneration(t *testing.T) {
 // TestModelInitialization tests that the model initializes correctly
 func TestModelInitialization(t *testing.T) {
 	// Create a model without DB (nil is acceptable for this test)
-	m := initialModel(nil, nil)
+	m := initialModel(nil, nil, false)
 	
 	if m.currentScreen != mainMenu {
 		t.Errorf("Expected currentScreen to be mainMenu, got %d", m.currentScreen)
@@ -59,7 +59,7 @@ func TestModelInitialization(t *testing.T) {
 
 // TestInputFieldsValidation tests input validation logic
 func TestInputFieldsValidation(t *testing.T) {
-	m := initialModel(nil, nil)
+	m := initialModel(nil, nil, false)
 	
 	// Test extension creation initialization
 	m.initCreateExtension()
@@ -124,7 +124,7 @@ func TestScreenEnumValues(t *testing.T) {
 
 // TestDiagnosticsMenuInitialization tests diagnostics menu initialization
 func TestDiagnosticsMenuInitialization(t *testing.T) {
-	m := initialModel(nil, nil)
+	m := initialModel(nil, nil, false)
 	
 	if m.diagnosticsManager == nil {
 		t.Error("Expected diagnosticsManager to be initialized")
@@ -154,7 +154,7 @@ func TestDiagnosticsMenuInitialization(t *testing.T) {
 
 // TestDiagnosticsInputValidation tests input validation for diagnostics operations
 func TestDiagnosticsInputValidation(t *testing.T) {
-	m := initialModel(nil, nil)
+	m := initialModel(nil, nil, false)
 	
 	// Test extension test initialization
 	m.currentScreen = diagTestExtensionScreen
@@ -228,7 +228,7 @@ func TestDiagnosticsInputValidation(t *testing.T) {
 
 // TestIsDiagnosticsInputScreen tests the helper function
 func TestIsDiagnosticsInputScreen(t *testing.T) {
-	m := initialModel(nil, nil)
+	m := initialModel(nil, nil, false)
 	
 	// Test that diagnostics input screens return true
 	diagnosticsInputScreens := []screen{

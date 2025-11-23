@@ -119,6 +119,10 @@ type model struct {
 	diagnosticsManager *DiagnosticsManager
 	diagnosticsMenu    []string
 	diagnosticsOutput  string
+	
+	// Configuration management
+	configManager *AsteriskConfigManager
+	verbose       bool
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -129,9 +133,10 @@ func (m model) isDiagnosticsInputScreen() bool {
 		m.currentScreen == diagPortTestScreen
 }
 
-func initialModel(db *sql.DB, config *Config) model {
+func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	asteriskManager := NewAsteriskManager()
 	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
+	configManager := NewAsteriskConfigManager(verbose)
 	
 	return model{
 		currentScreen: mainMenu,
@@ -149,6 +154,8 @@ func initialModel(db *sql.DB, config *Config) model {
 		db:                 db,
 		config:             config,
 		diagnosticsManager: diagnosticsManager,
+		configManager:      configManager,
+		verbose:            verbose,
 		diagnosticsMenu: []string{
 			"🏥 Run System Health Check",
 			"💻 Show System Information",
@@ -896,8 +903,8 @@ func (m *model) createExtension() {
 	// Note: Default transport is 'transport-udp' (standard UDP transport)
 	// Note: Extensions are enabled by default
 	// TODO: Consider extracting these defaults as constants for better maintainability
-	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, created_at, updated_at)
-			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, NOW(), NOW())`
+	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, created_at, updated_at)
+			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, 1, NOW(), NOW())`
 
 	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword])
 	if err != nil {
@@ -905,11 +912,35 @@ func (m *model) createExtension() {
 		return
 	}
 
-	// Success - reload extensions and return to list
-	m.successMsg = fmt.Sprintf("Extension %s created successfully!", m.inputValues[extFieldNumber])
+	// Create extension object for config generation
+	ext := Extension{
+		ExtensionNumber: m.inputValues[extFieldNumber],
+		Name:            m.inputValues[extFieldName],
+		Secret:          m.inputValues[extFieldPassword],
+		Context:         "from-internal",
+		Transport:       "transport-udp",
+		Enabled:         true,
+		MaxContacts:     1,
+	}
+
+	// Generate and write PJSIP configuration
+	config := m.configManager.GeneratePjsipEndpoint(ext)
+	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		m.errorMsg = fmt.Sprintf("Extension created in DB but failed to write config: %v", err)
+		m.successMsg = fmt.Sprintf("Extension %s created (DB only - config write failed)", m.inputValues[extFieldNumber])
+	} else {
+		// Reload Asterisk
+		if err := m.configManager.ReloadAsterisk(); err != nil {
+			m.errorMsg = fmt.Sprintf("Config written but Asterisk reload failed: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s created and config written (reload failed)", m.inputValues[extFieldNumber])
+		} else {
+			m.successMsg = fmt.Sprintf("Extension %s created and activated!", m.inputValues[extFieldNumber])
+		}
+	}
+
 	m.inputMode = false
 
-	// Reload extensions
+	// Reload extensions list
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
 	}
@@ -1083,6 +1114,14 @@ func (m *model) executeDiagPortTest() {
 }
 
 func main() {
+	// Parse flags
+	verbose := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--verbose" {
+			verbose = true
+		}
+	}
+	
 	// Check for version flag
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
 		cyan := color.New(color.FgCyan, color.Bold)
@@ -1110,6 +1149,7 @@ func main() {
 		fmt.Println("OPTIONS:")
 		fmt.Println("    -h, --help       Show this help message")
 		fmt.Println("    -v, --version    Show version information")
+		fmt.Println("    --verbose        Show detailed information about config file updates")
 		fmt.Println()
 		fmt.Println("FEATURES:")
 		fmt.Println("    • Interactive terminal UI for managing RayanPBX")
@@ -1149,10 +1189,13 @@ func main() {
 
 	fmt.Println()
 	cyan.Println("🚀 Starting TUI interface...")
+	if verbose {
+		cyan.Println("   Verbose mode enabled")
+	}
 	fmt.Println()
 
 	// Start TUI
-	p := tea.NewProgram(initialModel(db, config), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(db, config, verbose), tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
 		red.Printf("❌ Error: %v\n", err)
