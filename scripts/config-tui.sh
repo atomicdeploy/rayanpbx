@@ -3,6 +3,14 @@
 # RayanPBX .env Configuration TUI
 # Interactive configuration tool for .env file
 
+# Version - read from VERSION file
+VERSION="2.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+fi
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -76,7 +84,8 @@ print_banner() {
     echo "║    🔧  RayanPBX Configuration Wizard  🔧     ║"
     echo "║                                              ║"
     echo "╚══════════════════════════════════════════════╝"
-    echo -e "${RESET}\n"
+    echo -e "${RESET}"
+    echo -e "${DIM}Version: ${VERSION}${RESET}\n"
 }
 
 # Input with default
@@ -604,6 +613,13 @@ non_interactive_mode() {
 
 # Main
 load_config
+
+# Check for version flag
+if [ "$#" -ge 1 ] && [[ "$1" == "--version" || "$1" == "-v" || "$1" == "version" ]]; then
+    echo -e "${CYAN}${BOLD}RayanPBX Configuration TUI${RESET} ${GREEN}v${VERSION}${RESET}"
+    echo -e "${DIM}Interactive configuration tool for .env file${RESET}"
+    exit 0
+fi
 
 if [ "$#" -ge 3 ] && [ "$3" == "--non-interactive" ]; then
     # Non-interactive mode for installer

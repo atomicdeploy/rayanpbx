@@ -5,6 +5,14 @@
 
 set -euo pipefail
 
+# Version - read from VERSION file
+VERSION="2.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -295,15 +303,24 @@ cmd_system_update() {
 }
 
 # Main command dispatcher
+cmd_version() {
+    echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
+    echo -e "${DIM}Modern SIP Server Management Toolkit${RESET}"
+}
+
 main() {
     if [ $# -eq 0 ]; then
         # Display colorful usage message with VT-100 styling
+        echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
         echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
         echo -e "${CYAN}Run '${YELLOW}${BOLD}rayanpbx-cli help${NC}${CYAN}' for more information${NC}"
         exit 2
     fi
     
     case "$1" in
+        version|--version|-v)
+            cmd_version
+            ;;
         extension)
             case "$2" in
                 list) cmd_extension_list ;;
