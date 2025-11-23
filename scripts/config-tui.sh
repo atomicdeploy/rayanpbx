@@ -13,6 +13,8 @@ readonly MAGENTA='\033[0;35m'
 readonly BOLD='\033[1m'
 readonly DIM='\033[2m'
 readonly RESET='\033[0m'
+readonly REVERSE='\033[7m'
+readonly REVERSE_OFF='\033[27m'
 
 # Configuration variables
 declare -A CONFIG
@@ -317,6 +319,129 @@ configure_cli_styling() {
     echo
 }
 
+# Enhanced menu selection with arrow key support
+# Reads input with validation and displays it with reversed background
+read_menu_option() {
+    local valid_options=("1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12" "Q" "q" "S" "s" "X" "x")
+    local input=""
+    local cursor_pos=0
+    
+    while true; do
+        # Display prompt with space after colon and reversed background for input
+        local display_input="${input:-  }"
+        echo -ne "\r${YELLOW}Select option: ${REVERSE} $display_input ${REVERSE_OFF}${RESET}"
+        
+        # Read single character without echo
+        IFS= read -rsn1 char
+        
+        # Handle escape sequences (arrow keys)
+        if [ "$char" = $'\x1b' ]; then
+            read -rsn2 -t 0.1 rest
+            case "$rest" in
+                '[A') # Up arrow
+                    if [ $cursor_pos -gt 0 ]; then
+                        ((cursor_pos--))
+                        input="${valid_options[$cursor_pos]}"
+                        # Display with reversed background
+                        echo -ne "\r${YELLOW}Select option: ${REVERSE} $input ${REVERSE_OFF}${RESET}"
+                    fi
+                    ;;
+                '[B') # Down arrow
+                    if [ $cursor_pos -lt $((${#valid_options[@]} - 1)) ]; then
+                        ((cursor_pos++))
+                        input="${valid_options[$cursor_pos]}"
+                        # Display with reversed background
+                        echo -ne "\r${YELLOW}Select option: ${REVERSE} $input ${REVERSE_OFF}${RESET}"
+                    fi
+                    ;;
+            esac
+            continue
+        fi
+        
+        # Handle Enter key
+        if [ "$char" = "" ]; then
+            if [ -n "$input" ]; then
+                # Validate input is in valid options
+                local valid=0
+                for opt in "${valid_options[@]}"; do
+                    if [ "$input" = "$opt" ]; then
+                        valid=1
+                        break
+                    fi
+                done
+                
+                if [ $valid -eq 1 ]; then
+                    echo  # Move to next line
+                    echo "$input"
+                    return 0
+                fi
+            fi
+            # Invalid or empty, stay in loop
+            continue
+        fi
+        
+        # Handle backspace
+        if [ "$char" = $'\x7f' ] || [ "$char" = $'\x08' ]; then
+            if [ -n "$input" ]; then
+                input="${input%?}"
+            fi
+            continue
+        fi
+        
+        # Check if character is digit, Q, S, or X (case insensitive)
+        if [[ "$char" =~ ^[0-9QqSsXx]$ ]]; then
+            # For single character options, auto-submit
+            if [[ "$char" =~ ^[1-9QqSsXx]$ ]]; then
+                # Check if this could be part of 10, 11, or 12
+                if [ "$char" = "1" ] && [ -z "$input" ]; then
+                    # Could be start of 10, 11, or 12
+                    input="$char"
+                    continue
+                fi
+                
+                # Single digit or letter - validate and submit
+                local test_input="$input$char"
+                local valid=0
+                for opt in "${valid_options[@]}"; do
+                    if [ "$test_input" = "$opt" ]; then
+                        valid=1
+                        break
+                    fi
+                done
+                
+                if [ $valid -eq 1 ]; then
+                    input="$test_input"
+                    echo -ne "\r${YELLOW}Select option: ${REVERSE} $input ${REVERSE_OFF}${RESET}"
+                    echo  # Move to next line
+                    echo "$input"
+                    return 0
+                elif [ "$char" = "1" ] && [ -z "$input" ]; then
+                    # Start of multi-digit
+                    input="$char"
+                else
+                    # Invalid combination, ignore
+                    continue
+                fi
+            elif [ "$char" = "0" ] && [ "$input" = "1" ]; then
+                # Complete "10"
+                input="10"
+                echo -ne "\r${YELLOW}Select option: ${REVERSE} $input ${REVERSE_OFF}${RESET}"
+                echo  # Move to next line
+                echo "$input"
+                return 0
+            elif [[ "$char" =~ ^[12]$ ]] && [ "$input" = "1" ]; then
+                # Complete "11" or "12"
+                input="1$char"
+                echo -ne "\r${YELLOW}Select option: ${REVERSE} $input ${REVERSE_OFF}${RESET}"
+                echo  # Move to next line
+                echo "$input"
+                return 0
+            fi
+        fi
+        # Invalid character - don't display or update
+    done
+}
+
 # Main menu
 main_menu() {
     while true; do
@@ -340,7 +465,8 @@ main_menu() {
         echo "  X. ❌ Exit without Saving"
         echo
         
-        read -p "$(echo -e ${YELLOW}Select option:${RESET} )" choice
+        # Use enhanced menu selection with validation
+        choice=$(read_menu_option)
         
         case "$choice" in
             1) configure_application ;;
