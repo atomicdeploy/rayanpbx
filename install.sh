@@ -1245,7 +1245,7 @@ if [ -n "$INSTALLED_GO_VERSION" ]; then
     print_verbose "Updating go.mod to use installed Go version..."
     
     # Update go.mod to use the installed Go version
-    sed -i "s/^go [0-9]\+\.[0-9]\+$/go $INSTALLED_GO_VERSION/" go.mod
+    sed -i -E "s/^go [0-9]+\.[0-9]+$/go $INSTALLED_GO_VERSION/" go.mod
     
     # Verify the change
     GO_MOD_VERSION=$(grep "^go " go.mod | awk '{print $2}')
