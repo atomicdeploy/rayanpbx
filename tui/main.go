@@ -150,6 +150,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor > 0 {
 					m.usageCursor--
 				}
+			} else if m.currentScreen == systemSettingsScreen {
+				if m.cursor > 0 {
+					m.cursor--
+				}
 			} else if m.cursor > 0 {
 				m.cursor--
 			}
@@ -167,20 +171,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
-			}
-
-		case "up", "k":
-			if m.currentScreen == usageScreen {
-				// Navigate usage commands
-				if m.usageCursor > 0 {
-					m.usageCursor--
-				}
-			} else if m.currentScreen == systemSettingsScreen {
-				if m.cursor > 0 {
-					m.cursor--
-				}
-			} else if m.cursor > 0 {
-				m.cursor--
 			}
 
 		case "a":
@@ -743,11 +733,11 @@ func (m *model) createTrunk() {
 
 func (m *model) renderSystemSettings() string {
 	s := "⚙️  System Settings\n\n"
-	
+
 	// Get current mode from config
 	appEnv := m.config.AppEnv
 	appDebug := m.config.AppDebug
-	
+
 	settingsMenu := []string{
 		fmt.Sprintf("🔄 Toggle Mode (Current: %s)", appEnv),
 		fmt.Sprintf("🐛 Toggle Debug (Current: %v)", appDebug),
@@ -755,7 +745,7 @@ func (m *model) renderSystemSettings() string {
 		"🔧 Set to Development Mode",
 		"⬅️  Back to Main Menu",
 	}
-	
+
 	for i, item := range settingsMenu {
 		cursor := " "
 		if m.cursor == i {
@@ -766,14 +756,14 @@ func (m *model) renderSystemSettings() string {
 		}
 		s += "\n"
 	}
-	
+
 	if m.errorMsg != "" {
 		s += "\n" + errorStyle.Render("❌ "+m.errorMsg)
 	}
 	if m.successMsg != "" {
 		s += "\n" + successStyle.Render("✅ "+m.successMsg)
 	}
-	
+
 	return menuStyle.Render(s)
 }
 
@@ -801,12 +791,12 @@ func (m *model) handleSystemSettingsAction() {
 func (m *model) toggleAppMode() {
 	newEnv := "production"
 	newDebug := false
-	
+
 	if m.config.AppEnv == "production" {
 		newEnv = "development"
 		newDebug = true
 	}
-	
+
 	m.setMode(newEnv, newDebug)
 }
 
@@ -817,26 +807,26 @@ func (m *model) toggleDebugMode() {
 func (m *model) setMode(env string, debug bool) {
 	// Update .env file
 	envFile := "/opt/rayanpbx/.env"
-	
+
 	// Read current .env
 	content, err := os.ReadFile(envFile)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to read .env: %v", err)
 		return
 	}
-	
+
 	// Replace APP_ENV and APP_DEBUG
 	lines := string(content)
 	lines = replaceEnvValue(lines, "APP_ENV", env)
 	lines = replaceEnvValue(lines, "APP_DEBUG", fmt.Sprintf("%v", debug))
-	
+
 	// Write back to .env
 	err = os.WriteFile(envFile, []byte(lines), 0644)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to write .env: %v", err)
 		return
 	}
-	
+
 	// Also update backend .env if exists
 	backendEnvFile := "/opt/rayanpbx/backend/.env"
 	if _, err := os.Stat(backendEnvFile); err == nil {
@@ -848,10 +838,10 @@ func (m *model) setMode(env string, debug bool) {
 			os.WriteFile(backendEnvFile, []byte(lines), 0644)
 		}
 	}
-	
+
 	// Restart API service
 	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Restarting API...", env, debug)
-	
+
 	// Reload config
 	m.config.AppEnv = env
 	m.config.AppDebug = debug
@@ -862,11 +852,11 @@ func replaceEnvValue(content, key, value string) string {
 	// Match KEY=value pattern
 	re := regexp.MustCompile(fmt.Sprintf(`(?m)^%s=.*$`, regexp.QuoteMeta(key)))
 	replacement := fmt.Sprintf("%s=%s", key, value)
-	
+
 	if re.MatchString(content) {
 		return re.ReplaceAllString(content, replacement)
 	}
-	
+
 	// If key doesn't exist, append it
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
