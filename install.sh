@@ -1400,17 +1400,25 @@ fi
 
 # Set proper ownership and permissions for Laravel
 print_progress "Setting proper ownership and permissions..."
-print_verbose "Setting ownership of /opt/rayanpbx to www-data:www-data..."
-chown -R www-data:www-data /opt/rayanpbx
+print_verbose "Setting ownership of /opt/rayanpbx/backend to www-data:www-data..."
+chown -R www-data:www-data /opt/rayanpbx/backend
 
 print_verbose "Setting permissions for Laravel storage and cache directories..."
 # Storage directory needs to be writable by web server
-chmod -R 775 /opt/rayanpbx/backend/storage
-chmod -R 775 /opt/rayanpbx/backend/bootstrap/cache
+if [ -d /opt/rayanpbx/backend/storage ]; then
+    chmod -R 775 /opt/rayanpbx/backend/storage
+    print_verbose "Set permissions on storage directory"
+fi
+
+if [ -d /opt/rayanpbx/backend/bootstrap/cache ]; then
+    chmod -R 775 /opt/rayanpbx/backend/bootstrap/cache
+    print_verbose "Set permissions on bootstrap/cache directory"
+fi
 
 # Ensure www-data can write to log files
 if [ -f /opt/rayanpbx/backend/storage/logs/laravel.log ]; then
     chmod 664 /opt/rayanpbx/backend/storage/logs/laravel.log
+    print_verbose "Set permissions on laravel.log"
 fi
 
 print_success "Ownership and permissions configured"
