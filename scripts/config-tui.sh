@@ -402,8 +402,7 @@ read_menu_option() {
         fi
         
         # Normalize input to uppercase for validation
-        local char_upper
-        char_upper=$(echo "$char" | tr '[:lower:]' '[:upper:]')
+        local char_upper="${char^^}"
         
         # Check if character is digit, Q, S, or X
         if [[ "$char_upper" =~ ^[0-9QSX]$ ]]; then
