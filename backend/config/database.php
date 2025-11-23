@@ -78,7 +78,7 @@ return [
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),
-            'prefix' => env('REDIS_PREFIX', env('APP_NAME', 'rayanpbx').'_database_'),
+            'prefix' => env('REDIS_PREFIX', env('APP_NAME', 'RayanPBX').'_database_'),
         ],
 
         'default' => [

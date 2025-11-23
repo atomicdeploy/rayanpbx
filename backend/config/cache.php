@@ -69,6 +69,6 @@ return [
     |
     */
 
-    'prefix' => env('CACHE_PREFIX', env('APP_NAME', 'rayanpbx').'_cache'),
+    'prefix' => env('CACHE_PREFIX', env('APP_NAME', 'RayanPBX').'_cache'),
 
 ];
