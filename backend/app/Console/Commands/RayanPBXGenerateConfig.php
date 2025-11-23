@@ -227,10 +227,19 @@ class RayanPBXGenerateConfig extends Command
             $config .= ";; Outbound routing via trunks\n";
             $config .= ";; ========================================\n\n";
 
-            $config .= ";; Pattern for external calls\n";
-            $config .= ";; Note: '_X.' matches any number - customize this pattern based on your needs\n";
-            $config .= ";; Examples: '_9NXXNXXXXXX' for US numbers with 9 prefix\n";
-            $config .= ";;          '_00X.' for international calls with 00 prefix\n";
+            $config .= ";; WARNING: SECURITY CONSIDERATION\n";
+            $config .= ";; The default pattern '_X.' matches ANY number and allows unrestricted outbound calling\n";
+            $config .= ";; This is a SECURITY RISK in production as it doesn't implement calling restrictions\n";
+            $config .= ";; \n";
+            $config .= ";; RECOMMENDATION: Customize this pattern based on your security requirements:\n";
+            $config .= ";; - For US numbers with 9 prefix: '_9NXXNXXXXXX'\n";
+            $config .= ";; - For international with 00 prefix: '_00X.'\n";
+            $config .= ";; - For local/internal only: restrict to your extension range\n";
+            $config .= ";; \n";
+            $config .= ";; Also consider implementing:\n";
+            $config .= ";; - Call authorization checks based on caller ID\n";
+            $config .= ";; - Cost limits or billing integration\n";
+            $config .= ";; - Geographic restrictions\n";
             $config .= "exten => _X.,1,NoOp(Outbound call to \${EXTEN})\n";
             
             foreach ($trunks as $trunk) {

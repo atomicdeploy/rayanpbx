@@ -120,6 +120,13 @@ class RayanPBXRestore extends Command
                     $filename = $file->getFilename();
                     $targetPath = "/etc/asterisk/{$filename}";
                     
+                    // Security: Validate that target path is within /etc/asterisk directory
+                    $realTargetPath = realpath(dirname($targetPath));
+                    if ($realTargetPath !== '/etc/asterisk' && $realTargetPath !== realpath('/etc/asterisk')) {
+                        $this->warn("  ⚠ Skipping {$filename} (invalid path)");
+                        continue;
+                    }
+                    
                     // Check if we have permission to write
                     if (is_writable(dirname($targetPath))) {
                         File::copy($file->getPathname(), $targetPath);

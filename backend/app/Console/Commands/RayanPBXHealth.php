@@ -359,12 +359,12 @@ class RayanPBXHealth extends Command
         $results = [];
 
         foreach ($ports as $port => $service) {
-            // Validate port is numeric to prevent command injection
-            if (!is_numeric($port) || $port < 1 || $port > 65535) {
+            // Validate port is a proper integer to prevent command injection
+            if (!ctype_digit((string)$port) || $port < 1 || $port > 65535) {
                 continue;
             }
             
-            // Since port is validated as numeric, we can safely use it directly
+            // Since port is validated as integer, we can safely use it directly
             $command = "ss -tuln | grep -E ':{$port}([[:space:]]|\$)' 2>/dev/null";
             exec($command, $output, $returnCode);
             $listening = !empty($output);
