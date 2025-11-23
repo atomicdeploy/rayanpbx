@@ -223,9 +223,11 @@ This allows access from:
 
 **Solutions:**
 1. Check that `FRONTEND_URL` is set correctly
-2. Verify the frontend URL is in `CORS_ALLOWED_ORIGINS` or matches a pattern in `CORS_ALLOWED_ORIGINS_PATTERNS`
+2. Verify the frontend URL is in `CORS_ALLOWED_ORIGINS` or matches a pattern in
+   `CORS_ALLOWED_ORIGINS_PATTERNS`
 3. Check browser console for the exact origin being used
-4. For development with dynamic IPs, use `CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/.*:3000$/`
+4. For development with dynamic IPs, use
+   `CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/.*:3000$/`
 5. Clear browser cache and restart development servers
 
 ### Preflight Request Failing

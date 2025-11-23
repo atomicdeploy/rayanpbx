@@ -28,7 +28,9 @@ return [
         array_map('trim', array_filter(explode(',', env('CORS_ALLOWED_ORIGINS', ''))))
     ))),
 
-    'allowed_origins_patterns' => array_filter(array_map('trim', array_filter(explode(',', env('CORS_ALLOWED_ORIGINS_PATTERNS', ''))))),
+    'allowed_origins_patterns' => array_filter(
+        array_map('trim', array_filter(explode(',', env('CORS_ALLOWED_ORIGINS_PATTERNS', ''))))
+    ),
 
     'allowed_headers' => ['*'],
 
