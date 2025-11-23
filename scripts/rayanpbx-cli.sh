@@ -35,19 +35,7 @@ INFO="ℹ️ "
 WARN="⚠️ "
 ROCKET="🚀"
 
-# Configuration
-RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
-API_BASE_URL="http://localhost:8000/api"
-ENV_FILE="$RAYANPBX_ROOT/.env"
-VERBOSE=false
-
-# Load configuration
-if [ -f "$ENV_FILE" ]; then
-    source "$ENV_FILE"
-    API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
-fi
-
-# Helper functions
+# Helper functions (defined early so they can be used during config loading)
 print_success() {
     echo -e "${GREEN}${CHECK} $1${NC}"
 }
@@ -75,6 +63,42 @@ print_header() {
     echo -e "${CYAN}  $1${NC}"
     echo -e "${MAGENTA}═══════════════════════════════════════${NC}"
 }
+
+# Configuration
+RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
+API_BASE_URL="http://localhost:8000/api"
+ENV_FILE="$RAYANPBX_ROOT/.env"
+VERBOSE=false
+
+# Load configuration
+if [ -f "$ENV_FILE" ]; then
+    # Detect if .env has forward-referenced variables by checking if VITE_WS_URL contains unexpanded variables
+    set +u
+    source "$ENV_FILE" 2>/dev/null
+    set -u
+    
+    # Check if variables that should be expanded are actually empty or malformed
+    needs_normalization=false
+    if [[ -n "${VITE_WS_URL:-}" ]] && [[ "$VITE_WS_URL" == *"ws://localhost:"* ]] && [[ "$VITE_WS_URL" != *":${WEBSOCKET_PORT}"* ]] && [[ "$VITE_WS_URL" != *":[0-9]*"* ]]; then
+        needs_normalization=true
+    fi
+    
+    if [ "$needs_normalization" = true ]; then
+        # Forward-referenced variables detected, auto-fix the .env file
+        print_warn ".env file has variable ordering issues. Auto-fixing..."
+        
+        # Use normalize-env.sh if available
+        if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
+            bash "$SCRIPT_DIR/normalize-env.sh" "$ENV_FILE" > /dev/null 2>&1
+            print_success ".env file normalized. Variables now properly ordered."
+            # Re-source the normalized file
+            unset VITE_WS_URL WEBSOCKET_PORT
+            source "$ENV_FILE"
+        fi
+    fi
+    
+    API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
+fi
 
 # API call helper
 api_call() {
