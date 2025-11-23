@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/common-nighthawk/go-figure"
 	"github.com/fatih/color"
+	"github.com/go-redis/redis/v8"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
@@ -247,7 +249,7 @@ func monitorDatabase(hub *Hub, db *sql.DB) {
 	cyan := color.New(color.FgCyan)
 	cyan.Println("📊 Starting database monitor...")
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	var lastExtCount, lastTrunkCount int
@@ -276,7 +278,62 @@ func monitorDatabase(hub *Hub, db *sql.DB) {
 	}
 }
 
-func loadConfig() (string, string, string, error) {
+// MonitorRedis subscribes to Redis pub/sub channels and broadcasts events
+func monitorRedis(hub *Hub, redisHost, redisPort, redisPassword string) {
+	cyan := color.New(color.FgCyan)
+	red := color.New(color.FgRed)
+	green := color.New(color.FgGreen)
+
+	cyan.Println("📡 Starting Redis monitor...")
+
+	ctx := context.Background()
+	
+	// Create Redis client
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%s", redisHost, redisPort),
+		Password: redisPassword,
+		DB:       0,
+	})
+
+	// Test connection
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		red.Printf("❌ Failed to connect to Redis: %v\n", err)
+		red.Println("⚠️  Redis events will not be available")
+		return
+	}
+	green.Println("✅ Redis connected")
+
+	// Subscribe to RayanPBX event channels
+	pubsub := rdb.Subscribe(ctx, 
+		"rayanpbx:extensions",
+		"rayanpbx:trunks",
+		"rayanpbx:calls",
+		"rayanpbx:status",
+	)
+	defer pubsub.Close()
+
+	cyan.Println("🎧 Subscribed to Redis channels: extensions, trunks, calls, status")
+
+	// Listen for messages
+	ch := pubsub.Channel()
+	for msg := range ch {
+		// Forward Redis message to WebSocket clients
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(msg.Payload), &payload); err == nil {
+			wsMsg := Message{
+				Type:      payload["type"].(string),
+				Payload:   payload,
+				Timestamp: time.Now(),
+			}
+			msgJSON, _ := json.Marshal(wsMsg)
+			hub.broadcast <- msgJSON
+			
+			green.Printf("📤 Broadcast event: %s\n", payload["type"])
+		}
+	}
+}
+
+func loadConfig() (string, string, string, string, string, string, error) {
 	// Find root .env file
 	currentDir, _ := os.Getwd()
 	for i := 0; i < 3; i++ {
@@ -291,8 +348,11 @@ func loadConfig() (string, string, string, error) {
 	wsHost := getEnv("WEBSOCKET_HOST", "0.0.0.0")
 	wsPort := getEnv("WEBSOCKET_PORT", "9000")
 	jwtSecret := getEnv("JWT_SECRET", "your-super-secret-jwt-key-change-this")
+	redisHost := getEnv("REDIS_HOST", "127.0.0.1")
+	redisPort := getEnv("REDIS_PORT", "6379")
+	redisPassword := getEnv("REDIS_PASSWORD", "")
 
-	return wsHost, wsPort, jwtSecret, nil
+	return wsHost, wsPort, jwtSecret, redisHost, redisPort, redisPassword, nil
 }
 
 func printBanner() {
@@ -323,7 +383,7 @@ func main() {
 
 	// Load configuration
 	cyan.Println("🔧 Loading configuration...")
-	wsHost, wsPort, jwtSecret, err := loadConfig()
+	wsHost, wsPort, jwtSecret, redisHost, redisPort, redisPassword, err := loadConfig()
 	if err != nil {
 		red.Printf("❌ Failed to load configuration: %v\n", err)
 		os.Exit(1)
@@ -347,6 +407,9 @@ func main() {
 
 	// Start database monitor
 	go monitorDatabase(hub, db)
+
+	// Start Redis monitor
+	go monitorRedis(hub, redisHost, redisPort, redisPassword)
 
 	// Setup HTTP routes
 	http.HandleFunc("/ws", serveWs(hub, jwtSecret))

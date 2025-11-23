@@ -5,15 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Trunk;
 use App\Adapters\AsteriskAdapter;
+use App\Services\EventBroadcastService;
 use Illuminate\Http\Request;
 
 class TrunkController extends Controller
 {
     private $asterisk;
+    private $broadcaster;
     
-    public function __construct(AsteriskAdapter $asterisk)
+    public function __construct(AsteriskAdapter $asterisk, EventBroadcastService $broadcaster)
     {
         $this->asterisk = $asterisk;
+        $this->broadcaster = $broadcaster;
     }
     
     /**
@@ -64,6 +67,9 @@ class TrunkController extends Controller
         
         // Reload Asterisk
         $this->asterisk->reload();
+        
+        // Broadcast event
+        $this->broadcaster->broadcastTrunkCreated($trunk->toArray());
         
         return response()->json([
             'message' => 'Trunk created successfully',
@@ -121,6 +127,9 @@ class TrunkController extends Controller
         // Reload Asterisk
         $this->asterisk->reload();
         
+        // Broadcast event
+        $this->broadcaster->broadcastTrunkUpdated($trunk->toArray());
+        
         return response()->json([
             'message' => 'Trunk updated successfully',
             'trunk' => $trunk
@@ -145,6 +154,9 @@ class TrunkController extends Controller
         
         // Reload Asterisk
         $this->asterisk->reload();
+        
+        // Broadcast event
+        $this->broadcaster->broadcastTrunkDeleted($id, $trunkName);
         
         return response()->json([
             'message' => 'Trunk deleted successfully'
