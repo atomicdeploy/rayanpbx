@@ -13,6 +13,11 @@ if [ -f "$VERSION_FILE" ]; then
     VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 fi
 
+# Source ini-helper for backup functionality
+if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
+    source "$SCRIPT_DIR/ini-helper.sh"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -430,8 +435,12 @@ cmd_config_set() {
         exit 4
     fi
     
-    # Backup config file
-    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    # Backup config file using helper from ini-helper.sh
+    local backup
+    backup=$(backup_config "$ENV_FILE")
+    if [ -n "$backup" ]; then
+        print_verbose "Backup: $backup"
+    fi
     
     # Escape special characters in value for sed
     local escaped_value
