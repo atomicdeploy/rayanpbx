@@ -999,7 +999,7 @@ print_verbose "PHP configuration file: $(php --ini | grep 'Loaded Configuration 
 
 # Verify and enable Redis extension
 print_verbose "Verifying Redis extension is enabled..."
-if ! php -m | grep -q "redis"; then
+if ! php -m | grep -qi "redis"; then
     print_warning "Redis extension not loaded, attempting to enable..."
     
     # Try to enable the extension
@@ -1008,18 +1008,22 @@ if ! php -m | grep -q "redis"; then
         if phpenmod redis 2>/dev/null; then
             print_success "Redis extension enabled via phpenmod"
         else
-            print_verbose "phpenmod failed, extension may already be configured"
+            print_verbose "Could not enable via phpenmod, checking if package is installed..."
         fi
     fi
     
     # Restart PHP-FPM to ensure extension is loaded
     if systemctl is-active --quiet php8.3-fpm; then
         print_verbose "Restarting PHP-FPM to load Redis extension..."
-        systemctl restart php8.3-fpm
+        if systemctl restart php8.3-fpm 2>/dev/null; then
+            print_verbose "PHP-FPM restarted successfully"
+        else
+            print_warning "Failed to restart PHP-FPM, extension may not be loaded"
+        fi
     fi
     
     # Verify again
-    if php -m | grep -q "redis"; then
+    if php -m | grep -qi "redis"; then
         print_success "Redis extension verified and loaded"
     else
         print_warning "Redis extension may not be properly loaded. Fallback to predis will be used if needed."
