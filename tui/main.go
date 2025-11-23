@@ -90,6 +90,9 @@ const (
 	diagTestTrunkScreen
 	diagTestRoutingScreen
 	diagPortTestScreen
+	editExtensionScreen
+	deleteExtensionScreen
+	extensionDetailsScreen
 )
 
 type model struct {
@@ -123,6 +126,10 @@ type model struct {
 	// Configuration management
 	configManager *AsteriskConfigManager
 	verbose       bool
+	
+	// Extension/Trunk selection
+	selectedExtensionIdx int
+	selectedTrunkIdx     int
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -197,6 +204,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor > 0 {
 					m.cursor--
 				}
+			} else if m.currentScreen == extensionsScreen {
+				// Navigate extensions list
+				if m.selectedExtensionIdx > 0 {
+					m.selectedExtensionIdx--
+				}
 			} else if m.cursor > 0 {
 				m.cursor--
 			}
@@ -212,6 +224,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < len(m.diagnosticsMenu)-1 {
 					m.cursor++
 				}
+			} else if m.currentScreen == extensionsScreen {
+				// Navigate extensions list
+				if m.selectedExtensionIdx < len(m.extensions)-1 {
+					m.selectedExtensionIdx++
+				}
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
 			}
@@ -222,6 +239,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.initCreateExtension()
 			} else if m.currentScreen == trunksScreen {
 				m.initCreateTrunk()
+			}
+		
+		case "e":
+			// Edit button - edit selected extension/trunk
+			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
+				if m.selectedExtensionIdx < len(m.extensions) {
+					m.initEditExtension()
+				}
+			}
+		
+		case "d":
+			// Delete button - delete selected extension/trunk
+			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
+				if m.selectedExtensionIdx < len(m.extensions) {
+					m.currentScreen = deleteExtensionScreen
+				}
+			}
+		
+		case "y":
+			// Confirm deletion
+			if m.currentScreen == deleteExtensionScreen {
+				m.deleteExtension()
 			}
 
 		case "enter":
@@ -286,6 +325,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
+				} else if m.currentScreen == deleteExtensionScreen {
+					m.currentScreen = extensionsScreen
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else {
 					m.currentScreen = mainMenu
 					m.errorMsg = ""
@@ -348,6 +391,10 @@ func (m model) View() string {
 		s += m.renderUsage()
 	case createExtensionScreen:
 		s += m.renderCreateExtension()
+	case editExtensionScreen:
+		s += m.renderEditExtension()
+	case deleteExtensionScreen:
+		s += m.renderDeleteExtension()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
 	}
@@ -357,7 +404,7 @@ func (m model) View() string {
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
-		s += helpStyle.Render("↑/↓: Navigate • a: Add Extension • ESC: Back • q: Quit")
+		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • ESC: Back • q: Quit")
 	} else if m.currentScreen == trunksScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
@@ -404,13 +451,19 @@ func (m model) renderExtensions() string {
 	} else {
 		content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
 
-		for _, ext := range m.extensions {
+		for i, ext := range m.extensions {
 			status := "🔴 Disabled"
 			if ext.Enabled {
 				status = "🟢 Enabled"
 			}
 
-			line := fmt.Sprintf("  %s - %s (%s)\n",
+			cursor := " "
+			if i == m.selectedExtensionIdx {
+				cursor = "▶"
+			}
+			
+			line := fmt.Sprintf("%s %s - %s (%s)\n",
+				cursor,
 				successStyle.Render(ext.ExtensionNumber),
 				ext.Name,
 				status,
@@ -419,7 +472,7 @@ func (m model) renderExtensions() string {
 		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Tip: Extensions allow users to make and receive calls")
+	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete")
 
 	return menuStyle.Render(content)
 }
@@ -775,13 +828,30 @@ func (m *model) initCreateTrunk() {
 	m.successMsg = ""
 }
 
+// initEditExtension initializes the extension edit form
+func (m *model) initEditExtension() {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		return
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	m.currentScreen = editExtensionScreen
+	m.inputMode = true
+	m.inputFields = []string{"Extension Number", "Name", "Password"}
+	// Pre-fill with current values (password will be empty for security)
+	m.inputValues = []string{ext.ExtensionNumber, ext.Name, ""}
+	m.inputCursor = 0
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
 // handleInputMode handles keyboard input when in input mode
 func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		// Cancel input
 		m.inputMode = false
-		if m.currentScreen == createExtensionScreen {
+		if m.currentScreen == createExtensionScreen || m.currentScreen == editExtensionScreen {
 			m.currentScreen = extensionsScreen
 		} else if m.currentScreen == createTrunkScreen {
 			m.currentScreen = trunksScreen
@@ -807,6 +877,8 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Submit the form
 			if m.currentScreen == createExtensionScreen {
 				m.createExtension()
+			} else if m.currentScreen == editExtensionScreen {
+				m.editExtension()
 			} else if m.currentScreen == createTrunkScreen {
 				m.createTrunk()
 			} else if m.currentScreen == diagTestExtensionScreen {
@@ -979,6 +1051,189 @@ func (m *model) createTrunk() {
 	}
 
 	m.currentScreen = trunksScreen
+}
+
+// editExtension updates an existing extension
+func (m *model) editExtension() {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		m.errorMsg = "No extension selected"
+		return
+	}
+	
+	// Validate inputs
+	if m.inputValues[extFieldNumber] == "" || m.inputValues[extFieldName] == "" {
+		m.errorMsg = "Extension number and name are required"
+		return
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	oldNumber := ext.ExtensionNumber
+	newNumber := m.inputValues[extFieldNumber]
+	
+	// Build update query - only update password if provided
+	var query string
+	var args []interface{}
+	
+	if m.inputValues[extFieldPassword] != "" {
+		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword], ext.ID}
+	} else {
+		query = `UPDATE extensions SET extension_number = ?, name = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName], ext.ID}
+	}
+	
+	_, err := m.db.Exec(query, args...)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to update extension: %v", err)
+		return
+	}
+	
+	// If extension number changed, remove old config
+	if oldNumber != newNumber {
+		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
+	}
+	
+	// Update extension object
+	ext.ExtensionNumber = newNumber
+	ext.Name = m.inputValues[extFieldName]
+	if m.inputValues[extFieldPassword] != "" {
+		ext.Secret = m.inputValues[extFieldPassword]
+	}
+	
+	// Generate and write updated config
+	config := m.configManager.GeneratePjsipEndpoint(ext)
+	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		m.errorMsg = fmt.Sprintf("Extension updated in DB but failed to write config: %v", err)
+		m.successMsg = fmt.Sprintf("Extension %s updated (config write failed)", newNumber)
+	} else {
+		// Reload Asterisk
+		if err := m.configManager.ReloadAsterisk(); err != nil {
+			m.errorMsg = fmt.Sprintf("Config written but Asterisk reload failed: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s updated (reload failed)", newNumber)
+		} else {
+			m.successMsg = fmt.Sprintf("Extension %s updated successfully!", newNumber)
+		}
+	}
+	
+	m.inputMode = false
+	
+	// Reload extensions list
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+	}
+	
+	m.currentScreen = extensionsScreen
+}
+
+// deleteExtension deletes an extension from database and config
+func (m *model) deleteExtension() {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		m.errorMsg = "No extension selected"
+		return
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	
+	// Delete from database
+	query := `DELETE FROM extensions WHERE id = ?`
+	_, err := m.db.Exec(query, ext.ID)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to delete extension: %v", err)
+		return
+	}
+	
+	// Remove from config
+	if err := m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		m.errorMsg = fmt.Sprintf("Extension deleted from DB but failed to remove config: %v", err)
+		m.successMsg = fmt.Sprintf("Extension %s deleted (config removal failed)", ext.ExtensionNumber)
+	} else {
+		// Reload Asterisk
+		if err := m.configManager.ReloadAsterisk(); err != nil {
+			m.errorMsg = fmt.Sprintf("Config removed but Asterisk reload failed: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s deleted (reload failed)", ext.ExtensionNumber)
+		} else {
+			m.successMsg = fmt.Sprintf("Extension %s deleted successfully!", ext.ExtensionNumber)
+		}
+	}
+	
+	// Reload extensions list
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+		// Adjust selection if needed
+		if m.selectedExtensionIdx >= len(m.extensions) && len(m.extensions) > 0 {
+			m.selectedExtensionIdx = len(m.extensions) - 1
+		}
+	}
+	
+	m.currentScreen = extensionsScreen
+}
+
+// renderEditExtension renders the extension edit form
+func (m model) renderEditExtension() string {
+	content := infoStyle.Render("✏️  Edit Extension") + "\n\n"
+	
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		content += errorStyle.Render("No extension selected") + "\n"
+		return menuStyle.Render(content)
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			if field == "Password" {
+				value = helpStyle.Render("<leave empty to keep current>")
+			} else {
+				value = helpStyle.Render("<enter value>")
+			}
+		} else if field == "Password" {
+			value = "********"
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Leave password empty to keep current password")
+
+	return menuStyle.Render(content)
+}
+
+// renderDeleteExtension renders the delete confirmation screen
+func (m model) renderDeleteExtension() string {
+	content := infoStyle.Render("🗑️  Delete Extension") + "\n\n"
+	
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		content += errorStyle.Render("No extension selected") + "\n"
+		return menuStyle.Render(content)
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	
+	content += errorStyle.Render("⚠️  WARNING: This action cannot be undone!") + "\n\n"
+	content += fmt.Sprintf("You are about to delete extension:\n")
+	content += fmt.Sprintf("  Number: %s\n", successStyle.Render(ext.ExtensionNumber))
+	content += fmt.Sprintf("  Name: %s\n", ext.Name)
+	content += fmt.Sprintf("  Status: %s\n\n", func() string {
+		if ext.Enabled {
+			return "🟢 Enabled"
+		}
+		return "🔴 Disabled"
+	}())
+	
+	content += "This will:\n"
+	content += "  • Remove extension from database\n"
+	content += "  • Remove PJSIP configuration\n"
+	content += "  • Reload Asterisk\n\n"
+	
+	content += helpStyle.Render("Press 'y' to confirm, ESC to cancel")
+
+	return menuStyle.Render(content)
 }
 
 // handleDiagnosticsMenuSelection handles diagnostics menu selection

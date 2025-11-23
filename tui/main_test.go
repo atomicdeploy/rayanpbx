@@ -106,6 +106,9 @@ func TestScreenEnumValues(t *testing.T) {
 		diagTestTrunkScreen,
 		diagTestRoutingScreen,
 		diagPortTestScreen,
+		editExtensionScreen,
+		deleteExtensionScreen,
+		extensionDetailsScreen,
 	}
 	
 	// Check that all values are unique
