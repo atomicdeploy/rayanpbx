@@ -13,6 +13,17 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Version is the application version - read from VERSION file
+var Version = "2.0.0"
+
+func init() {
+	// Try to load version from VERSION file
+	versionFile := filepath.Join(findRootPath(), "VERSION")
+	if data, err := os.ReadFile(versionFile); err == nil {
+		Version = strings.TrimSpace(string(data))
+	}
+}
+
 // Config holds the application configuration
 type Config struct {
 	DBHost     string
@@ -113,9 +124,11 @@ func PrintBanner() {
 		}
 	}
 	
-	// Subtitle
+	// Subtitle with version
 	yellow := color.New(color.FgYellow)
-	yellow.Println("    🚀 Modern SIP Server Management Toolkit 🚀")
+	green := color.New(color.FgGreen)
+	yellow.Print("    🚀 Modern SIP Server Management Toolkit 🚀")
+	green.Printf(" v%s\n", Version)
 	fmt.Println()
 }
 

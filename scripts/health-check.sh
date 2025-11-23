@@ -3,11 +3,20 @@
 # Service Health & Port Checker
 # Ensures ports are available and services are healthy
 
+# Version - read from VERSION file
+VERSION="2.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+fi
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
 readonly YELLOW='\033[1;33m'
 readonly CYAN='\033[0;36m'
+readonly BOLD='\033[1m'
 readonly RESET='\033[0m'
 
 print_success() {
@@ -227,7 +236,14 @@ get_default_username() {
 
 # Main function
 main() {
-    local action=$1
+    local action=${1:-}
+    
+    # Check for version flag
+    if [[ "$action" == "--version" || "$action" == "-v" || "$action" == "version" ]]; then
+        echo -e "${CYAN}RayanPBX Health Check${RESET} ${GREEN}v${VERSION}${RESET}"
+        echo "Service Health & Port Checker"
+        exit 0
+    fi
     
     case "$action" in
         check-port)
@@ -277,7 +293,12 @@ main() {
             echo
             ;;
         *)
-            echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-mysql|check-pm2|get-username|full-check} [args...]"
+            if [ -z "$action" ]; then
+                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
+            else
+                echo "Unknown command: $action"
+                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
+            fi
             echo
             echo "Commands:"
             echo "  check-port PORT [SERVICE]           - Check if port is available"
@@ -289,6 +310,7 @@ main() {
             echo "  check-pm2                           - Check PM2 services"
             echo "  get-username                        - Get default Linux username"
             echo "  full-check                          - Run all health checks"
+            echo "  --version, -v                       - Show version information"
             exit 1
             ;;
     esac

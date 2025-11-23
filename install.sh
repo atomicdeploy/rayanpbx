@@ -5,8 +5,12 @@ set -e
 # RayanPBX Installation Script for Ubuntu 24.04 LTS
 # This script installs and configures RayanPBX with Asterisk 22
 
-# Script version
-readonly SCRIPT_VERSION="2.0.0"
+# Script version - read from VERSION file
+SCRIPT_VERSION="2.0.0"
+if [ -f "$(dirname "${BASH_SOURCE[0]}")/VERSION" ]; then
+    SCRIPT_VERSION=$(cat "$(dirname "${BASH_SOURCE[0]}")/VERSION" | tr -d '[:space:]')
+fi
+readonly SCRIPT_VERSION
 
 # ════════════════════════════════════════════════════════════════════════
 # Configuration Variables
@@ -1268,6 +1272,17 @@ go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
 chmod +x /usr/local/bin/rayanpbx-ws
 
 print_success "WebSocket server built: /usr/local/bin/rayanpbx-ws"
+
+# CLI Tool Setup
+print_progress "Setting up CLI tool..."
+if [ -f "/opt/rayanpbx/scripts/rayanpbx-cli.sh" ]; then
+    ln -sf /opt/rayanpbx/scripts/rayanpbx-cli.sh /usr/local/bin/rayanpbx-cli
+    chmod +x /opt/rayanpbx/scripts/rayanpbx-cli.sh
+    chmod +x /usr/local/bin/rayanpbx-cli
+    print_success "CLI tool linked: rayanpbx-cli"
+else
+    print_warning "CLI tool script not found at /opt/rayanpbx/scripts/rayanpbx-cli.sh"
+fi
 
 # PM2 Ecosystem Configuration
 next_step "PM2 Process Management Setup"

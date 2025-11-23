@@ -385,6 +385,44 @@ func (m model) renderUsage() string {
 }
 
 func main() {
+	// Check for version flag
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
+		cyan := color.New(color.FgCyan, color.Bold)
+		green := color.New(color.FgGreen)
+		cyan.Print("RayanPBX TUI ")
+		green.Printf("v%s\n", Version)
+		fmt.Println("Modern SIP Server Management Terminal UI")
+		return
+	}
+
+	// Check for help flag
+	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help") {
+		cyan := color.New(color.FgCyan, color.Bold)
+		green := color.New(color.FgGreen)
+		yellow := color.New(color.FgYellow)
+
+		cyan.Print("RayanPBX TUI ")
+		green.Printf("v%s\n\n", Version)
+
+		yellow.Println("Modern SIP Server Management Terminal UI")
+		fmt.Println()
+		fmt.Println("USAGE:")
+		fmt.Println("    rayanpbx-tui [OPTIONS]")
+		fmt.Println()
+		fmt.Println("OPTIONS:")
+		fmt.Println("    -h, --help       Show this help message")
+		fmt.Println("    -v, --version    Show version information")
+		fmt.Println()
+		fmt.Println("FEATURES:")
+		fmt.Println("    • Interactive terminal UI for managing RayanPBX")
+		fmt.Println("    • Extension and trunk management")
+		fmt.Println("    • Asterisk service control")
+		fmt.Println("    • Real-time system diagnostics")
+		fmt.Println("    • Live system status monitoring")
+		fmt.Println()
+		return
+	}
+
 	// Print beautiful banner
 	PrintBanner()
 
