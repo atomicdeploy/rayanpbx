@@ -8,9 +8,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Set UTF8MB4 collation for database
-        DB::statement('ALTER DATABASE ' . DB::getDatabaseName() . ' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-        
         Schema::create('extensions', function (Blueprint $table) {
             $table->id();
             $table->string('extension_number', 20)->unique()->charset('utf8mb4')->collation('utf8mb4_unicode_ci');
