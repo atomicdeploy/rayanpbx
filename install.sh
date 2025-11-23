@@ -159,7 +159,7 @@ print_banner() {
 }
 
 next_step() {
-    ((STEP_NUMBER++))
+    STEP_NUMBER=$((STEP_NUMBER + 1))
     echo -e "\n${BLUE}${BOLD}┌─ Step ${STEP_NUMBER}: $1${RESET}"
     echo -e "${DIM}└─────────────────────────────────────────────────────────────${RESET}"
 }
