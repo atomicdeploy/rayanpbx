@@ -15,6 +15,7 @@ readonly SCRIPT_VERSION="2.0.0"
 VERBOSE=false
 DRY_RUN=false
 INSTALL_TTS=false
+INSTALL_EMAIL=false
 INSTALL_ADVANCED_SECURITY=false
 
 # ════════════════════════════════════════════════════════════════════════
@@ -73,6 +74,7 @@ show_help() {
     echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
     echo -e "    ${GREEN}--with-tts${RESET}          Install Text-to-Speech engines (gTTS and Piper)"
+    echo -e "    ${GREEN}--with-email${RESET}        Install email server (Postfix and Dovecot)"
     echo -e "    ${GREEN}--with-security${RESET}     Install advanced security tools (coming soon)"
     echo ""
     echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
@@ -91,6 +93,12 @@ show_help() {
     echo ""
     echo -e "    ${DIM}# Installation with Text-to-Speech support${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --with-tts${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Installation with email server (Postfix + Dovecot)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-email${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Combined: TTS and email${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-tts --with-email${RESET}"
     echo ""
     echo -e "    ${DIM}# Show version${RESET}"
     echo -e "    ${WHITE}./install.sh --version${RESET}"
@@ -272,6 +280,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-tts)
             INSTALL_TTS=true
+            shift
+            ;;
+        --with-email)
+            INSTALL_EMAIL=true
             shift
             ;;
         --with-security)
@@ -456,8 +468,6 @@ PACKAGES=(
     mpg123
     libtiff-tools
     ghostscript
-    postfix
-    mailutils
     jq
     expect
     python3-pip
@@ -1152,24 +1162,90 @@ else
     print_warning "Fail2ban not available - skipping security configuration"
 fi
 
-# Configure Postfix for email notifications
-next_step "Email Configuration (Postfix)"
-print_info "Configuring Postfix for email notifications..."
+# Optional: Install Email Server (Postfix + Dovecot)
+if [ "$INSTALL_EMAIL" = true ]; then
+    next_step "Email Server Installation (Optional)"
+    
+    # Install Postfix and Dovecot
+    print_info "Installing email server packages..."
+    EMAIL_PACKAGES=(postfix mailutils dovecot-core dovecot-imapd dovecot-pop3d)
+    
+    for package in "${EMAIL_PACKAGES[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $package "; then
+            echo -e "${DIM}   Installing $package...${RESET}"
+            if [ "$VERBOSE" = true ]; then
+                if ! $PKG_MGR install -y "$package"; then
+                    print_error "Failed to install $package"
+                    print_warning "Email server may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            else
+                if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
+                    print_error "Failed to install $package"
+                    print_warning "Email server may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            fi
+        else
+            echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        fi
+    done
+    
+    # Configure Postfix
+    if command -v postfix &> /dev/null; then
+        print_info "Configuring Postfix for email delivery..."
+        # Set postfix to satellite mode for sending emails
+        debconf-set-selections <<< "postfix postfix/mailname string $(hostname -f)"
+        debconf-set-selections <<< "postfix postfix/main_mailer_type string 'Internet Site'"
+        
+        # Configure postfix
+        postconf -e "inet_interfaces = all"
+        postconf -e "myhostname = $(hostname -f)"
+        postconf -e "mydestination = $(hostname -f), localhost.localdomain, localhost"
+        postconf -e "mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128"
+        
+        systemctl enable postfix > /dev/null 2>&1
+        systemctl restart postfix > /dev/null 2>&1
+        print_success "Postfix configured"
+    else
+        print_warning "Postfix not available"
+    fi
+    
+    # Configure Dovecot
+    if command -v dovecot &> /dev/null; then
+        print_info "Configuring Dovecot for email retrieval..."
+        
+        # Basic Dovecot configuration
+        cat > /etc/dovecot/conf.d/10-mail.conf << 'EOF'
+# Mail location
+mail_location = maildir:~/Maildir
+EOF
+        
+        cat > /etc/dovecot/conf.d/10-auth.conf << 'EOF'
+# Authentication
+disable_plaintext_auth = no
+auth_mechanisms = plain login
 
-if command -v postfix &> /dev/null; then
-    # Set postfix to satellite mode for sending emails
-    debconf-set-selections <<< "postfix postfix/mailname string $(hostname -f)"
-    debconf-set-selections <<< "postfix postfix/main_mailer_type string 'Internet Site'"
-    
-    # Configure postfix
-    postconf -e "inet_interfaces = loopback-only"
-    postconf -e "myhostname = $(hostname -f)"
-    
-    systemctl enable postfix > /dev/null 2>&1
-    systemctl restart postfix > /dev/null 2>&1
-    print_success "Postfix configured for email notifications"
+!include auth-system.conf.ext
+EOF
+        
+        # Enable and start Dovecot
+        systemctl enable dovecot > /dev/null 2>&1
+        systemctl restart dovecot > /dev/null 2>&1
+        print_success "Dovecot configured"
+        
+        print_info "Email server ready:"
+        echo -e "  ${DIM}SMTP (Postfix):${RESET} Port 25"
+        echo -e "  ${DIM}IMAP (Dovecot):${RESET} Port 143"
+        echo -e "  ${DIM}POP3 (Dovecot):${RESET} Port 110"
+        echo -e "  ${DIM}Note:${RESET} Configure SSL/TLS certificates for production use"
+    else
+        print_warning "Dovecot not available"
+    fi
 else
-    print_warning "Postfix not available - email notifications disabled"
+    print_info "Email server not requested (use --with-email to install)"
 fi
 
 # Configure FAX support
@@ -1259,6 +1335,9 @@ echo -e "  ${DIM}• sox/ffmpeg${RESET} - Audio conversion tools"
 echo -e "  ${DIM}• jq${RESET}        - JSON processor"
 if [ "$INSTALL_TTS" = true ]; then
     echo -e "  ${DIM}• gTTS/Piper${RESET}  - Text-to-Speech engines"
+fi
+if [ "$INSTALL_EMAIL" = true ]; then
+    echo -e "  ${DIM}• Postfix/Dovecot${RESET} - Email server"
 fi
 
 # Configure VIM for root user
@@ -1428,10 +1507,21 @@ echo -e "  ${DIM}Firewall:${RESET}         Use ${WHITE}rayanpbx-cli firewall set
 echo -e "  ${DIM}Certificates:${RESET}     Use ${WHITE}rayanpbx-cli certificate${RESET}"
 echo ""
 
-echo -e "${BOLD}${CYAN}📧 Email & FAX:${RESET}"
-echo -e "  ${DIM}Postfix:${RESET}          Configured for local delivery"
+if [ "$INSTALL_EMAIL" = true ]; then
+    echo -e "${BOLD}${CYAN}📧 Email Server:${RESET}"
+    echo -e "  ${DIM}Postfix (SMTP):${RESET}   Configured on port 25"
+    echo -e "  ${DIM}Dovecot (IMAP):${RESET}   Configured on port 143"
+    echo -e "  ${DIM}Dovecot (POP3):${RESET}   Configured on port 110"
+    echo -e "  ${DIM}Note:${RESET}             Configure SSL/TLS for production"
+    echo ""
+fi
+
+echo -e "${BOLD}${CYAN}📠 FAX Support:${RESET}"
 echo -e "  ${DIM}FAX directory:${RESET}    /var/spool/asterisk/fax"
 echo -e "  ${DIM}FAX config:${RESET}       /etc/asterisk/extensions_custom.conf"
+if [ "$INSTALL_EMAIL" != true ]; then
+    echo -e "  ${DIM}Email delivery:${RESET}  Use ${WHITE}--with-email${RESET} to enable email notifications"
+fi
 echo ""
 
 if [ "$INSTALL_TTS" = true ]; then

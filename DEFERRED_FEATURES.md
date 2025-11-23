@@ -219,8 +219,13 @@ tts.save("/var/lib/asterisk/sounds/custom/weather.mp3")
 ---
 
 ### 7. Gmail SMTP Relay Configuration
-**Status**: Deferred
+**Status**: Deferred - Email Server Now Optional
 **Reason**: Highly specific to individual email configurations
+
+**Current Implementation**:
+- Full email server (Postfix + Dovecot) available via `--with-email` flag
+- Provides complete SMTP, IMAP, and POP3 functionality
+- Users can configure relay to any SMTP provider after installation
 
 **Description**:
 - IncrediblePBX includes helper script for Gmail SMTP relay
@@ -234,15 +239,16 @@ tts.save("/var/lib/asterisk/sounds/custom/weather.mp3")
 
 **Future Consideration**:
 - Provide documentation for various SMTP providers
-- Generic SMTP configuration is already available via Postfix
+- Generic SMTP configuration is available when using `--with-email`
 - Users can configure their preferred email service
 
 **Manual Configuration Example**:
 ```bash
-# Install required packages
-sudo apt install libsasl2-modules
+# Install email server first
+sudo ./install.sh --with-email
 
-# Configure Postfix for Gmail
+# Then configure Postfix for Gmail relay
+sudo apt install libsasl2-modules
 sudo postconf -e "relayhost = [smtp.gmail.com]:587"
 sudo postconf -e "smtp_sasl_auth_enable = yes"
 # ... additional configuration
@@ -250,7 +256,7 @@ sudo postconf -e "smtp_sasl_auth_enable = yes"
 
 **References**:
 - IncrediblePBX implementation: enable-gmail-smarthost-with-postfix script
-- Alternative: Use any SMTP service
+- Alternative: Use any SMTP service with installed Postfix
 
 ---
 
@@ -313,12 +319,12 @@ sudo postconf -e "smtp_sasl_auth_enable = yes"
 - ✅ Certificate management (Let's Encrypt)
 - ✅ FAX support preparation
 - ✅ Log rotation
-- ✅ Postfix email configuration
 - ✅ VIM and shell aliases
 - ✅ systemd-timesyncd (built-in)
 
 ### Optional Features (Flag-based)
 - ✅ Text-to-Speech (gTTS + Piper) - Use `--with-tts` flag
+- ✅ Email Server (Postfix + Dovecot) - Use `--with-email` flag
 
 ### Future Releases (Needs Planning)
 1. **Advanced Security Suite** (`--with-advanced-security`)

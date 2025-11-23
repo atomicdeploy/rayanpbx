@@ -51,6 +51,25 @@ Installs:
   - Download: en_US-lessac-medium voice
   - Usage: `echo "text" | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f output.wav`
 
+#### Email Server (--with-email flag)
+```bash
+sudo ./install.sh --with-email
+```
+
+Installs:
+- **Postfix** (SMTP Server)
+  - Email sending/receiving on port 25
+  - Configured for internet delivery
+  - Network interfaces: all
+  
+- **Dovecot** (IMAP/POP3 Server)
+  - IMAP on port 143
+  - POP3 on port 110
+  - Maildir storage format
+  - System authentication
+
+**Note**: For production use, configure SSL/TLS certificates using `rayanpbx-cli certificate`
+
 ### 3. Security Enhancements
 
 #### Enhanced Fail2ban
@@ -94,21 +113,26 @@ Installs:
 
 ### 5. Communication Features
 
-#### FAX Support
+#### FAX Support (Always Installed)
 ```bash
 - Enhanced configuration in extensions_custom.conf
 - TIFF to PDF conversion
-- Dedicated spool directory
-- Email delivery support
+- Dedicated spool directory at /var/spool/asterisk/fax
+- Email delivery support (requires --with-email flag)
 ```
 
-#### Email Configuration
-```bash
-- Postfix configured as Internet Site
-- Loopback-only interface for security
-- Hostname configuration
-- Ready for SMTP relay configuration
-```
+#### Email Server (Optional - requires --with-email flag)
+**When installed:**
+- Postfix (SMTP) configured as Internet Site
+- Dovecot (IMAP/POP3) for email retrieval
+- Full email server functionality
+- Network interfaces: all
+- Ready for production with SSL/TLS
+
+**When not installed:**
+- No email capabilities
+- FAX email notifications disabled
+- Use `--with-email` flag to enable
 
 ### 6. Log Rotation
 ```bash
@@ -132,6 +156,12 @@ sudo ./install.sh --with-tts
 ```
 Installs gTTS and Piper TTS engines for voice synthesis.
 
+### With Email Server
+```bash
+sudo ./install.sh --with-email
+```
+Installs Postfix (SMTP) and Dovecot (IMAP/POP3) for complete email functionality.
+
 ### Verbose Mode
 ```bash
 sudo ./install.sh --verbose
@@ -140,7 +170,7 @@ Shows detailed installation steps for debugging.
 
 ### Multiple Flags
 ```bash
-sudo ./install.sh --verbose --with-tts
+sudo ./install.sh --verbose --with-tts --with-email
 ```
 
 ## Deferred Features
@@ -195,6 +225,15 @@ See **DEFERRED_FEATURES.md** for detailed information on features that were iden
 |---------|---------|
 | gTTS (pip) | Google Text-to-Speech |
 | Piper TTS | Local neural TTS engine |
+
+### Optional Packages (--with-email flag)
+| Package | Purpose |
+|---------|---------|
+| postfix | SMTP mail server |
+| mailutils | Mail utilities |
+| dovecot-core | IMAP/POP3 server core |
+| dovecot-imapd | IMAP daemon |
+| dovecot-pop3d | POP3 daemon |
 
 ### Configuration Sections Added
 1. **Shell Environment Configuration**
