@@ -326,6 +326,36 @@ cmd_version() {
     echo -e "${DIM}Modern SIP Server Management Toolkit${RESET}"
 }
 
+cmd_help() {
+    # Show help from TUI if available, otherwise show inline help
+    if [ -x "$RAYANPBX_ROOT/tui/rayanpbx-tui" ]; then
+        "$RAYANPBX_ROOT/tui/rayanpbx-tui" --help
+    else
+        echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
+        echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
+        echo ""
+        echo "Commands:"
+        echo "  extension list              - List all extensions"
+        echo "  extension create <num> <name> <password> - Create extension"
+        echo "  extension status <num>      - Show extension status"
+        echo "  trunk list                  - List all trunks"
+        echo "  trunk test <name>           - Test trunk connectivity"
+        echo "  asterisk status             - Check Asterisk service status"
+        echo "  asterisk restart            - Restart Asterisk service"
+        echo "  asterisk command <cmd>      - Execute Asterisk CLI command"
+        echo "  diag test-extension <num>   - Test extension registration"
+        echo "  diag health-check           - Run system health check"
+        echo "  system update               - Update RayanPBX"
+        echo "  version                     - Show version information"
+        echo "  help                        - Show this help message"
+        echo ""
+        echo "Global Options:"
+        echo "  --verbose, -V               - Enable verbose output"
+        echo "  --version, -v               - Show version information"
+        echo "  --help                      - Show this help message"
+    fi
+}
+
 main() {
     # Parse global flags first
     while [[ $# -gt 0 ]]; do
@@ -336,33 +366,7 @@ main() {
                 shift
                 ;;
             --help)
-                # Show help
-                if [ -x "$RAYANPBX_ROOT/tui/rayanpbx-tui" ]; then
-                    "$RAYANPBX_ROOT/tui/rayanpbx-tui" --help
-                else
-                    echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
-                    echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
-                    echo ""
-                    echo "Commands:"
-                    echo "  extension list              - List all extensions"
-                    echo "  extension create <num> <name> <password> - Create extension"
-                    echo "  extension status <num>      - Show extension status"
-                    echo "  trunk list                  - List all trunks"
-                    echo "  trunk test <name>           - Test trunk connectivity"
-                    echo "  asterisk status             - Check Asterisk service status"
-                    echo "  asterisk restart            - Restart Asterisk service"
-                    echo "  asterisk command <cmd>      - Execute Asterisk CLI command"
-                    echo "  diag test-extension <num>   - Test extension registration"
-                    echo "  diag health-check           - Run system health check"
-                    echo "  system update               - Update RayanPBX"
-                    echo "  version                     - Show version information"
-                    echo "  help                        - Show this help message"
-                    echo ""
-                    echo "Global Options:"
-                    echo "  --verbose, -V               - Enable verbose output"
-                    echo "  --version, -v               - Show version information"
-                    echo "  --help                      - Show this help message"
-                fi
+                cmd_help
                 exit 0
                 ;;
             --version|-v)
@@ -392,6 +396,9 @@ main() {
     case "$1" in
         version)
             cmd_version
+            ;;
+        help)
+            cmd_help
             ;;
         extension)
             case "$2" in
@@ -428,14 +435,6 @@ main() {
                 update) cmd_system_update ;;
                 *) echo "Unknown system command: $2"; exit 2 ;;
             esac
-            ;;
-        help)
-            # Show help from TUI
-            if [ -x "$RAYANPBX_ROOT/tui/rayanpbx-tui" ]; then
-                "$RAYANPBX_ROOT/tui/rayanpbx-tui" --help
-            else
-                echo "For detailed help, run: rayanpbx-tui"
-            fi
             ;;
         *)
             echo "Unknown command: $1"
