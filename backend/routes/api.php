@@ -140,6 +140,15 @@ Route::get('/health', function () {
         $asteriskStatus = 'stopped';
     }
     
+    // Check CORS configuration
+    $corsAllowedOrigins = config('cors.allowed_origins', []);
+    $corsConfig = [
+        'enabled' => !empty($corsAllowedOrigins),
+        'allowed_origins' => $corsAllowedOrigins,
+        'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+        'additional_origins' => env('CORS_ALLOWED_ORIGINS', ''),
+    ];
+    
     return response()->json([
         'status' => 'healthy',
         'timestamp' => now()->toISOString(),
@@ -151,6 +160,8 @@ Route::get('/health', function () {
         'app' => [
             'name' => config('app.name', 'RayanPBX'),
             'env' => config('app.env'),
+            'debug' => config('app.debug') ? 'enabled' : 'disabled',
         ],
+        'cors' => $corsConfig,
     ]);
 });

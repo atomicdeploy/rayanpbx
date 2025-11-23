@@ -353,6 +353,141 @@ cmd_system_update() {
     print_warn "Restart services to apply changes"
 }
 
+cmd_system_set_mode() {
+    local mode=$1
+    
+    print_header "⚙️  Setting Application Mode"
+    
+    if [ -z "$mode" ]; then
+        print_error "Mode not specified"
+        echo "Usage: rayanpbx-cli system set-mode <production|development|local>"
+        exit 2
+    fi
+    
+    case "$mode" in
+        production|prod)
+            mode="production"
+            debug="false"
+            ;;
+        development|dev)
+            mode="development"
+            debug="true"
+            ;;
+        local)
+            mode="local"
+            debug="true"
+            ;;
+        *)
+            print_error "Invalid mode: $mode"
+            echo "Valid modes: production, development, local"
+            exit 2
+            ;;
+    esac
+    
+    print_info "Setting APP_ENV=$mode and APP_DEBUG=$debug..."
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Environment file not found: $ENV_FILE"
+        exit 1
+    fi
+    
+    # Backup .env file
+    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    print_verbose "Backup created"
+    
+    # Update APP_ENV
+    if grep -q "^APP_ENV=" "$ENV_FILE"; then
+        sed -i "s|^APP_ENV=.*|APP_ENV=$mode|" "$ENV_FILE"
+    else
+        echo "APP_ENV=$mode" >> "$ENV_FILE"
+    fi
+    
+    # Update APP_DEBUG
+    if grep -q "^APP_DEBUG=" "$ENV_FILE"; then
+        sed -i "s|^APP_DEBUG=.*|APP_DEBUG=$debug|" "$ENV_FILE"
+    else
+        echo "APP_DEBUG=$debug" >> "$ENV_FILE"
+    fi
+    
+    print_success "Mode set to: $mode (debug: $debug)"
+    
+    # Also update backend .env if it exists
+    if [ -f "$RAYANPBX_ROOT/backend/.env" ]; then
+        print_info "Updating backend .env..."
+        cp "$RAYANPBX_ROOT/backend/.env" "$RAYANPBX_ROOT/backend/.env.backup.$(date +%Y%m%d_%H%M%S)"
+        
+        if grep -q "^APP_ENV=" "$RAYANPBX_ROOT/backend/.env"; then
+            sed -i "s|^APP_ENV=.*|APP_ENV=$mode|" "$RAYANPBX_ROOT/backend/.env"
+        fi
+        
+        if grep -q "^APP_DEBUG=" "$RAYANPBX_ROOT/backend/.env"; then
+            sed -i "s|^APP_DEBUG=.*|APP_DEBUG=$debug|" "$RAYANPBX_ROOT/backend/.env"
+        fi
+    fi
+    
+    # Restart services
+    print_info "Restarting services..."
+    if systemctl is-active --quiet rayanpbx-api; then
+        sudo systemctl restart rayanpbx-api
+        print_success "API service restarted"
+    fi
+    
+    print_success "Application mode changed successfully!"
+    echo ""
+    print_info "Current configuration:"
+    echo "  APP_ENV: $mode"
+    echo "  APP_DEBUG: $debug"
+}
+
+cmd_system_toggle_debug() {
+    print_header "🐛 Toggling Debug Mode"
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Environment file not found: $ENV_FILE"
+        exit 1
+    fi
+    
+    # Get current debug value
+    local current_debug=$(grep "^APP_DEBUG=" "$ENV_FILE" | cut -d'=' -f2)
+    
+    # Toggle it
+    local new_debug
+    if [ "$current_debug" == "true" ]; then
+        new_debug="false"
+    else
+        new_debug="true"
+    fi
+    
+    print_info "Current: APP_DEBUG=$current_debug"
+    print_info "Setting: APP_DEBUG=$new_debug"
+    
+    # Backup .env file
+    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Update APP_DEBUG
+    if grep -q "^APP_DEBUG=" "$ENV_FILE"; then
+        sed -i "s|^APP_DEBUG=.*|APP_DEBUG=$new_debug|" "$ENV_FILE"
+    else
+        echo "APP_DEBUG=$new_debug" >> "$ENV_FILE"
+    fi
+    
+    # Also update backend .env if it exists
+    if [ -f "$RAYANPBX_ROOT/backend/.env" ]; then
+        if grep -q "^APP_DEBUG=" "$RAYANPBX_ROOT/backend/.env"; then
+            sed -i "s|^APP_DEBUG=.*|APP_DEBUG=$new_debug|" "$RAYANPBX_ROOT/backend/.env"
+        fi
+    fi
+    
+    print_success "Debug mode set to: $new_debug"
+    
+    # Restart services
+    print_info "Restarting services..."
+    if systemctl is-active --quiet rayanpbx-api; then
+        sudo systemctl restart rayanpbx-api
+        print_success "API service restarted"
+    fi
+}
+
 # Main command dispatcher
 cmd_version() {
     echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
@@ -379,6 +514,8 @@ cmd_help() {
         echo "  diag test-extension <num>   - Test extension registration"
         echo "  diag health-check           - Run system health check"
         echo "  system update               - Update RayanPBX"
+        echo "  system set-mode <mode>      - Set application mode (production/development/local)"
+        echo "  system toggle-debug         - Toggle debug mode on/off"
         echo "  version                     - Show version information"
         echo "  help                        - Show this help message"
         echo ""
@@ -466,6 +603,8 @@ main() {
         system)
             case "$2" in
                 update) cmd_system_update ;;
+                set-mode) cmd_system_set_mode "$3" ;;
+                toggle-debug) cmd_system_toggle_debug ;;
                 *) echo "Unknown system command: $2"; exit 2 ;;
             esac
             ;;

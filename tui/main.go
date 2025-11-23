@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -79,6 +81,7 @@ const (
 	usageScreen
 	createExtensionScreen
 	createTrunkScreen
+	systemSettingsScreen
 )
 
 type model struct {
@@ -116,6 +119,7 @@ func initialModel(db *sql.DB, config *Config) model {
 			"📊 System Status",
 			"📋 Logs Viewer",
 			"📖 CLI Usage Guide",
+			"⚙️  System Settings",
 			"❌ Exit",
 		},
 		cursor: 0,
@@ -156,8 +160,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor < len(m.usageCommands)-1 {
 					m.usageCursor++
 				}
+			} else if m.currentScreen == systemSettingsScreen {
+				// System settings has 5 options
+				if m.cursor < 4 {
+					m.cursor++
+				}
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
+			}
+
+		case "up", "k":
+			if m.currentScreen == usageScreen {
+				// Navigate usage commands
+				if m.usageCursor > 0 {
+					m.usageCursor--
+				}
+			} else if m.currentScreen == systemSettingsScreen {
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			} else if m.cursor > 0 {
+				m.cursor--
 			}
 
 		case "a":
@@ -200,6 +223,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
 				case 7:
+					m.currentScreen = systemSettingsScreen
+					m.cursor = 0
+				case 8:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -207,6 +233,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor < len(m.usageCommands) {
 					m.executeCommand(m.usageCommands[m.usageCursor].Command)
 				}
+			} else if m.currentScreen == systemSettingsScreen {
+				// Handle system settings menu selection
+				m.handleSystemSettingsAction()
 			}
 
 		case "esc":
@@ -263,6 +292,8 @@ func (m model) View() string {
 		s += m.renderCreateExtension()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
+	case systemSettingsScreen:
+		s += m.renderSystemSettings()
 	}
 
 	// Footer with emojis
@@ -275,6 +306,8 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
+	} else if m.currentScreen == systemSettingsScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
 	} else if m.inputMode {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else {
@@ -706,6 +739,139 @@ func (m *model) createTrunk() {
 	}
 
 	m.currentScreen = trunksScreen
+}
+
+func (m *model) renderSystemSettings() string {
+	s := "⚙️  System Settings\n\n"
+	
+	// Get current mode from config
+	appEnv := m.config.AppEnv
+	appDebug := m.config.AppDebug
+	
+	settingsMenu := []string{
+		fmt.Sprintf("🔄 Toggle Mode (Current: %s)", appEnv),
+		fmt.Sprintf("🐛 Toggle Debug (Current: %v)", appDebug),
+		"📝 Set to Production Mode",
+		"🔧 Set to Development Mode",
+		"⬅️  Back to Main Menu",
+	}
+	
+	for i, item := range settingsMenu {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▸"
+			s += selectedItemStyle.Render(cursor + " " + item)
+		} else {
+			s += "  " + item
+		}
+		s += "\n"
+	}
+	
+	if m.errorMsg != "" {
+		s += "\n" + errorStyle.Render("❌ "+m.errorMsg)
+	}
+	if m.successMsg != "" {
+		s += "\n" + successStyle.Render("✅ "+m.successMsg)
+	}
+	
+	return menuStyle.Render(s)
+}
+
+func (m *model) handleSystemSettingsAction() {
+	switch m.cursor {
+	case 0:
+		// Toggle Mode
+		m.toggleAppMode()
+	case 1:
+		// Toggle Debug
+		m.toggleDebugMode()
+	case 2:
+		// Set to Production
+		m.setMode("production", false)
+	case 3:
+		// Set to Development
+		m.setMode("development", true)
+	case 4:
+		// Back to main menu
+		m.currentScreen = mainMenu
+		m.cursor = 0
+	}
+}
+
+func (m *model) toggleAppMode() {
+	newEnv := "production"
+	newDebug := false
+	
+	if m.config.AppEnv == "production" {
+		newEnv = "development"
+		newDebug = true
+	}
+	
+	m.setMode(newEnv, newDebug)
+}
+
+func (m *model) toggleDebugMode() {
+	m.setMode(m.config.AppEnv, !m.config.AppDebug)
+}
+
+func (m *model) setMode(env string, debug bool) {
+	// Update .env file
+	envFile := "/opt/rayanpbx/.env"
+	
+	// Read current .env
+	content, err := os.ReadFile(envFile)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to read .env: %v", err)
+		return
+	}
+	
+	// Replace APP_ENV and APP_DEBUG
+	lines := string(content)
+	lines = replaceEnvValue(lines, "APP_ENV", env)
+	lines = replaceEnvValue(lines, "APP_DEBUG", fmt.Sprintf("%v", debug))
+	
+	// Write back to .env
+	err = os.WriteFile(envFile, []byte(lines), 0644)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to write .env: %v", err)
+		return
+	}
+	
+	// Also update backend .env if exists
+	backendEnvFile := "/opt/rayanpbx/backend/.env"
+	if _, err := os.Stat(backendEnvFile); err == nil {
+		content, err := os.ReadFile(backendEnvFile)
+		if err == nil {
+			lines := string(content)
+			lines = replaceEnvValue(lines, "APP_ENV", env)
+			lines = replaceEnvValue(lines, "APP_DEBUG", fmt.Sprintf("%v", debug))
+			os.WriteFile(backendEnvFile, []byte(lines), 0644)
+		}
+	}
+	
+	// Restart API service
+	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Restarting API...", env, debug)
+	
+	// Reload config
+	m.config.AppEnv = env
+	m.config.AppDebug = debug
+}
+
+// Helper function to replace environment variable value in .env content
+func replaceEnvValue(content, key, value string) string {
+	// Match KEY=value pattern
+	re := regexp.MustCompile(fmt.Sprintf(`(?m)^%s=.*$`, regexp.QuoteMeta(key)))
+	replacement := fmt.Sprintf("%s=%s", key, value)
+	
+	if re.MatchString(content) {
+		return re.ReplaceAllString(content, replacement)
+	}
+	
+	// If key doesn't exist, append it
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	return content + replacement + "\n"
 }
 
 func main() {

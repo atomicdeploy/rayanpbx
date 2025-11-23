@@ -150,6 +150,56 @@ sanitize_output() {
     echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?(token|key)|client[_-]?secret|private[_-]?key|[A-Z_]+PASSWORD)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
 }
 
+# Check CORS configuration
+check_cors_config() {
+    local env_file="${1:-/opt/rayanpbx/.env}"
+    
+    if [ ! -f "$env_file" ]; then
+        print_warning "Environment file not found: $env_file"
+        return 1
+    fi
+    
+    print_info "Checking CORS configuration..."
+    
+    # Extract CORS-related values from .env
+    local frontend_url=$(grep "^FRONTEND_URL=" "$env_file" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+    local cors_origins=$(grep "^CORS_ALLOWED_ORIGINS=" "$env_file" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+    
+    # Get CORS configuration from health endpoint
+    local health_response=$(curl -s http://localhost:8000/api/health 2>/dev/null)
+    
+    if [ -z "$health_response" ]; then
+        print_error "Could not retrieve health endpoint response"
+        return 1
+    fi
+    
+    # Check if jq is available for JSON parsing
+    if command -v jq &> /dev/null; then
+        local cors_enabled=$(echo "$health_response" | jq -r '.cors.enabled // false')
+        local allowed_origins=$(echo "$health_response" | jq -r '.cors.allowed_origins[]' 2>/dev/null | paste -sd, -)
+        
+        print_success "CORS configuration retrieved"
+        echo "  CORS enabled: $cors_enabled"
+        echo "  Frontend URL: ${frontend_url:-not set}"
+        echo "  Additional origins: ${cors_origins:-none}"
+        echo "  Allowed origins: ${allowed_origins:-none}"
+        
+        # Verify CORS headers on health endpoint
+        local cors_header=$(curl -s -I -H "Origin: ${frontend_url:-http://localhost:3000}" http://localhost:8000/api/health 2>/dev/null | grep -i "access-control-allow-origin" || echo "")
+        if [ -n "$cors_header" ]; then
+            print_success "CORS headers present"
+            echo "  $cors_header"
+        else
+            print_warning "CORS headers not found in response"
+        fi
+    else
+        print_info "jq not available, showing raw CORS data"
+        echo "$health_response" | grep -o '"cors":[^}]*}' || echo "  Could not extract CORS info"
+    fi
+    
+    return 0
+}
+
 # Test service health (comprehensive health check for different service types)
 test_service_health() {
     local service_type=$1
@@ -174,6 +224,10 @@ test_service_health() {
                 
                 if [ "$response" = "200" ] || [ "$response" = "302" ]; then
                     print_success "Backend API is healthy and responding"
+                    
+                    # Also check CORS configuration
+                    check_cors_config
+                    
                     return 0
                 fi
                 
