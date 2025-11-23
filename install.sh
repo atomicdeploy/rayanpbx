@@ -373,6 +373,94 @@ if [[ $EUID -ne 0 ]]; then
 fi
 print_verbose "Root check passed"
 
+# Check for git updates
+next_step "Checking for Updates"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+print_verbose "Script directory: $SCRIPT_DIR"
+
+if [ -d "$SCRIPT_DIR/.git" ]; then
+    print_verbose "Git repository detected, checking for updates..."
+    cd "$SCRIPT_DIR"
+    
+    # Get current branch name
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    print_verbose "Current branch: $CURRENT_BRANCH"
+    
+    # Fetch the latest changes without merging
+    print_progress "Fetching latest updates from repository..."
+    FETCH_SUCCESS=true
+    if ! git fetch origin >/dev/null 2>&1; then
+        print_verbose "Fetch failed or had warnings, skipping update check"
+        print_info "Continuing with current version (fetch failed)"
+        FETCH_SUCCESS=false
+    else
+        print_verbose "Fetch completed successfully"
+    fi
+    
+    # Only check for updates if fetch was successful
+    if [ "$FETCH_SUCCESS" = true ]; then
+        # Get current and remote commit hashes
+        LOCAL_COMMIT=$(git rev-parse HEAD 2>/dev/null)
+        
+        # Try to get remote commit for current branch, fallback to main if that doesn't exist
+        REMOTE_COMMIT=""
+        if git rev-parse origin/$CURRENT_BRANCH >/dev/null 2>&1; then
+            REMOTE_COMMIT=$(git rev-parse origin/$CURRENT_BRANCH 2>/dev/null)
+            print_verbose "Checking against remote branch: origin/$CURRENT_BRANCH"
+        elif git rev-parse origin/main >/dev/null 2>&1; then
+            REMOTE_COMMIT=$(git rev-parse origin/main 2>/dev/null)
+            print_verbose "Checking against remote branch: origin/main"
+        else
+            print_verbose "Could not find remote branch, skipping update check"
+            REMOTE_COMMIT="$LOCAL_COMMIT"
+        fi
+        
+        print_verbose "Local commit: $LOCAL_COMMIT"
+        print_verbose "Remote commit: $REMOTE_COMMIT"
+        
+        if [ -n "$REMOTE_COMMIT" ] && [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
+            print_warning "Updates available for RayanPBX!"
+            echo ""
+            print_info "Changelog:"
+            git log --oneline "$LOCAL_COMMIT".."$REMOTE_COMMIT" 2>/dev/null | head -5 || echo "  (changelog unavailable)"
+            echo ""
+            
+            read -p "$(echo -e ${CYAN}Pull updates and restart installation? \(y/n\) ${RESET})" -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                print_progress "Pulling latest updates..."
+                
+                # Determine which branch to pull from
+                PULL_BRANCH="main"
+                if git rev-parse origin/$CURRENT_BRANCH >/dev/null 2>&1; then
+                    PULL_BRANCH="$CURRENT_BRANCH"
+                fi
+                
+                if git pull origin $PULL_BRANCH; then
+                    print_success "Updates pulled successfully"
+                    print_info "Restarting installation with latest version..."
+                    echo ""
+                    sleep 2
+                    
+                    # Re-execute the script with the same arguments
+                    # Using exec replaces the current process entirely, ensuring the new version runs
+                    # This is intentional - we want a clean restart with the updated script
+                    exec "$0" "$@"
+                else
+                    print_error "Failed to pull updates"
+                    print_warning "Continuing with current version..."
+                fi
+            else
+                print_info "Continuing with current version..."
+            fi
+        else
+            print_success "Already running the latest version"
+        fi
+    fi
+else
+    print_verbose "Not a git repository, skipping update check"
+fi
+
 # Check Ubuntu version
 next_step "System Verification"
 print_verbose "Checking Ubuntu version..."
@@ -1094,11 +1182,36 @@ print_progress "Running database migrations..."
 php artisan migrate --force
 
 if [ $? -eq 0 ]; then
-    print_success "Backend configured successfully"
+    print_success "Database migrations completed"
 else
     print_error "Database migration failed"
     exit 1
 fi
+
+# Check and fix database collation
+print_progress "Checking database collation..."
+COLLATION_CHECK_OUTPUT=$(php artisan db:check-collation 2>&1)
+if [ $? -eq 0 ]; then
+    print_success "Database collation is correct"
+    print_verbose "$COLLATION_CHECK_OUTPUT"
+else
+    print_warning "Database collation needs to be fixed"
+    if [ "$VERBOSE" = true ]; then
+        echo "$COLLATION_CHECK_OUTPUT"
+    fi
+    print_progress "Fixing database collation..."
+    if php artisan db:check-collation --fix 2>&1 | tee -a /tmp/collation-fix.log; then
+        print_success "Database collation fixed successfully"
+    else
+        print_warning "Could not fix database collation automatically"
+        print_info "You may need to fix it manually later"
+        if [ -f /tmp/collation-fix.log ]; then
+            print_verbose "Check /tmp/collation-fix.log for details"
+        fi
+    fi
+fi
+
+print_success "Backend configured successfully"
 
 # Frontend Setup
 next_step "Frontend Web UI Setup"
