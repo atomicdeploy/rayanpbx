@@ -72,6 +72,13 @@ const (
 	DefaultSIPPort = "5060"
 )
 
+// Default extension values
+const (
+	DefaultExtensionContext   = "from-internal"
+	DefaultExtensionTransport = "transport-udp"
+	DefaultMaxContacts        = 1
+)
+
 type screen int
 
 const (
@@ -971,14 +978,11 @@ func (m *model) createExtension() {
 	}
 
 	// Insert into database with default configuration values
-	// Note: Default context is 'from-internal' (standard internal dial context)
-	// Note: Default transport is 'transport-udp' (standard UDP transport)
-	// Note: Extensions are enabled by default
-	// TODO: Consider extracting these defaults as constants for better maintainability
 	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, created_at, updated_at)
-			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, 1, NOW(), NOW())`
+			  VALUES (?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`
 
-	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword])
+	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword],
+		DefaultExtensionContext, DefaultExtensionTransport, DefaultMaxContacts)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
 		return
@@ -989,10 +993,10 @@ func (m *model) createExtension() {
 		ExtensionNumber: m.inputValues[extFieldNumber],
 		Name:            m.inputValues[extFieldName],
 		Secret:          m.inputValues[extFieldPassword],
-		Context:         "from-internal",
-		Transport:       "transport-udp",
+		Context:         DefaultExtensionContext,
+		Transport:       DefaultExtensionTransport,
 		Enabled:         true,
-		MaxContacts:     1,
+		MaxContacts:     DefaultMaxContacts,
 	}
 
 	// Generate and write PJSIP configuration
@@ -1160,7 +1164,9 @@ func (m *model) deleteExtension() {
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
 		// Adjust selection if needed
-		if m.selectedExtensionIdx >= len(m.extensions) && len(m.extensions) > 0 {
+		if len(m.extensions) == 0 {
+			m.selectedExtensionIdx = 0
+		} else if m.selectedExtensionIdx >= len(m.extensions) {
 			m.selectedExtensionIdx = len(m.extensions) - 1
 		}
 	}

@@ -164,8 +164,29 @@ func (acm *AsteriskConfigManager) ReloadAsterisk() error {
 		cyan.Println("🔄 Reloading Asterisk PJSIP module...")
 	}
 
+	// Try to find asterisk binary in common locations
+	asteriskPaths := []string{
+		"/usr/sbin/asterisk",
+		"/usr/bin/asterisk",
+		"/usr/local/sbin/asterisk",
+		"/usr/local/bin/asterisk",
+	}
+	
+	var asteriskBin string
+	for _, path := range asteriskPaths {
+		if _, err := os.Stat(path); err == nil {
+			asteriskBin = path
+			break
+		}
+	}
+	
+	// Fallback to PATH if not found in common locations
+	if asteriskBin == "" {
+		asteriskBin = "asterisk"
+	}
+
 	// Try to reload via asterisk CLI
-	cmd := exec.Command("asterisk", "-rx", "module reload res_pjsip.so")
+	cmd := exec.Command(asteriskBin, "-rx", "module reload res_pjsip.so")
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {

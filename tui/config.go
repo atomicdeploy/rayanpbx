@@ -57,7 +57,10 @@ func LoadConfig() (*Config, error) {
 	if localEnvPath != rootEnvPath {
 		if _, err := os.Stat(localEnvPath); err == nil {
 			// godotenv.Overload will override existing env vars
-			godotenv.Overload(localEnvPath)
+			if err := godotenv.Overload(localEnvPath); err != nil {
+				// Log warning but don't fail - root config is already loaded
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load local .env file %s: %v\n", localEnvPath, err)
+			}
 		}
 	}
 	
