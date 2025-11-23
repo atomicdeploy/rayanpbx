@@ -273,6 +273,8 @@ done
 
 # Set up error trap after parsing arguments
 if [ "$VERBOSE" = true ]; then
+    # Use -E to inherit ERR trap in functions, command substitutions, and subshells
+    set -eE
     trap 'error_handler ${LINENO} "$BASH_COMMAND"' ERR
     print_verbose "Verbose mode enabled"
 fi
@@ -299,9 +301,9 @@ print_verbose "Root check passed"
 # Check Ubuntu version
 next_step "System Verification"
 print_verbose "Checking Ubuntu version..."
-print_verbose "Contents of /etc/os-release:"
+print_verbose "Reading OS release information..."
 if [ "$VERBOSE" = true ]; then
-    cat /etc/os-release | head -5
+    head -5 /etc/os-release
 fi
 
 if ! grep -q "24.04" /etc/os-release; then
@@ -569,25 +571,36 @@ fi
 print_progress "Creating RayanPBX database..."
 print_verbose "Generating random database password..."
 ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
-print_verbose "Database password generated (length: ${#ESCAPED_DB_PASSWORD})"
+print_verbose "Database password generated (random hex string)"
 
 print_verbose "Creating database and user..."
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
+# Use mysql --defaults-extra-file for secure password passing
+MYSQL_TMP_CNF=$(mktemp)
+cat > "$MYSQL_TMP_CNF" <<EOF
+[client]
+user=root
+password=$MYSQL_ROOT_PASSWORD
+EOF
+chmod 600 "$MYSQL_TMP_CNF"
+
+if mysql --defaults-extra-file="$MYSQL_TMP_CNF" <<EOSQL
 CREATE DATABASE IF NOT EXISTS rayanpbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON rayanpbx.* TO 'rayanpbx'@'localhost';
 FLUSH PRIVILEGES;
-EOF
+EOSQL
 then
     print_success "Database 'rayanpbx' created"
     print_verbose "Database user 'rayanpbx' created with privileges"
+    rm -f "$MYSQL_TMP_CNF"
 else
     print_error "Failed to create database"
     print_warning "Check your MySQL root password and database access"
     if [ "$VERBOSE" = true ]; then
-        print_verbose "Attempting to show MySQL error..."
-        mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW DATABASES;" 2>&1 | head -10
+        print_verbose "Attempting to verify MySQL connection..."
+        mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -10
     fi
+    rm -f "$MYSQL_TMP_CNF"
     exit 1
 fi
 
