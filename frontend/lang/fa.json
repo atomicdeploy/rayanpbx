@@ -1,0 +1,112 @@
+{
+  "app": {
+    "title": "رایان پی‌بی‌ایکس",
+    "subtitle": "مدیریت مدرن سرور SIP"
+  },
+  "nav": {
+    "dashboard": "داشبورد",
+    "extensions": "داخلی‌ها",
+    "trunks": "خطوط",
+    "logs": "گزارش‌ها",
+    "settings": "تنظیمات"
+  },
+  "auth": {
+    "login": "ورود",
+    "logout": "خروج",
+    "username": "نام کاربری",
+    "password": "رمز عبور",
+    "loginButton": "ورود به سیستم",
+    "loginError": "اطلاعات ورود نادرست است"
+  },
+  "dashboard": {
+    "title": "داشبورد",
+    "welcome": "به رایان پی‌بی‌ایکس خوش آمدید",
+    "systemStatus": "وضعیت سیستم",
+    "asterisk": "استریسک",
+    "database": "پایگاه داده",
+    "extensionsTitle": "داخلی‌ها",
+    "trunksTitle": "خطوط",
+    "total": "کل",
+    "active": "فعال",
+    "registered": "متصل",
+    "online": "آنلاین"
+  },
+  "extensions": {
+    "title": "داخلی‌ها",
+    "add": "افزودن داخلی",
+    "edit": "ویرایش داخلی",
+    "delete": "حذف داخلی",
+    "number": "شماره داخلی",
+    "name": "نام",
+    "email": "ایمیل",
+    "password": "رمز عبور",
+    "enabled": "فعال",
+    "status": "وضعیت",
+    "actions": "عملیات",
+    "notes": "یادداشت‌ها",
+    "callerID": "شناسه تماس",
+    "codecs": "کدک‌ها",
+    "voicemail": "پست صوتی",
+    "context": "زمینه",
+    "transport": "پروتکل",
+    "maxContacts": "حداکثر اتصال",
+    "save": "ذخیره",
+    "cancel": "انصراف",
+    "deleteConfirm": "آیا مطمئن هستید که می‌خواهید این داخلی را حذف کنید؟",
+    "created": "داخلی با موفقیت ایجاد شد",
+    "updated": "داخلی با موفقیت به‌روزرسانی شد",
+    "deleted": "داخلی با موفقیت حذف شد"
+  },
+  "trunks": {
+    "title": "خطوط",
+    "add": "افزودن خط",
+    "edit": "ویرایش خط",
+    "delete": "حذف خط",
+    "name": "نام",
+    "host": "میزبان",
+    "port": "پورت",
+    "username": "نام کاربری",
+    "password": "رمز عبور",
+    "enabled": "فعال",
+    "status": "وضعیت",
+    "actions": "عملیات",
+    "notes": "یادداشت‌ها",
+    "prefix": "پیشوند شماره‌گیری",
+    "stripDigits": "حذف ارقام",
+    "priority": "اولویت",
+    "maxChannels": "حداکثر کانال",
+    "codecs": "کدک‌ها",
+    "transport": "پروتکل",
+    "save": "ذخیره",
+    "cancel": "انصراف",
+    "deleteConfirm": "آیا مطمئن هستید که می‌خواهید این خط را حذف کنید؟",
+    "created": "خط با موفقیت ایجاد شد",
+    "updated": "خط با موفقیت به‌روزرسانی شد",
+    "deleted": "خط با موفقیت حذف شد"
+  },
+  "logs": {
+    "title": "گزارش‌های سیستم",
+    "refresh": "به‌روزرسانی",
+    "clear": "پاک‌سازی",
+    "level": "سطح",
+    "timestamp": "زمان",
+    "message": "پیام",
+    "source": "منبع"
+  },
+  "status": {
+    "running": "در حال اجرا",
+    "stopped": "متوقف",
+    "unknown": "نامشخص",
+    "registered": "متصل",
+    "offline": "آفلاین",
+    "online": "آنلاین"
+  },
+  "common": {
+    "loading": "در حال بارگذاری...",
+    "error": "خطا",
+    "success": "موفقیت",
+    "close": "بستن",
+    "search": "جستجو",
+    "filter": "فیلتر"
+  }
+}

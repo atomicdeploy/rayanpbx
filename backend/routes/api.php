@@ -1,0 +1,115 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ExtensionController;
+use App\Http\Controllers\Api\TrunkController;
+use App\Http\Controllers\Api\StatusController;
+use App\Http\Controllers\Api\LogController;
+use App\Http\Controllers\Api\ConsoleController;
+use App\Http\Controllers\Api\HelpController;
+use App\Http\Controllers\Api\TrafficController;
+use App\Http\Controllers\Api\AsteriskStatusController;
+use App\Http\Controllers\Api\ValidationController;
+use App\Http\Controllers\Api\GrandStreamController;
+
+// Public routes
+Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/refresh', [AuthController::class, 'refresh']);
+
+// Protected routes
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::get('/auth/user', [AuthController::class, 'user']);
+    
+    // Extensions
+    Route::get('/extensions', [ExtensionController::class, 'index']);
+    Route::post('/extensions', [ExtensionController::class, 'store']);
+    Route::get('/extensions/{id}', [ExtensionController::class, 'show']);
+    Route::put('/extensions/{id}', [ExtensionController::class, 'update']);
+    Route::delete('/extensions/{id}', [ExtensionController::class, 'destroy']);
+    Route::post('/extensions/{id}/toggle', [ExtensionController::class, 'toggle']);
+    
+    // Trunks
+    Route::get('/trunks', [TrunkController::class, 'index']);
+    Route::post('/trunks', [TrunkController::class, 'store']);
+    Route::get('/trunks/{id}', [TrunkController::class, 'show']);
+    Route::put('/trunks/{id}', [TrunkController::class, 'update']);
+    Route::delete('/trunks/{id}', [TrunkController::class, 'destroy']);
+    
+    // Status & Monitoring
+    Route::get('/status', [StatusController::class, 'index']);
+    Route::get('/status/extensions', [StatusController::class, 'extensions']);
+    Route::get('/status/trunks', [StatusController::class, 'trunks']);
+    
+    // Logs
+    Route::get('/logs', [LogController::class, 'index']);
+    Route::get('/logs/stream', [LogController::class, 'stream']);
+    
+    // Asterisk Console
+    Route::post('/console/execute', [ConsoleController::class, 'execute']);
+    Route::get('/console/output', [ConsoleController::class, 'output']);
+    Route::get('/console/commands', [ConsoleController::class, 'commands']);
+    Route::get('/console/version', [ConsoleController::class, 'version']);
+    Route::get('/console/calls', [ConsoleController::class, 'calls']);
+    Route::get('/console/channels', [ConsoleController::class, 'channels']);
+    Route::get('/console/endpoints', [ConsoleController::class, 'endpoints']);
+    Route::get('/console/registrations', [ConsoleController::class, 'registrations']);
+    Route::post('/console/reload', [ConsoleController::class, 'reload']);
+    Route::post('/console/hangup', [ConsoleController::class, 'hangup']);
+    Route::post('/console/originate', [ConsoleController::class, 'originate']);
+    Route::get('/console/dialplan', [ConsoleController::class, 'dialplan']);
+    Route::get('/console/peers', [ConsoleController::class, 'peers']);
+    Route::get('/console/session', [ConsoleController::class, 'session']);
+    
+    // AI Help & Explanations
+    Route::post('/help/explain', [HelpController::class, 'explain']);
+    Route::post('/help/error', [HelpController::class, 'explainError']);
+    Route::post('/help/codec', [HelpController::class, 'explainCodec']);
+    Route::post('/help/field', [HelpController::class, 'getFieldHelp']);
+    Route::post('/help/batch', [HelpController::class, 'explainBatch']);
+    
+    // Traffic Analysis
+    Route::post('/traffic/start', [TrafficController::class, 'start']);
+    Route::post('/traffic/stop', [TrafficController::class, 'stop']);
+    Route::get('/traffic/status', [TrafficController::class, 'status']);
+    Route::get('/traffic/analyze', [TrafficController::class, 'analyze']);
+    Route::post('/traffic/clear', [TrafficController::class, 'clear']);
+    
+    // Asterisk Real-time Status
+    Route::post('/asterisk/endpoint/status', [AsteriskStatusController::class, 'getEndpointStatus']);
+    Route::get('/asterisk/endpoints', [AsteriskStatusController::class, 'getAllEndpoints']);
+    Route::post('/asterisk/channel/codec', [AsteriskStatusController::class, 'getChannelCodec']);
+    Route::post('/asterisk/channel/rtp', [AsteriskStatusController::class, 'getRTPStats']);
+    Route::post('/asterisk/trunk/status', [AsteriskStatusController::class, 'getTrunkStatus']);
+    Route::get('/asterisk/status/complete', [AsteriskStatusController::class, 'getCompleteStatus']);
+    
+    // Configuration Validation & Testing
+    Route::post('/validate/pjsip', [ValidationController::class, 'validatePjsip']);
+    Route::post('/validate/dialplan', [ValidationController::class, 'validateDialplan']);
+    Route::post('/validate/analyze', [ValidationController::class, 'analyzeConfig']);
+    Route::get('/validate/trunk/{name}', [ValidationController::class, 'validateTrunk']);
+    Route::get('/validate/extension/{extension}', [ValidationController::class, 'validateExtension']);
+    Route::post('/validate/routing', [ValidationController::class, 'testRouting']);
+    Route::get('/validate/hooks/registration', [ValidationController::class, 'getRegistrationHooks']);
+    Route::get('/validate/hooks/grandstream', [ValidationController::class, 'getGrandstreamHooks']);
+    
+    // GrandStream Phone Provisioning
+    Route::get('/grandstream/devices', [GrandStreamController::class, 'listDevices']);
+    Route::post('/grandstream/scan', [GrandStreamController::class, 'scanNetwork']);
+    Route::get('/grandstream/provision/{mac}', [GrandStreamController::class, 'getProvisioningConfig'])->name('grandstream.provision');
+    Route::post('/grandstream/configure/{mac}', [GrandStreamController::class, 'configurePhone']);
+    Route::get('/grandstream/status/{mac}', [GrandStreamController::class, 'getPhoneStatus']);
+    Route::post('/grandstream/assign-extension', [GrandStreamController::class, 'assignExtension']);
+    Route::get('/grandstream/models', [GrandStreamController::class, 'getSupportedModels']);
+    Route::get('/grandstream/hooks', [GrandStreamController::class, 'getProvisioningHooks']);
+});
+
+// Health check endpoint (public)
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'healthy',
+        'timestamp' => now()->toISOString(),
+        'version' => '1.0.0',
+    ]);
+});
