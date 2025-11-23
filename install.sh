@@ -1574,12 +1574,22 @@ chown -R www-data:www-data /opt/rayanpbx/backend
 print_verbose "Setting permissions for Laravel storage and cache directories..."
 # Storage directory needs to be writable by web server
 if [ -d /opt/rayanpbx/backend/storage ]; then
-    chmod -R 775 /opt/rayanpbx/backend/storage
+    # Set directories to 775
+    find /opt/rayanpbx/backend/storage -type d -exec chmod 775 {} \;
+    # Set regular files to 664 (readable/writable by owner and group)
+    find /opt/rayanpbx/backend/storage -type f -exec chmod 664 {} \;
+    # .gitignore files should be 644 (not executable, readable by all)
+    find /opt/rayanpbx/backend/storage -type f -name ".gitignore" -exec chmod 644 {} \;
     print_verbose "Set permissions on storage directory"
 fi
 
 if [ -d /opt/rayanpbx/backend/bootstrap/cache ]; then
-    chmod -R 775 /opt/rayanpbx/backend/bootstrap/cache
+    # Set directories to 775
+    find /opt/rayanpbx/backend/bootstrap/cache -type d -exec chmod 775 {} \;
+    # Set regular files to 664 (readable/writable by owner and group)
+    find /opt/rayanpbx/backend/bootstrap/cache -type f -exec chmod 664 {} \;
+    # .gitignore files should be 644 (not executable, readable by all)
+    find /opt/rayanpbx/backend/bootstrap/cache -type f -name ".gitignore" -exec chmod 644 {} \;
     print_verbose "Set permissions on bootstrap/cache directory"
 fi
 
@@ -1622,24 +1632,15 @@ next_step "TUI (Terminal UI) Build"
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
 
-# Force use of local toolchain to avoid downloading a different version
+# Use local toolchain without modifying go.mod
+# go.mod is set to minimum supported version (1.22)
 export GOTOOLCHAIN=local
-print_verbose "Set GOTOOLCHAIN=local to use installed toolchain"
+print_verbose "Set GOTOOLCHAIN=local to use installed Go toolchain"
 
-# Detect installed Go version and update go.mod to use it
 INSTALLED_GO_VERSION=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+' || echo "")
 if [ -n "$INSTALLED_GO_VERSION" ]; then
     print_verbose "Detected Go version: $INSTALLED_GO_VERSION"
-    print_verbose "Updating go.mod to use installed Go version..."
-    
-    # Update go.mod to use the installed Go version
-    sed -i -E "s/^go [0-9]+\.[0-9]+$/go $INSTALLED_GO_VERSION/" go.mod
-    
-    # Verify the change
-    GO_MOD_VERSION=$(grep "^go " go.mod | awk '{print $2}')
-    print_verbose "go.mod now specifies: go $GO_MOD_VERSION"
-else
-    print_warning "Could not detect Go version, using go.mod as-is"
+    print_verbose "Building with installed Go toolchain (go.mod requires 1.22+)"
 fi
 
 go mod download
@@ -1855,6 +1856,9 @@ echo -e "  ${DIM}Logs:${RESET}          /var/log/rayanpbx/"
 echo ""
 
 echo -e "${BOLD}${CYAN}🛠️  Useful Commands:${RESET}"
+echo -e "  ${DIM}RayanPBX TUI:${RESET}      ${WHITE}rayanpbx-tui${RESET}   ${GREEN}(Interactive Terminal UI!)${RESET}"
+echo -e "  ${DIM}RayanPBX CLI:${RESET}      ${WHITE}rayanpbx-cli help${RESET}"
+echo -e "  ${DIM}Health check:${RESET}      ${WHITE}rayanpbx-cli diag health-check${RESET}"
 echo -e "  ${DIM}View services:${RESET}     pm2 list"
 echo -e "  ${DIM}View logs:${RESET}         pm2 logs"
 echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv   ${GREEN}(Recommended!)${RESET}"
@@ -1879,9 +1883,17 @@ echo ""
 
 echo -e "${BOLD}${CYAN}⚠️  Security Notice:${RESET}"
 echo -e "  ${YELLOW}Debug mode is ENABLED${RESET} for easier troubleshooting during setup."
-echo -e "  ${DIM}File: /opt/rayanpbx/.env (APP_DEBUG=true)${RESET}"
+echo -e "  ${DIM}File: /opt/rayanpbx/.env (APP_DEBUG=true, APP_ENV=development)${RESET}"
 echo ""
-echo -e "  ${BOLD}For production use:${RESET}"
+echo -e "  ${BOLD}For production use, choose one of these methods:${RESET}"
+echo -e ""
+echo -e "  ${CYAN}${BOLD}Method 1: Using CLI (Recommended)${RESET}"
+echo -e "  ${WHITE}rayanpbx-cli system set-mode production${RESET}"
+echo -e ""
+echo -e "  ${CYAN}${BOLD}Method 2: Using TUI${RESET}"
+echo -e "  ${WHITE}rayanpbx-tui${RESET} ${DIM}(then navigate to System Settings)${RESET}"
+echo -e ""
+echo -e "  ${CYAN}${BOLD}Method 3: Manually${RESET}"
 echo -e "  ${WHITE}1.${RESET} Edit ${CYAN}/opt/rayanpbx/.env${RESET}"
 echo -e "  ${WHITE}2.${RESET} Set ${CYAN}APP_DEBUG=false${RESET} and ${CYAN}APP_ENV=production${RESET}"
 echo -e "  ${WHITE}3.${RESET} Restart: ${CYAN}systemctl restart rayanpbx-api${RESET}"

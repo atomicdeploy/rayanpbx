@@ -33,6 +33,8 @@ type Config struct {
 	DBPassword string
 	APIBaseURL string
 	JWTSecret  string
+	AppEnv     string
+	AppDebug   bool
 }
 
 // LoadConfig loads configuration from multiple .env file paths in priority order.
@@ -98,6 +100,8 @@ func LoadConfig() (*Config, error) {
 		DBPassword: getEnv("DB_PASSWORD", ""),
 		APIBaseURL: getEnv("API_BASE_URL", "http://localhost:8000"),
 		JWTSecret:  getEnv("JWT_SECRET", ""),
+		AppEnv:     getEnv("APP_ENV", "production"),
+		AppDebug:   getEnv("APP_DEBUG", "false") == "true",
 	}
 
 	return config, nil

@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
 use App\Http\Controllers\Api\ValidationController;
 use App\Http\Controllers\Api\GrandStreamController;
+use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\PjsipConfigController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -29,6 +31,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/extensions/{id}', [ExtensionController::class, 'update']);
     Route::delete('/extensions/{id}', [ExtensionController::class, 'destroy']);
     Route::post('/extensions/{id}/toggle', [ExtensionController::class, 'toggle']);
+    Route::get('/extensions/{id}/verify', [ExtensionController::class, 'verify']);
+    Route::get('/extensions/asterisk/endpoints', [ExtensionController::class, 'asteriskEndpoints']);
     
     // Trunks
     Route::get('/trunks', [TrunkController::class, 'index']);
@@ -103,6 +107,18 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/assign-extension', [GrandStreamController::class, 'assignExtension']);
     Route::get('/grandstream/models', [GrandStreamController::class, 'getSupportedModels']);
     Route::get('/grandstream/hooks', [GrandStreamController::class, 'getProvisioningHooks']);
+    
+    // AMI Event Monitoring
+    Route::get('/events', [EventController::class, 'index']);
+    Route::get('/events/registrations', [EventController::class, 'registrations']);
+    Route::get('/events/calls', [EventController::class, 'calls']);
+    Route::get('/events/extension/{extension}', [EventController::class, 'extensionStatus']);
+    Route::post('/events/clear', [EventController::class, 'clear']);
+    
+    // PJSIP Global Configuration
+    Route::get('/pjsip/config/global', [PjsipConfigController::class, 'getGlobal']);
+    Route::post('/pjsip/config/external-media', [PjsipConfigController::class, 'updateExternalMedia']);
+    Route::post('/pjsip/config/transport', [PjsipConfigController::class, 'updateTransport']);
 });
 
 // Health check endpoint (public)
@@ -140,6 +156,15 @@ Route::get('/health', function () {
         $asteriskStatus = 'stopped';
     }
     
+    // Check CORS configuration
+    $corsAllowedOrigins = config('cors.allowed_origins', []);
+    $corsConfig = [
+        'enabled' => !empty($corsAllowedOrigins),
+        'allowed_origins' => $corsAllowedOrigins,
+        'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+        'additional_origins' => env('CORS_ALLOWED_ORIGINS', ''),
+    ];
+    
     return response()->json([
         'status' => 'healthy',
         'timestamp' => now()->toISOString(),
@@ -151,6 +176,8 @@ Route::get('/health', function () {
         'app' => [
             'name' => config('app.name', 'RayanPBX'),
             'env' => config('app.env'),
+            'debug' => (bool) config('app.debug'),
         ],
+        'cors' => $corsConfig,
     ]);
 });

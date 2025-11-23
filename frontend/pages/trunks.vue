@@ -228,7 +228,7 @@ const deleteTrunk = async (trunk: any) => {
 
   try {
     await api.deleteTrunk(trunk.id)
-    await fetchTrunks()
+    // WebSocket will trigger removal via event
   } catch (error) {
     console.error('Error deleting trunk:', error)
   }
@@ -244,7 +244,7 @@ const saveTrunk = async () => {
     }
     showModal.value = false
     resetForm()
-    await fetchTrunks()
+    // WebSocket will trigger refresh via event
   } catch (error) {
     console.error('Error saving trunk:', error)
   }
@@ -275,5 +275,26 @@ onMounted(async () => {
     return
   }
   await fetchTrunks()
+  
+  // Connect to WebSocket
+  const ws = useWebSocket()
+  ws.connect()
+  
+  // Listen for trunk events
+  ws.on('trunk.created', async (payload) => {
+    console.log('Trunk created:', payload)
+    await fetchTrunks()
+  })
+  
+  ws.on('trunk.updated', async (payload) => {
+    console.log('Trunk updated:', payload)
+    await fetchTrunks()
+  })
+  
+  ws.on('trunk.deleted', (payload) => {
+    console.log('Trunk deleted:', payload)
+    // Remove from local list
+    trunks.value = trunks.value.filter(t => t.id !== payload.id)
+  })
 })
 </script>

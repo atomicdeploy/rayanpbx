@@ -5,15 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Extension;
 use App\Adapters\AsteriskAdapter;
+use App\Services\EventBroadcastService;
 use Illuminate\Http\Request;
 
 class ExtensionController extends Controller
 {
     private $asterisk;
+    private $broadcaster;
     
-    public function __construct(AsteriskAdapter $asterisk)
+    public function __construct(AsteriskAdapter $asterisk, EventBroadcastService $broadcaster)
     {
         $this->asterisk = $asterisk;
+        $this->broadcaster = $broadcaster;
     }
     
     /**
@@ -23,12 +26,30 @@ class ExtensionController extends Controller
     {
         $extensions = Extension::orderBy('extension_number')->get();
         
-        // Enrich with real-time status
+        // Get all PJSIP endpoints from Asterisk
+        $asteriskEndpoints = $this->asterisk->getAllPjsipEndpoints();
+        
+        // Enrich with real-time status from Asterisk
         foreach ($extensions as $extension) {
-            $extension->status = $this->asterisk->getExtensionStatus($extension->extension_number);
+            $registrationStatus = $this->asterisk->getEndpointRegistrationStatus($extension->extension_number);
+            $extension->registered = $registrationStatus['registered'];
+            $extension->asterisk_status = $registrationStatus['status'];
+            $extension->contact_count = $registrationStatus['contacts'];
+            
+            // Add additional details if available
+            if (isset($registrationStatus['details']['contacts'][0])) {
+                $contact = $registrationStatus['details']['contacts'][0];
+                if (preg_match('/@([\d.]+):(\d+)/', $contact['uri'], $matches)) {
+                    $extension->ip_address = $matches[1];
+                    $extension->port = $matches[2];
+                }
+            }
         }
         
-        return response()->json(['extensions' => $extensions]);
+        return response()->json([
+            'extensions' => $extensions,
+            'asterisk_endpoints' => $asteriskEndpoints,
+        ]);
     }
     
     /**
@@ -56,16 +77,32 @@ class ExtensionController extends Controller
         
         $extension = Extension::create($validated);
         
+        // Ensure transport configuration exists
+        $this->asterisk->ensureTransportConfig();
+        
         // Generate and write PJSIP configuration
         $config = $this->asterisk->generatePjsipEndpoint($extension);
         $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
         
+        // Regenerate internal dialplan for all extensions
+        $allExtensions = Extension::where('enabled', true)->get();
+        $dialplanConfig = $this->asterisk->generateInternalDialplan($allExtensions);
+        $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
+        
         // Reload Asterisk
-        $this->asterisk->reload();
+        $reloadSuccess = $this->asterisk->reload();
+        
+        // Verify endpoint was created in Asterisk
+        $verified = $this->asterisk->verifyEndpointExists($extension->extension_number);
+        
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionCreated($extension->toArray());
         
         return response()->json([
             'message' => 'Extension created successfully',
-            'extension' => $extension
+            'extension' => $extension,
+            'asterisk_verified' => $verified,
+            'reload_success' => $reloadSuccess,
         ], 201);
     }
     
@@ -112,6 +149,9 @@ class ExtensionController extends Controller
         $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
         $this->asterisk->reload();
         
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionUpdated($extension->toArray());
+        
         return response()->json([
             'message' => 'Extension updated successfully',
             'extension' => $extension
@@ -134,6 +174,9 @@ class ExtensionController extends Controller
         // Reload Asterisk
         $this->asterisk->reload();
         
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionDeleted($id, $extensionNumber);
+        
         return response()->json([
             'message' => 'Extension deleted successfully'
         ]);
@@ -151,11 +194,58 @@ class ExtensionController extends Controller
         // Regenerate configuration
         $config = $this->asterisk->generatePjsipEndpoint($extension);
         $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+        
+        // Regenerate dialplan for all enabled extensions
+        $allExtensions = Extension::where('enabled', true)->get();
+        $dialplanConfig = $this->asterisk->generateInternalDialplan($allExtensions);
+        $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
+        
         $this->asterisk->reload();
+        
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionUpdated($extension->toArray());
         
         return response()->json([
             'message' => 'Extension status updated',
             'extension' => $extension
+        ]);
+    }
+    
+    /**
+     * Verify extension in Asterisk
+     */
+    public function verify($id)
+    {
+        $extension = Extension::findOrFail($id);
+        
+        // Get detailed status from Asterisk
+        $registrationStatus = $this->asterisk->getEndpointRegistrationStatus($extension->extension_number);
+        $endpointDetails = $this->asterisk->getPjsipEndpoint($extension->extension_number);
+        
+        return response()->json([
+            'extension' => $extension,
+            'exists_in_asterisk' => $endpointDetails !== null,
+            'registration_status' => $registrationStatus,
+            'endpoint_details' => $endpointDetails,
+        ]);
+    }
+    
+    /**
+     * Get all endpoints from Asterisk (not just DB)
+     */
+    public function asteriskEndpoints()
+    {
+        $asteriskEndpoints = $this->asterisk->getAllPjsipEndpoints();
+        $dbExtensions = Extension::pluck('extension_number')->toArray();
+        
+        // Mark which endpoints are managed by RayanPBX
+        foreach ($asteriskEndpoints as &$endpoint) {
+            $endpoint['managed'] = in_array($endpoint['name'], $dbExtensions);
+        }
+        
+        return response()->json([
+            'endpoints' => $asteriskEndpoints,
+            'total' => count($asteriskEndpoints),
         ]);
     }
 }
