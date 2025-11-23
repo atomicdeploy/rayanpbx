@@ -806,7 +806,7 @@ if command -v asterisk &> /dev/null; then
         SKIP_ASTERISK=1
     else
         print_warning "Asterisk $ASTERISK_VERSION found (version 22+ recommended)"
-        read -p "$(echo -e ${YELLOW}Upgrade to Asterisk 22? \(y/n\)${RESET} )" -n 1 -r
+        read -p "$(echo -e ${YELLOW}Upgrade to Asterisk 22? \(y/n\) ${RESET})" -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             SKIP_ASTERISK=1
