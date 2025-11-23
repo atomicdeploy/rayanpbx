@@ -158,7 +158,7 @@ normalize_env_file() {
         fi
         
         # Parse key=value
-        if [[ $line =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]]; then
+        if [[ $line =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
             local key="${BASH_REMATCH[1]}"
             local value="${BASH_REMATCH[2]}"
             env_vars[$key]="$value"
@@ -188,20 +188,18 @@ HEADER
         fi
     done
     
+    # Build associative array for O(1) lookups
+    declare -A canonical_set
+    for key in "${CANONICAL_ORDER[@]}"; do
+        canonical_set[$key]=1
+    done
+    
     # Write any remaining variables not in canonical order at the end
     echo "" >> "$temp_file"
     echo "# Additional variables" >> "$temp_file"
     for key in "${!env_vars[@]}"; do
-        # Check if key is in canonical order
-        local found=0
-        for canonical_key in "${CANONICAL_ORDER[@]}"; do
-            if [ "$key" = "$canonical_key" ]; then
-                found=1
-                break
-            fi
-        done
-        
-        if [ $found -eq 0 ]; then
+        # Check if key is in canonical order using O(1) lookup
+        if [ -z "${canonical_set[$key]:-}" ]; then
             echo "${key}=${env_vars[$key]}" >> "$temp_file"
         fi
     done
