@@ -6,6 +6,12 @@ use Illuminate\Redis\RedisManager;
 use Illuminate\Support\Arr;
 use Illuminate\Support\ServiceProvider;
 
+/**
+ * Custom Redis Service Provider with automatic fallback from phpredis to predis.
+ *
+ * This provider overrides Laravel's default RedisServiceProvider to add automatic
+ * fallback logic when the PHP Redis extension is not available.
+ */
 class RedisServiceProvider extends ServiceProvider
 {
     /**
@@ -16,8 +22,8 @@ class RedisServiceProvider extends ServiceProvider
         $this->app->singleton('redis', function ($app) {
             $config = $app->make('config')->get('database.redis', []);
 
-            // Get the desired client type
-            $client = Arr::pull($config, 'client', 'phpredis');
+            // Get the desired client type (without modifying the config)
+            $client = Arr::get($config, 'client', 'phpredis');
 
             // Try to use phpredis first if it's available
             if ($client === 'phpredis' && ! extension_loaded('redis')) {
@@ -28,6 +34,9 @@ class RedisServiceProvider extends ServiceProvider
 
                 // Fallback to predis
                 $client = 'predis';
+
+                // Update the client in config for this request
+                $config['client'] = $client;
             }
 
             return new RedisManager($app, $client, $config);
