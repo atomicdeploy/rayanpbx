@@ -253,11 +253,13 @@ go build -o rayanpbx-tui main.go config.go
 
 ```
 ╭─────────────────────────────────────────────────────╮
-│  📖 User Guide:     /docs/user-guide.md           │
-│  🔧 API Docs:       /docs/api.md                  │
-│  🏗️  Architecture:   /docs/architecture.md         │
-│  🚀 Deployment:     /docs/deployment.md           │
-│  🔐 Security:       /docs/security.md             │
+│  📖 User Guide:          /docs/user-guide.md       │
+│  🔧 API Docs:            /docs/api.md              │
+│  🏗️  Architecture:        /docs/architecture.md     │
+│  🚀 Deployment:          /docs/deployment.md       │
+│  🔐 Security:            /docs/security.md         │
+│  🌐 CORS Configuration:  CORS_CONFIGURATION.md     │
+│  📝 Command Options:     COMMAND_LINE_OPTIONS.md   │
 ╰─────────────────────────────────────────────────────╯
 ```
 

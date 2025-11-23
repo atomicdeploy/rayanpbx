@@ -23,11 +23,12 @@ return [
         [
             env('FRONTEND_URL', 'http://localhost:3000'),
             env('APP_URL', 'http://localhost:3000'),
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
         ],
         // Support for comma-separated CORS_ALLOWED_ORIGINS env variable
-        env('CORS_ALLOWED_ORIGINS') ? explode(',', env('CORS_ALLOWED_ORIGINS')) : []
+        // Trim whitespace to prevent issues with spaces in configuration
+        env('CORS_ALLOWED_ORIGINS') 
+            ? array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS'))) 
+            : []
     )),
 
     'allowed_origins_patterns' => [],
