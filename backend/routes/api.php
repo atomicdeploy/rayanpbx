@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
 use App\Http\Controllers\Api\ValidationController;
 use App\Http\Controllers\Api\GrandStreamController;
+use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\PjsipConfigController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -105,6 +107,18 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/assign-extension', [GrandStreamController::class, 'assignExtension']);
     Route::get('/grandstream/models', [GrandStreamController::class, 'getSupportedModels']);
     Route::get('/grandstream/hooks', [GrandStreamController::class, 'getProvisioningHooks']);
+    
+    // AMI Event Monitoring
+    Route::get('/events', [EventController::class, 'index']);
+    Route::get('/events/registrations', [EventController::class, 'registrations']);
+    Route::get('/events/calls', [EventController::class, 'calls']);
+    Route::get('/events/extension/{extension}', [EventController::class, 'extensionStatus']);
+    Route::post('/events/clear', [EventController::class, 'clear']);
+    
+    // PJSIP Global Configuration
+    Route::get('/pjsip/config/global', [PjsipConfigController::class, 'getGlobal']);
+    Route::post('/pjsip/config/external-media', [PjsipConfigController::class, 'updateExternalMedia']);
+    Route::post('/pjsip/config/transport', [PjsipConfigController::class, 'updateTransport']);
 });
 
 // Health check endpoint (public)
