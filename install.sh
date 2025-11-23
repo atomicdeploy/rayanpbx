@@ -830,6 +830,54 @@ if ! check_installed "gh" "GitHub CLI"; then
     fi
 fi
 
+# ════════════════════════════════════════════════════════════════════════
+# MySQL/MariaDB Helper Functions
+# ════════════════════════════════════════════════════════════════════════
+
+check_rayanpbx_user_privileges() {
+    local db_user="$1"
+    local db_password="$2"
+    local db_name="${3:-rayanpbx}"
+    
+    print_verbose "Testing if user '$db_user' has sufficient privileges..."
+    
+    # Create temporary config file for secure password passing
+    local temp_cnf=$(mktemp)
+    cat > "$temp_cnf" <<EOF
+[client]
+user=$db_user
+password=$db_password
+EOF
+    chmod 600 "$temp_cnf"
+    
+    # Test if user can connect to database
+    if ! mysql --defaults-extra-file="$temp_cnf" -e "SELECT 1;" &> /dev/null; then
+        print_verbose "User '$db_user' cannot connect to MySQL"
+        rm -f "$temp_cnf"
+        return 1
+    fi
+    
+    # Test if database exists and user has access
+    if mysql --defaults-extra-file="$temp_cnf" -e "USE $db_name;" &> /dev/null; then
+        print_verbose "User '$db_user' has access to database '$db_name'"
+        
+        # Test if user can create tables (sufficient for migrations)
+        if mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "CREATE TABLE IF NOT EXISTS _rayanpbx_test_privileges (id INT); DROP TABLE IF EXISTS _rayanpbx_test_privileges;" &> /dev/null; then
+            print_verbose "User '$db_user' has sufficient privileges for database operations"
+            rm -f "$temp_cnf"
+            return 0
+        else
+            print_verbose "User '$db_user' cannot create tables in database '$db_name'"
+            rm -f "$temp_cnf"
+            return 1
+        fi
+    else
+        print_verbose "Database '$db_name' does not exist or user lacks access"
+        rm -f "$temp_cnf"
+        return 1
+    fi
+}
+
 # MySQL/MariaDB Installation
 next_step "Database Setup (MySQL/MariaDB)"
 print_verbose "Checking for MySQL/MariaDB..."
@@ -905,46 +953,87 @@ EOF
 else
     print_success "MySQL/MariaDB already installed"
     print_verbose "MySQL version: $(mysql --version)"
+fi
+
+# Check if we're in an upgrade scenario with existing credentials
+NEED_ROOT_PASSWORD=true
+USE_EXISTING_CREDENTIALS=false
+
+if [ -f "/opt/rayanpbx/.env" ]; then
+    print_verbose "Found existing .env file, checking for database credentials..."
+    
+    # Try to extract existing credentials from .env
+    EXISTING_DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    EXISTING_DB_PASSWORD=$(grep "^DB_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    EXISTING_DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    
+    if [ -n "$EXISTING_DB_USER" ] && [ -n "$EXISTING_DB_PASSWORD" ]; then
+        print_verbose "Found existing credentials for user: $EXISTING_DB_USER"
+        print_info "Testing existing database credentials..."
+        
+        if check_rayanpbx_user_privileges "$EXISTING_DB_USER" "$EXISTING_DB_PASSWORD" "${EXISTING_DB_NAME:-rayanpbx}"; then
+            print_success "Existing database user has sufficient privileges"
+            NEED_ROOT_PASSWORD=false
+            USE_EXISTING_CREDENTIALS=true
+            ESCAPED_DB_PASSWORD="$EXISTING_DB_PASSWORD"
+            print_verbose "Will use existing database credentials, no root password needed"
+        else
+            print_warning "Existing database user lacks sufficient privileges"
+            print_info "Root password will be needed to fix database permissions"
+        fi
+    else
+        print_verbose "No valid credentials found in existing .env file"
+    fi
+fi
+
+# Only ask for root password if we actually need it
+if [ "$NEED_ROOT_PASSWORD" = true ]; then
+    print_info "Root password is required to set up or update database"
     read -sp "$(echo -e ${CYAN}Enter MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
     echo
 fi
 
-# Create RayanPBX database
-print_progress "Creating RayanPBX database..."
-print_verbose "Generating random database password..."
-ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
-print_verbose "Database password generated (random hex string)"
-
-print_verbose "Creating database and user..."
-# Use mysql --defaults-extra-file for secure password passing
-MYSQL_TMP_CNF=$(mktemp)
-cat > "$MYSQL_TMP_CNF" <<EOF
+# Create or update RayanPBX database
+if [ "$USE_EXISTING_CREDENTIALS" = false ]; then
+    print_progress "Setting up RayanPBX database..."
+    print_verbose "Generating random database password..."
+    ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
+    print_verbose "Database password generated (random hex string)"
+    
+    print_verbose "Creating database and user..."
+    # Use mysql --defaults-extra-file for secure password passing
+    MYSQL_TMP_CNF=$(mktemp)
+    cat > "$MYSQL_TMP_CNF" <<EOF
 [client]
 user=root
 password=$MYSQL_ROOT_PASSWORD
 EOF
-chmod 600 "$MYSQL_TMP_CNF"
-
-if mysql --defaults-extra-file="$MYSQL_TMP_CNF" <<EOSQL
+    chmod 600 "$MYSQL_TMP_CNF"
+    
+    if mysql --defaults-extra-file="$MYSQL_TMP_CNF" <<EOSQL
 CREATE DATABASE IF NOT EXISTS rayanpbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
 ALTER USER 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON rayanpbx.* TO 'rayanpbx'@'localhost';
 FLUSH PRIVILEGES;
 EOSQL
-then
-    print_success "Database 'rayanpbx' created"
-    print_verbose "Database user 'rayanpbx' created with privileges"
-    rm -f "$MYSQL_TMP_CNF"
-else
-    print_error "Failed to create database"
-    print_warning "Check your MySQL root password and database access"
-    if [ "$VERBOSE" = true ]; then
-        print_verbose "Attempting to verify MySQL connection..."
-        mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -n 10
+    then
+        print_success "Database 'rayanpbx' created"
+        print_verbose "Database user 'rayanpbx' created with privileges"
+        rm -f "$MYSQL_TMP_CNF"
+    else
+        print_error "Failed to create database"
+        print_warning "Check your MySQL root password and database access"
+        if [ "$VERBOSE" = true ]; then
+            print_verbose "Attempting to verify MySQL connection..."
+            mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -n 10
+        fi
+        rm -f "$MYSQL_TMP_CNF"
+        exit 1
     fi
-    rm -f "$MYSQL_TMP_CNF"
-    exit 1
+else
+    print_success "Using existing database configuration"
+    print_verbose "Database: ${EXISTING_DB_NAME:-rayanpbx}, User: $EXISTING_DB_USER"
 fi
 
 # PHP 8.3 Installation
