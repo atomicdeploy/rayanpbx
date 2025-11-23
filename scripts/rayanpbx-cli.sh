@@ -10,7 +10,7 @@ VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION_FILE="$SCRIPT_DIR/../VERSION"
 if [ -f "$VERSION_FILE" ]; then
-    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+    VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
 fi
 
 # Colors
@@ -42,6 +42,7 @@ ENV_FILE="$RAYANPBX_ROOT/.env"
 
 # Load configuration
 if [ -f "$ENV_FILE" ]; then
+    # shellcheck source=/dev/null
     source "$ENV_FILE"
     API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
 fi
@@ -363,7 +364,8 @@ cmd_config_get() {
     fi
     
     # Get value from .env file
-    local value=$(grep "^${key}=" "$ENV_FILE" | cut -d'=' -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/')
+    local value
+    value=$(grep "^${key}=" "$ENV_FILE" | cut -d'=' -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/')
     
     if [ -z "$value" ]; then
         print_warn "Key '$key' not found in configuration"
