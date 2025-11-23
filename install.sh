@@ -845,6 +845,8 @@ check_rayanpbx_user_privileges() {
     # Set restrictive umask to prevent race condition
     local old_umask=$(umask)
     umask 077
+    # Ensure umask is restored even on unexpected exit
+    trap "umask $old_umask" RETURN
     local temp_cnf=$(mktemp)
     umask "$old_umask"
     
@@ -1010,8 +1012,10 @@ if [ "$USE_EXISTING_CREDENTIALS" = false ]; then
     print_verbose "Creating database and user..."
     # Use mysql --defaults-extra-file for secure password passing
     # Set restrictive umask to prevent race condition
-    old_umask=$(umask)
+    local old_umask=$(umask)
     umask 077
+    # Ensure umask is restored even on unexpected exit
+    trap "umask $old_umask" RETURN
     MYSQL_TMP_CNF=$(mktemp)
     umask "$old_umask"
     
