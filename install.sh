@@ -426,6 +426,29 @@ PACKAGES=(
     lolcat
     redis-server
     cron
+    htop
+    sngrep
+    dialog
+    vim
+    net-tools
+    ipset
+    iptables
+    fail2ban
+    sox
+    libsox-fmt-all
+    ffmpeg
+    lame
+    mpg123
+    libtiff-tools
+    ghostscript
+    postfix
+    mailutils
+    jq
+    expect
+    ntp
+    python3-pip
+    openvpn
+    knockd
 )
 
 print_info "Installing essential packages..."
@@ -1082,6 +1105,285 @@ print_info "Configuring cron jobs..."
 
 print_success "Cron jobs configured"
 
+# Configure Fail2ban
+next_step "Security Configuration (Fail2ban)"
+print_info "Configuring Fail2ban for Asterisk protection..."
+
+if command -v fail2ban-client &> /dev/null; then
+    # Create Asterisk jail configuration
+    cat > /etc/fail2ban/jail.d/asterisk.conf << 'EOF'
+[asterisk]
+enabled = true
+port = 5060,5061
+protocol = udp
+filter = asterisk
+logpath = /var/log/asterisk/full
+maxretry = 5
+bantime = 3600
+findtime = 600
+
+[asterisk-tcp]
+enabled = true
+port = 5060,5061
+protocol = tcp
+filter = asterisk
+logpath = /var/log/asterisk/full
+maxretry = 5
+bantime = 3600
+findtime = 600
+EOF
+
+    systemctl enable fail2ban > /dev/null 2>&1
+    systemctl restart fail2ban
+    print_success "Fail2ban configured for Asterisk"
+else
+    print_warning "Fail2ban not available - skipping security configuration"
+fi
+
+# Configure Postfix for email notifications
+next_step "Email Configuration (Postfix)"
+print_info "Configuring Postfix for email notifications..."
+
+if command -v postfix &> /dev/null; then
+    # Set postfix to satellite mode for sending emails
+    debconf-set-selections <<< "postfix postfix/mailname string $(hostname -f)"
+    debconf-set-selections <<< "postfix postfix/main_mailer_type string 'Internet Site'"
+    
+    # Configure postfix
+    postconf -e "inet_interfaces = loopback-only"
+    postconf -e "myhostname = $(hostname -f)"
+    
+    systemctl enable postfix > /dev/null 2>&1
+    systemctl restart postfix > /dev/null 2>&1
+    print_success "Postfix configured for email notifications"
+else
+    print_warning "Postfix not available - email notifications disabled"
+fi
+
+# Configure FAX support
+next_step "FAX Support Configuration"
+print_info "Configuring FAX support..."
+
+if [ -d "/etc/asterisk" ]; then
+    # Add FAX configuration to extensions_custom.conf if it doesn't exist
+    if [ ! -f "/etc/asterisk/extensions_custom.conf" ]; then
+        cat > /etc/asterisk/extensions_custom.conf << 'EOF'
+; Custom Asterisk Extensions
+; This file is for custom dialplan entries
+
+[ext-group](+)
+exten => fax,1,Noop(Fax detected)
+exten => fax,2,Goto(custom-fax-receive,s,1)
+
+[custom-fax-receive]
+exten => s,1,Answer
+exten => s,n,Wait(1)
+exten => s,n,Verbose(3,Incoming Fax)
+exten => s,n,Set(FAXEMAIL=root@localhost)
+exten => s,n,Set(FAXDEST=/var/spool/asterisk/fax)
+exten => s,n,Set(tempfax=${STRFTIME(,,%Y%m%d%H%M%S)})
+exten => s,n,ReceiveFax(${FAXDEST}/${tempfax}.tif)
+exten => s,n,System(/usr/bin/tiff2pdf -o "${FAXDEST}/${tempfax}.pdf" "${FAXDEST}/${tempfax}.tif")
+exten => s,n,Hangup
+EOF
+        chown asterisk:asterisk /etc/asterisk/extensions_custom.conf
+        chmod 644 /etc/asterisk/extensions_custom.conf
+        
+        # Create FAX directory
+        mkdir -p /var/spool/asterisk/fax
+        chown asterisk:asterisk /var/spool/asterisk/fax
+        chmod 755 /var/spool/asterisk/fax
+        
+        print_success "FAX support configured"
+    else
+        print_info "FAX configuration already exists"
+    fi
+else
+    print_warning "Asterisk directory not found - skipping FAX configuration"
+fi
+
+# Configure log rotation for Asterisk
+next_step "Log Rotation Configuration"
+print_info "Configuring log rotation for Asterisk..."
+
+if [ -d "/etc/logrotate.d" ]; then
+    cat > /etc/logrotate.d/asterisk << 'EOF'
+/var/log/asterisk/messages
+/var/log/asterisk/full
+/var/log/asterisk/debug
+/var/log/asterisk/cdr-csv/*.csv {
+    daily
+    missingok
+    rotate 7
+    notifempty
+    sharedscripts
+    compress
+    delaycompress
+    create 0640 asterisk asterisk
+    postrotate
+        /usr/sbin/asterisk -rx 'logger reload' > /dev/null 2>&1 || true
+    endscript
+}
+
+/var/log/asterisk/queue_log {
+    daily
+    missingok
+    rotate 30
+    notifempty
+    create 0640 asterisk asterisk
+}
+EOF
+    print_success "Log rotation configured"
+else
+    print_warning "logrotate.d directory not found - skipping log rotation"
+fi
+
+# Display security tools information
+print_info "Additional tools installed:"
+echo -e "  ${DIM}• htop${RESET}      - System process viewer"
+echo -e "  ${DIM}• sngrep${RESET}    - SIP packet analyzer"
+echo -e "  ${DIM}• fail2ban${RESET}  - Intrusion prevention"
+echo -e "  ${DIM}• sox/ffmpeg${RESET} - Audio conversion tools"
+echo -e "  ${DIM}• jq${RESET}        - JSON processor"
+echo -e "  ${DIM}• knockd${RESET}    - Port knocking daemon"
+
+# Configure VIM for root user
+next_step "Shell Environment Configuration"
+print_info "Configuring VIM and shell aliases..."
+
+cat > /root/.vimrc << 'EOF'
+set hlsearch
+set mouse=r
+syntax on
+set number
+set tabstop=4
+set shiftwidth=4
+set expandtab
+EOF
+
+# Add color scheme for ls
+if ! grep -q "LS_OPTIONS" /etc/bash.bashrc; then
+    cat >> /etc/bash.bashrc << 'EOF'
+
+# Color scheme for ls
+export LS_OPTIONS='--color=auto'
+eval "`dircolors`"
+alias ls='ls $LS_OPTIONS'
+alias ll='ls -l $LS_OPTIONS'
+alias la='ls -la $LS_OPTIONS'
+EOF
+    print_success "Shell aliases configured"
+else
+    print_info "Shell aliases already configured"
+fi
+
+# Install and configure gTTS for text-to-speech
+if command -v pip3 &> /dev/null; then
+    print_info "Installing gTTS (Google Text-to-Speech)..."
+    pip3 install --upgrade pip > /dev/null 2>&1
+    pip3 install gTTS > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        print_success "gTTS installed"
+    else
+        print_warning "gTTS installation failed (optional)"
+    fi
+else
+    print_warning "pip3 not available - skipping gTTS"
+fi
+
+# Configure NTP for time synchronization
+if command -v ntpd &> /dev/null || command -v chronyd &> /dev/null; then
+    print_info "Configuring time synchronization..."
+    if systemctl is-active --quiet systemd-timesyncd; then
+        systemctl enable systemd-timesyncd > /dev/null 2>&1
+        systemctl start systemd-timesyncd > /dev/null 2>&1
+        print_success "Time synchronization enabled (systemd-timesyncd)"
+    elif command -v ntpd &> /dev/null; then
+        systemctl enable ntp > /dev/null 2>&1
+        systemctl start ntp > /dev/null 2>&1
+        print_success "Time synchronization enabled (ntp)"
+    fi
+else
+    print_info "Using systemd-timesyncd for time synchronization"
+fi
+
+# Disable IPv6 (optional security measure like IncrediblePBX)
+print_info "Configuring network settings..."
+if [ ! -f /etc/sysctl.d/70-disable-ipv6.conf ]; then
+    cat > /etc/sysctl.d/70-disable-ipv6.conf << 'EOF'
+# Disable IPv6 for security
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 0
+EOF
+    sysctl -p -f /etc/sysctl.d/70-disable-ipv6.conf > /dev/null 2>&1
+    print_success "IPv6 disabled (can be re-enabled if needed)"
+else
+    print_info "IPv6 configuration already exists"
+fi
+
+# Configure Port Knocking (knockd)
+next_step "Port Knocking Configuration (Optional)"
+print_info "Configuring knockd for enhanced security..."
+
+if command -v knockd &> /dev/null && [ -d /etc ]; then
+    # Generate random knock ports
+    KNOCK1=$((RANDOM % 3950 + 6001))
+    KNOCK2=$((RANDOM % 3950 + 6001))
+    KNOCK3=$((RANDOM % 3950 + 6001))
+    
+    cat > /etc/knockd.conf << EOF
+[options]
+    logfile = /var/log/knockd.log
+
+[opencloseSSH]
+    sequence      = $KNOCK1:tcp,$KNOCK2:tcp,$KNOCK3:tcp
+    seq_timeout   = 15
+    tcpflags      = syn
+    start_command = /usr/sbin/iptables -I INPUT -s %IP% -p tcp --dport 22 -j ACCEPT
+    cmd_timeout   = 3600
+    stop_command  = /usr/sbin/iptables -D INPUT -s %IP% -p tcp --dport 22 -j ACCEPT
+EOF
+    chmod 640 /etc/knockd.conf
+    
+    # Configure knockd to start
+    if [ -f /etc/default/knockd ]; then
+        sed -i 's|START_KNOCKD=0|START_KNOCKD=1|' /etc/default/knockd
+        # Detect network interface
+        NETIF=$(ip route | grep default | awk '{print $5}' | head -1)
+        if [ -n "$NETIF" ]; then
+            echo "KNOCKD_OPTS=\"-i $NETIF\"" >> /etc/default/knockd
+        fi
+    fi
+    
+    # Save knock information
+    cat > /root/knock.FAQ << EOF
+Port Knocking Configuration
+============================
+
+Your server is protected by port knocking on SSH port 22.
+
+Knock sequence: TCP ports $KNOCK1, $KNOCK2, $KNOCK3
+
+To enable access from remote IP, use:
+  nmap -p $KNOCK1 --max-retries 0 YOUR_SERVER_IP
+  nmap -p $KNOCK2 --max-retries 0 YOUR_SERVER_IP
+  nmap -p $KNOCK3 --max-retries 0 YOUR_SERVER_IP
+
+Or use iOS PortKnock / Android DroidKnocker apps.
+
+To enable knockd:
+  systemctl enable knockd
+  systemctl start knockd
+
+Note: Knockd is disabled by default. Enable it only if you understand port knocking.
+EOF
+    print_success "Port knocking configured (disabled by default)"
+    print_info "Configuration saved to /root/knock.FAQ"
+else
+    print_warning "knockd not available - skipping port knocking configuration"
+fi
+
 # Verify services
 next_step "Service Verification"
 sleep 3
@@ -1143,6 +1445,51 @@ echo -e "  ${DIM}View services:${RESET}     pm2 list"
 echo -e "  ${DIM}View logs:${RESET}         pm2 logs"
 echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv"
 echo -e "  ${DIM}System status:${RESET}     systemctl status rayanpbx-api"
+echo -e "  ${DIM}SIP analyzer:${RESET}      sngrep"
+echo -e "  ${DIM}System monitor:${RESET}    htop"
+echo -e "  ${DIM}Security status:${RESET}   fail2ban-client status asterisk"
+echo -e "  ${DIM}JSON processor:${RESET}    jq"
+echo ""
+
+echo -e "${BOLD}${CYAN}🔒 Security Tools:${RESET}"
+echo -e "  ${DIM}Fail2ban:${RESET}         Configured for Asterisk (port 5060/5061)"
+echo -e "  ${DIM}Firewall:${RESET}         Use ${WHITE}rayanpbx-cli firewall setup${RESET}"
+echo -e "  ${DIM}Certificates:${RESET}     Use ${WHITE}rayanpbx-cli certificate${RESET}"
+echo -e "  ${DIM}Port Knocking:${RESET}    Configuration in /root/knock.FAQ"
+echo -e "  ${DIM}IPv6:${RESET}             Disabled for security (can be re-enabled)"
+echo ""
+
+echo -e "${BOLD}${CYAN}📧 Email & FAX:${RESET}"
+echo -e "  ${DIM}Postfix:${RESET}          Configured for local delivery"
+echo -e "  ${DIM}FAX directory:${RESET}    /var/spool/asterisk/fax"
+echo -e "  ${DIM}FAX config:${RESET}       /etc/asterisk/extensions_custom.conf"
+echo ""
+
+echo -e "${BOLD}${CYAN}🎙️  Audio & TTS:${RESET}"
+echo -e "  ${DIM}Sound tools:${RESET}      sox, ffmpeg, lame, mpg123"
+echo -e "  ${DIM}Text-to-Speech:${RESET}   gTTS (Google TTS) installed"
+echo -e "  ${DIM}Audio formats:${RESET}    GSM, WAV, MP3, uLaw conversion"
+echo ""
+
+echo -e "${BOLD}${CYAN}⏰ System Services:${RESET}"
+echo -e "  ${DIM}Time sync:${RESET}        NTP/systemd-timesyncd enabled"
+echo -e "  ${DIM}Log rotation:${RESET}     Configured for Asterisk logs"
+echo -e "  ${DIM}Cron jobs:${RESET}        Laravel scheduler configured"
+echo ""
+
+echo -e "${BOLD}${CYAN}📚 Next Steps:${RESET}"
+echo -e "  1. Configure firewall:     ${WHITE}sudo rayanpbx-cli firewall setup${RESET}"
+echo -e "  2. Setup SSL certificate:  ${WHITE}sudo rayanpbx-cli certificate generate $(hostname)${RESET}"
+echo -e "  3. Run system diagnostics: ${WHITE}rayanpbx-cli diag health-check${RESET}"
+echo -e "  4. View all CLI commands:  ${WHITE}rayanpbx-cli list${RESET}"
+echo -e "  5. Configure email:        ${WHITE}sudo rayanpbx-cli database info${RESET}"
+echo -e "  6. Upload custom sounds:   ${WHITE}sudo rayanpbx-cli sound upload <file>${RESET}"
+echo ""
+
+echo -e "${BOLD}${CYAN}📋 Important Files:${RESET}"
+echo -e "  ${DIM}Knock config:${RESET}     /root/knock.FAQ"
+echo -e "  ${DIM}VIM config:${RESET}       /root/.vimrc"
+echo -e "  ${DIM}Shell aliases:${RESET}    /etc/bash.bashrc"
 echo ""
 
 echo -e "${BOLD}${CYAN}🚀 Next Steps:${RESET}"
