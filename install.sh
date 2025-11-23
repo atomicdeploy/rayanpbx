@@ -838,7 +838,21 @@ fi
 extract_env_value() {
     local env_file="$1"
     local key="$2"
-    grep "^${key}=" "$env_file" 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'
+    local value
+    value=$(grep "^${key}=" "$env_file" 2>/dev/null | cut -d'=' -f2-)
+    
+    # Remove matching quotes (both start and end must be same type)
+    if [[ "$value" =~ ^\".*\"$ ]]; then
+        # Remove double quotes
+        value="${value#\"}"
+        value="${value%\"}"
+    elif [[ "$value" =~ ^\'.*\'$ ]]; then
+        # Remove single quotes
+        value="${value#\'}"
+        value="${value%\'}"
+    fi
+    
+    echo "$value"
 }
 
 check_rayanpbx_user_privileges() {
@@ -876,13 +890,14 @@ EOF
         print_verbose "User '$db_user' has access to database '$db_name'"
         
         # Test if user can create tables (sufficient for migrations)
-        # Create test table, verify, and ensure cleanup even on partial failure
+        # Use unique table name with timestamp and PID to avoid conflicts
+        local test_table="_rayanpbx_test_$(date +%s)_$$"
         local create_result=0
-        mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "CREATE TABLE IF NOT EXISTS _rayanpbx_test_privileges (id INT);" &> /dev/null || create_result=1
+        mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "CREATE TABLE IF NOT EXISTS ${test_table} (id INT);" &> /dev/null || create_result=1
         
         if [ $create_result -eq 0 ]; then
             # Table created successfully, now clean it up
-            mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "DROP TABLE IF EXISTS _rayanpbx_test_privileges;" &> /dev/null
+            mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "DROP TABLE IF EXISTS ${test_table};" &> /dev/null
             print_verbose "User '$db_user' has sufficient privileges for database operations"
             rm -f "$temp_cnf"
             return 0
