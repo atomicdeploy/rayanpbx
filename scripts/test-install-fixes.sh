@@ -154,7 +154,7 @@ test_package_logic_flow() {
     print_test "Verifying package check comes before install attempt"
     
     # Extract the relevant section and verify the if/else structure
-    if awk '/for package in "\${PACKAGES\[@\]}"; do/,/^done$/' "$REPO_ROOT/install.sh" | \
+    if awk '/for package in.*PACKAGES/,/^done$/' "$REPO_ROOT/install.sh" | \
        grep -A 5 "dpkg-query" | grep -q "already installed"; then
         print_pass "Package check correctly identifies already installed packages"
         return 0
