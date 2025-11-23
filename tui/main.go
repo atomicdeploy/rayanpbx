@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -51,6 +50,21 @@ type UsageCommand struct {
 	Command     string
 	Description string
 }
+
+// Field indices for extension creation form
+const (
+	extFieldNumber = iota
+	extFieldName
+	extFieldPassword
+)
+
+// Field indices for trunk creation form
+const (
+	trunkFieldName = iota
+	trunkFieldHost
+	trunkFieldPort
+	trunkFieldPriority
+)
 
 type screen int
 
@@ -588,7 +602,8 @@ func (m model) renderCreateExtension() string {
 		if value == "" {
 			value = helpStyle.Render("<enter value>")
 		} else if field == "Password" {
-			value = strings.Repeat("*", len(value))
+			// Use fixed mask to not reveal password length
+			value = "********"
 		}
 
 		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
@@ -626,24 +641,27 @@ func (m model) renderCreateTrunk() string {
 
 // createExtension creates a new extension in the database
 func (m *model) createExtension() {
-	// Validate inputs
-	if m.inputValues[0] == "" || m.inputValues[1] == "" || m.inputValues[2] == "" {
+	// Validate inputs using field constants
+	if m.inputValues[extFieldNumber] == "" || m.inputValues[extFieldName] == "" || m.inputValues[extFieldPassword] == "" {
 		m.errorMsg = "All fields are required"
 		return
 	}
 
-	// Insert into database
+	// Insert into database with default configuration values
+	// Note: Default context is 'from-internal' (standard internal dial context)
+	// Note: Default transport is 'transport-udp' (standard UDP transport)
+	// Note: Extensions are enabled by default
 	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, created_at, updated_at)
 			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, NOW(), NOW())`
 
-	_, err := m.db.Exec(query, m.inputValues[0], m.inputValues[1], m.inputValues[2])
+	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword])
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
 		return
 	}
 
 	// Success - reload extensions and return to list
-	m.successMsg = fmt.Sprintf("Extension %s created successfully!", m.inputValues[0])
+	m.successMsg = fmt.Sprintf("Extension %s created successfully!", m.inputValues[extFieldNumber])
 	m.inputMode = false
 
 	// Reload extensions
@@ -656,24 +674,26 @@ func (m *model) createExtension() {
 
 // createTrunk creates a new trunk in the database
 func (m *model) createTrunk() {
-	// Validate inputs
-	if m.inputValues[0] == "" || m.inputValues[1] == "" || m.inputValues[2] == "" || m.inputValues[3] == "" {
+	// Validate inputs using field constants
+	if m.inputValues[trunkFieldName] == "" || m.inputValues[trunkFieldHost] == "" || m.inputValues[trunkFieldPort] == "" || m.inputValues[trunkFieldPriority] == "" {
 		m.errorMsg = "All fields are required"
 		return
 	}
 
-	// Insert into database
+	// Insert into database with default configuration values
+	// Note: Trunks are enabled by default (enabled=1)
+	// This is the standard behavior for newly created trunks
 	query := `INSERT INTO trunks (name, host, port, priority, enabled, created_at, updated_at)
 			  VALUES (?, ?, ?, ?, 1, NOW(), NOW())`
 
-	_, err := m.db.Exec(query, m.inputValues[0], m.inputValues[1], m.inputValues[2], m.inputValues[3])
+	_, err := m.db.Exec(query, m.inputValues[trunkFieldName], m.inputValues[trunkFieldHost], m.inputValues[trunkFieldPort], m.inputValues[trunkFieldPriority])
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create trunk: %v", err)
 		return
 	}
 
 	// Success - reload trunks and return to list
-	m.successMsg = fmt.Sprintf("Trunk %s created successfully!", m.inputValues[0])
+	m.successMsg = fmt.Sprintf("Trunk %s created successfully!", m.inputValues[trunkFieldName])
 	m.inputMode = false
 
 	// Reload trunks
