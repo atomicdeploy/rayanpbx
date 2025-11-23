@@ -10,7 +10,7 @@ VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION_FILE="$SCRIPT_DIR/../VERSION"
 if [ -f "$VERSION_FILE" ]; then
-    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+    VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
 fi
 
 # Colors
@@ -35,7 +35,19 @@ INFO="ℹ️ "
 WARN="⚠️ "
 ROCKET="🚀"
 
-# Helper functions (defined early so they can be used during config loading)
+# Configuration
+RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
+API_BASE_URL="http://localhost:8000/api"
+ENV_FILE="$RAYANPBX_ROOT/.env"
+
+# Load configuration
+if [ -f "$ENV_FILE" ]; then
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
+fi
+
+# Helper functions
 print_success() {
     echo -e "${GREEN}${CHECK} $1${NC}"
 }
@@ -50,12 +62,6 @@ print_info() {
 
 print_warn() {
     echo -e "${YELLOW}${WARN}$1${NC}"
-}
-
-print_verbose() {
-    if [ "${VERBOSE:-false}" = true ]; then
-        echo -e "${DIM}[VERBOSE] $1${RESET}"
-    fi
 }
 
 print_header() {
@@ -107,65 +113,19 @@ print_banner() {
     echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 }
 
-# Configuration
-RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
-API_BASE_URL="http://localhost:8000/api"
-ENV_FILE="$RAYANPBX_ROOT/.env"
-VERBOSE=false
-
-# Load configuration
-if [ -f "$ENV_FILE" ]; then
-    # Detect if .env has forward-referenced variables by checking if VITE_WS_URL contains unexpanded variables
-    set +u
-    # shellcheck source=/dev/null
-    source "$ENV_FILE" 2>/dev/null
-    set -u
-    
-    # Check if variables that should be expanded are actually empty or malformed
-    needs_normalization=false
-    if [[ -n "${VITE_WS_URL:-}" ]] && [[ "$VITE_WS_URL" == *"ws://localhost:"* ]] && [[ "$VITE_WS_URL" != *":${WEBSOCKET_PORT}"* ]] && [[ "$VITE_WS_URL" != *":[0-9]*"* ]]; then
-        needs_normalization=true
-    fi
-    
-    if [ "$needs_normalization" = true ]; then
-        # Forward-referenced variables detected, auto-fix the .env file
-        print_warn ".env file has variable ordering issues. Auto-fixing..."
-        
-        # Use normalize-env.sh if available
-        if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
-            bash "$SCRIPT_DIR/normalize-env.sh" "$ENV_FILE" > /dev/null 2>&1
-            print_success ".env file normalized. Variables now properly ordered."
-            # Re-source the normalized file
-            unset VITE_WS_URL WEBSOCKET_PORT
-            source "$ENV_FILE"
-        fi
-    fi
-    
-    API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
-fi
-
 # API call helper
 api_call() {
     local method=$1
     local endpoint=$2
     local data=${3:-}
     
-    print_verbose "API Call: $method $API_BASE_URL/$endpoint"
     if [ -n "$data" ]; then
-        print_verbose "Request body: $data"
-    fi
-    
-    local response
-    if [ -n "$data" ]; then
-        response=$(curl -s -X "$method" "$API_BASE_URL/$endpoint" \
+        curl -s -X "$method" "$API_BASE_URL/$endpoint" \
             -H "Content-Type: application/json" \
-            -d "$data")
+            -d "$data"
     else
-        response=$(curl -s -X "$method" "$API_BASE_URL/$endpoint")
+        curl -s -X "$method" "$API_BASE_URL/$endpoint"
     fi
-    
-    print_verbose "Response: $response"
-    echo "$response"
 }
 
 # Extension commands
@@ -175,7 +135,7 @@ cmd_extension_list() {
     response=$(api_call GET "extensions")
     
     if command -v jq &> /dev/null; then
-        echo "$response" | jq -r '.extensions[] | "\(.extension_number)\t\(.name)\t\(.enabled)"' | \
+        echo "$response" | jq -r '.[] | "\(.extension_number)\t\(.name)\t\(.enabled)"' | \
             while IFS=$'\t' read -r num name enabled; do
                 if [ "$enabled" == "true" ]; then
                     echo -e "  ${GREEN}●${NC} $num - $name"
@@ -622,29 +582,6 @@ cmd_help() {
 }
 
 main() {
-    # Parse global flags first
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --verbose|-V)
-                VERBOSE=true
-                print_verbose "Verbose mode enabled"
-                shift
-                ;;
-            --version|-v)
-                print_banner
-                cmd_version
-                exit 0
-                ;;
-            --help)
-                cmd_help
-                exit 0
-                ;;
-            *)
-                break
-                ;;
-        esac
-    done
-    
     # Show banner if not suppressed
     if [ $# -eq 0 ]; then
         print_banner
@@ -655,11 +592,11 @@ main() {
     fi
     
     case "$1" in
-        version)
+        version|--version|-v)
             print_banner
             cmd_version
             ;;
-        help)
+        help|--help|-h)
             cmd_help "${2:-}"
             ;;
         extension)
