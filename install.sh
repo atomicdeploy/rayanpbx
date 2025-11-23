@@ -1230,7 +1230,7 @@ next_step "TUI (Terminal UI) Build"
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
 go mod download
-go build -o /usr/local/bin/rayanpbx-tui main.go config.go
+go build -o /usr/local/bin/rayanpbx-tui main.go config.go asterisk.go diagnostics.go usage.go
 chmod +x /usr/local/bin/rayanpbx-tui
 
 print_success "TUI built: /usr/local/bin/rayanpbx-tui"

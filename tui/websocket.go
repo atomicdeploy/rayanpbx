@@ -295,13 +295,6 @@ func loadConfig() (string, string, string, error) {
 	return wsHost, wsPort, jwtSecret, nil
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func printBanner() {
 	myFigure := figure.NewFigure("WebSocket Server", "slant", true)
 	cyan := color.New(color.FgCyan, color.Bold)
