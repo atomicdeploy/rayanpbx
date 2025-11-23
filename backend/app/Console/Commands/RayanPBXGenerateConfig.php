@@ -227,7 +227,10 @@ class RayanPBXGenerateConfig extends Command
             $config .= ";; Outbound routing via trunks\n";
             $config .= ";; ========================================\n\n";
 
-            $config .= ";; Pattern for external calls (adjust as needed)\n";
+            $config .= ";; Pattern for external calls\n";
+            $config .= ";; Note: '_X.' matches any number - customize this pattern based on your needs\n";
+            $config .= ";; Examples: '_9NXXNXXXXXX' for US numbers with 9 prefix\n";
+            $config .= ";;          '_00X.' for international calls with 00 prefix\n";
             $config .= "exten => _X.,1,NoOp(Outbound call to \${EXTEN})\n";
             
             foreach ($trunks as $trunk) {

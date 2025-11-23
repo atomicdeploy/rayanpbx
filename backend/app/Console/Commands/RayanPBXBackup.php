@@ -149,20 +149,34 @@ class RayanPBXBackup extends Command
 
             $backupFile = "{$backupDir}/database.sql";
             
-            // Use mysqldump with password via environment variable to avoid shell exposure
-            $command = sprintf(
-                'MYSQL_PWD=%s mysqldump -h %s -u %s %s > %s 2>&1',
-                escapeshellarg($password),
-                escapeshellarg($host),
-                escapeshellarg($username),
-                escapeshellarg($database),
-                escapeshellarg($backupFile)
-            );
+            // Create a temporary MySQL config file for secure authentication
+            $tmpConfig = tempnam(sys_get_temp_dir(), 'mysql_');
+            $configContent = "[client]\n";
+            $configContent .= "user=" . $username . "\n";
+            $configContent .= "password=" . $password . "\n";
+            $configContent .= "host=" . $host . "\n";
+            
+            file_put_contents($tmpConfig, $configContent);
+            chmod($tmpConfig, 0600);
 
-            exec($command, $output, $returnCode);
+            try {
+                $command = sprintf(
+                    'mysqldump --defaults-file=%s %s > %s 2>&1',
+                    escapeshellarg($tmpConfig),
+                    escapeshellarg($database),
+                    escapeshellarg($backupFile)
+                );
 
-            if ($returnCode !== 0) {
-                throw new Exception('Database backup failed: ' . implode("\n", $output));
+                exec($command, $output, $returnCode);
+
+                if ($returnCode !== 0) {
+                    throw new Exception('Database backup failed: ' . implode("\n", $output));
+                }
+            } finally {
+                // Always remove the temporary config file
+                if (file_exists($tmpConfig)) {
+                    unlink($tmpConfig);
+                }
             }
         } else {
             throw new Exception('Only MySQL database backups are currently supported');

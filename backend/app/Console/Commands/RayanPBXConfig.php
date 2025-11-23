@@ -9,6 +9,13 @@ use Exception;
 
 class RayanPBXConfig extends Command
 {
+    protected SystemctlService $systemctl;
+
+    public function __construct(SystemctlService $systemctl)
+    {
+        parent::__construct();
+        $this->systemctl = $systemctl;
+    }
     /**
      * The name and signature of the console command.
      *
@@ -63,12 +70,11 @@ class RayanPBXConfig extends Command
         $this->newLine();
 
         $validator = new ConfigValidatorService();
-        $systemctl = new SystemctlService();
 
         try {
             // Validate Asterisk configuration
             $this->comment('Checking Asterisk configuration...');
-            $result = $systemctl->execAsteriskCLI('core show settings');
+            $result = $this->systemctl->execAsteriskCLI('core show settings');
             
             if (empty($result)) {
                 $this->error('✗ Unable to connect to Asterisk');
@@ -80,7 +86,7 @@ class RayanPBXConfig extends Command
             // Check PJSIP endpoints
             $this->newLine();
             $this->comment('Checking PJSIP endpoints...');
-            $endpoints = $systemctl->execAsteriskCLI('pjsip show endpoints');
+            $endpoints = $this->systemctl->execAsteriskCLI('pjsip show endpoints');
             
             if (str_contains($endpoints, 'No such command')) {
                 $this->warn('⚠ PJSIP module may not be loaded');
@@ -130,8 +136,6 @@ class RayanPBXConfig extends Command
             }
         }
 
-        $systemctl = new SystemctlService();
-
         try {
             // Generate PJSIP configuration from database
             $this->comment('Generating PJSIP configuration from database...');
@@ -141,7 +145,7 @@ class RayanPBXConfig extends Command
             $this->newLine();
             $this->comment('Reloading Asterisk configuration...');
             
-            if ($systemctl->reloadAsterisk()) {
+            if ($this->systemctl->reloadAsterisk()) {
                 $this->info('✓ Asterisk configuration reloaded successfully');
                 
                 $this->newLine();
@@ -151,7 +155,7 @@ class RayanPBXConfig extends Command
                 sleep(2);
                 
                 // Verify reload was successful
-                $result = $systemctl->execAsteriskCLI('core show version');
+                $result = $this->systemctl->execAsteriskCLI('core show version');
                 if (!empty($result)) {
                     $this->info('✓ Configuration reload verified');
                     

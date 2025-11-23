@@ -330,7 +330,12 @@ class RayanPBXHealth extends Command
         $allListening = true;
 
         foreach ($ports as $port => $service) {
-            exec("ss -tuln | grep -E ':$port([[:space:]]|$)' 2>/dev/null", $output, $returnCode);
+            // Validate port is numeric to prevent command injection
+            if (!is_numeric($port) || $port < 1 || $port > 65535) {
+                continue;
+            }
+            
+            exec(sprintf("ss -tuln | grep -E ':%s([[:space:]]|$)' 2>/dev/null", escapeshellarg($port)), $output, $returnCode);
             $listening = !empty($output);
 
             $results[$port] = [
