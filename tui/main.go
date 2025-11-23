@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fatih/color"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fatih/color"
 )
 
 // Styles
@@ -44,6 +44,28 @@ var (
 			Bold(true)
 )
 
+// UsageCommand represents a CLI command in the usage guide
+type UsageCommand struct {
+	Category    string
+	Command     string
+	Description string
+}
+
+// Field indices for extension creation form
+const (
+	extFieldNumber = iota
+	extFieldName
+	extFieldPassword
+)
+
+// Field indices for trunk creation form
+const (
+	trunkFieldName = iota
+	trunkFieldHost
+	trunkFieldPort
+	trunkFieldPriority
+)
+
 type screen int
 
 const (
@@ -55,6 +77,8 @@ const (
 	statusScreen
 	logsScreen
 	usageScreen
+	createExtensionScreen
+	createTrunkScreen
 )
 
 type model struct {
@@ -68,6 +92,17 @@ type model struct {
 	extensions    []Extension
 	trunks        []Trunk
 	errorMsg      string
+	successMsg    string
+
+	// Input fields for creation forms
+	inputMode   bool
+	inputFields []string
+	inputValues []string
+	inputCursor int
+
+	// CLI usage navigation
+	usageCommands []UsageCommand
+	usageCursor   int
 }
 
 func initialModel(db *sql.DB, config *Config) model {
@@ -96,56 +131,89 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle input mode for creation forms
+		if m.inputMode {
+			return m.handleInputMode(msg)
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 
 		case "up", "k":
-			if m.cursor > 0 {
+			if m.currentScreen == usageScreen {
+				// Navigate usage commands
+				if m.usageCursor > 0 {
+					m.usageCursor--
+				}
+			} else if m.cursor > 0 {
 				m.cursor--
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.menuItems)-1 {
+			if m.currentScreen == usageScreen {
+				// Navigate usage commands
+				if m.usageCursor < len(m.usageCommands)-1 {
+					m.usageCursor++
+				}
+			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
 			}
 
+		case "a":
+			// Add button - create new extension/trunk
+			if m.currentScreen == extensionsScreen {
+				m.initCreateExtension()
+			} else if m.currentScreen == trunksScreen {
+				m.initCreateTrunk()
+			}
+
 		case "enter":
-			switch m.cursor {
-			case 0:
-				// Load extensions
-				if exts, err := GetExtensions(m.db); err == nil {
-					m.extensions = exts
-					m.currentScreen = extensionsScreen
-				} else {
-					m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
+			if m.currentScreen == mainMenu {
+				switch m.cursor {
+				case 0:
+					// Load extensions
+					if exts, err := GetExtensions(m.db); err == nil {
+						m.extensions = exts
+						m.currentScreen = extensionsScreen
+					} else {
+						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
+					}
+				case 1:
+					// Load trunks
+					if trunks, err := GetTrunks(m.db); err == nil {
+						m.trunks = trunks
+						m.currentScreen = trunksScreen
+					} else {
+						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
+					}
+				case 2:
+					m.currentScreen = asteriskScreen
+				case 3:
+					m.currentScreen = diagnosticsScreen
+				case 4:
+					m.currentScreen = statusScreen
+				case 5:
+					m.currentScreen = logsScreen
+				case 6:
+					m.currentScreen = usageScreen
+					m.usageCommands = getUsageCommands()
+					m.usageCursor = 0
+				case 7:
+					return m, tea.Quit
 				}
-			case 1:
-				// Load trunks
-				if trunks, err := GetTrunks(m.db); err == nil {
-					m.trunks = trunks
-					m.currentScreen = trunksScreen
-				} else {
-					m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
+			} else if m.currentScreen == usageScreen {
+				// Execute selected command
+				if m.usageCursor < len(m.usageCommands) {
+					m.executeCommand(m.usageCommands[m.usageCursor].Command)
 				}
-			case 2:
-				m.currentScreen = asteriskScreen
-			case 3:
-				m.currentScreen = diagnosticsScreen
-			case 4:
-				m.currentScreen = statusScreen
-			case 5:
-				m.currentScreen = logsScreen
-			case 6:
-				m.currentScreen = usageScreen
-			case 7:
-				return m, tea.Quit
 			}
 
 		case "esc":
 			if m.currentScreen != mainMenu {
 				m.currentScreen = mainMenu
 				m.errorMsg = ""
+				m.successMsg = ""
 			}
 		}
 
@@ -166,7 +234,12 @@ func (m model) View() string {
 
 	// Show error if any
 	if m.errorMsg != "" {
-		s += errorStyle.Render("❌ " + m.errorMsg) + "\n\n"
+		s += errorStyle.Render("❌ "+m.errorMsg) + "\n\n"
+	}
+
+	// Show success message if any
+	if m.successMsg != "" {
+		s += successStyle.Render("✅ "+m.successMsg) + "\n\n"
 	}
 
 	switch m.currentScreen {
@@ -186,12 +259,24 @@ func (m model) View() string {
 		s += m.renderLogs()
 	case usageScreen:
 		s += m.renderUsage()
+	case createExtensionScreen:
+		s += m.renderCreateExtension()
+	case createTrunkScreen:
+		s += m.renderCreateTrunk()
 	}
 
 	// Footer with emojis
 	s += "\n\n"
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
+	} else if m.currentScreen == extensionsScreen {
+		s += helpStyle.Render("↑/↓: Navigate • a: Add Extension • ESC: Back • q: Quit")
+	} else if m.currentScreen == trunksScreen {
+		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
+	} else if m.currentScreen == usageScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
+	} else if m.inputMode {
+		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else {
 		s += helpStyle.Render("ESC: Back to Menu • q: Quit")
 	}
@@ -218,19 +303,19 @@ func (m model) renderMainMenu() string {
 
 func (m model) renderExtensions() string {
 	content := infoStyle.Render("📱 Extensions Management") + "\n\n"
-	
+
 	if len(m.extensions) == 0 {
 		content += "📭 No extensions configured\n\n"
 	} else {
 		content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
-		
+
 		for _, ext := range m.extensions {
 			status := "🔴 Disabled"
 			if ext.Enabled {
 				status = "🟢 Enabled"
 			}
-			
-			line := fmt.Sprintf("  %s - %s (%s)\n", 
+
+			line := fmt.Sprintf("  %s - %s (%s)\n",
 				successStyle.Render(ext.ExtensionNumber),
 				ext.Name,
 				status,
@@ -238,7 +323,7 @@ func (m model) renderExtensions() string {
 			content += line
 		}
 	}
-	
+
 	content += "\n" + helpStyle.Render("💡 Tip: Extensions allow users to make and receive calls")
 
 	return menuStyle.Render(content)
@@ -246,18 +331,18 @@ func (m model) renderExtensions() string {
 
 func (m model) renderTrunks() string {
 	content := infoStyle.Render("🔗 Trunk Configuration") + "\n\n"
-	
+
 	if len(m.trunks) == 0 {
 		content += "📭 No trunks configured\n\n"
 	} else {
 		content += fmt.Sprintf("Total Trunks: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.trunks))))
-		
+
 		for _, trunk := range m.trunks {
 			status := "🔴 Disabled"
 			if trunk.Enabled {
 				status = "🟢 Enabled"
 			}
-			
+
 			line := fmt.Sprintf("  %s - %s:%d (Priority: %d) %s\n",
 				successStyle.Render(trunk.Name),
 				trunk.Host,
@@ -268,7 +353,7 @@ func (m model) renderTrunks() string {
 			content += line
 		}
 	}
-	
+
 	content += "\n" + helpStyle.Render("💡 Tip: Trunks connect your PBX to external phone networks")
 
 	return menuStyle.Render(content)
@@ -276,28 +361,28 @@ func (m model) renderTrunks() string {
 
 func (m model) renderStatus() string {
 	content := infoStyle.Render("📊 System Status") + "\n\n"
-	
+
 	// Check database
 	if err := m.db.Ping(); err == nil {
 		content += successStyle.Render("✅ Database: Connected") + "\n"
 	} else {
 		content += errorStyle.Render("❌ Database: Disconnected") + "\n"
 	}
-	
+
 	// Get statistics
 	var extTotal, extActive, trunkTotal, trunkActive int
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions").Scan(&extTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions WHERE enabled = 1").Scan(&extActive)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks").Scan(&trunkTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks WHERE enabled = 1").Scan(&trunkActive)
-	
+
 	content += "\n📈 Statistics:\n"
-	content += fmt.Sprintf("  📱 Extensions: %s active / %d total\n", 
+	content += fmt.Sprintf("  📱 Extensions: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", extActive)), extTotal)
 	content += fmt.Sprintf("  🔗 Trunks: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", trunkActive)), trunkTotal)
 	content += "  📞 Active Calls: 0\n"
-	
+
 	content += "\n" + helpStyle.Render("🔄 Status updates in real-time")
 
 	return menuStyle.Render(content)
@@ -317,9 +402,9 @@ func (m model) renderLogs() string {
 
 func (m model) renderAsterisk() string {
 	content := infoStyle.Render("⚙️  Asterisk Management") + "\n\n"
-	
+
 	am := NewAsteriskManager()
-	
+
 	// Show service status
 	status, _ := am.GetServiceStatus()
 	statusText := "🔴 Stopped"
@@ -327,7 +412,7 @@ func (m model) renderAsterisk() string {
 		statusText = "🟢 Running"
 	}
 	content += fmt.Sprintf("Service Status: %s\n\n", statusText)
-	
+
 	content += "Available Actions:\n"
 	content += "  • Start/Stop/Restart Service\n"
 	content += "  • Reload PJSIP Configuration\n"
@@ -335,15 +420,15 @@ func (m model) renderAsterisk() string {
 	content += "  • Execute CLI Commands\n"
 	content += "  • View Endpoints\n"
 	content += "  • View Active Channels\n\n"
-	
+
 	content += helpStyle.Render("💡 Use rayanpbx-cli for direct Asterisk management")
-	
+
 	return menuStyle.Render(content)
 }
 
 func (m model) renderDiagnostics() string {
 	content := infoStyle.Render("🔍 Diagnostics & Debugging") + "\n\n"
-	
+
 	content += "Diagnostic Tools:\n"
 	content += "  🔍 SIP Debugging\n"
 	content += "  📡 Network Diagnostics\n"
@@ -352,36 +437,275 @@ func (m model) renderDiagnostics() string {
 	content += "  🌐 Trunk Connectivity Tests\n"
 	content += "  📊 Traffic Analysis\n"
 	content += "  🏥 System Health Check\n\n"
-	
+
 	content += helpStyle.Render("💡 Use rayanpbx-cli diag for diagnostic commands")
-	
+
 	return menuStyle.Render(content)
 }
 
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
-	
-	content += "RayanPBX CLI Commands:\n\n"
-	content += successStyle.Render("Extensions:") + "\n"
-	content += "  rayanpbx-cli extension list\n"
-	content += "  rayanpbx-cli extension create <num> <name> <pass>\n"
-	content += "  rayanpbx-cli extension status <num>\n\n"
-	
-	content += successStyle.Render("Trunks:") + "\n"
-	content += "  rayanpbx-cli trunk list\n"
-	content += "  rayanpbx-cli trunk test <name>\n\n"
-	
-	content += successStyle.Render("Asterisk:") + "\n"
-	content += "  rayanpbx-cli asterisk status\n"
-	content += "  rayanpbx-cli asterisk restart\n\n"
-	
-	content += successStyle.Render("System:") + "\n"
-	content += "  rayanpbx-cli system update\n"
-	content += "  rayanpbx-cli diag health-check\n\n"
-	
-	content += helpStyle.Render("📚 Full documentation: /opt/rayanpbx/README.md")
-	
+
+	if len(m.usageCommands) == 0 {
+		content += "Loading commands...\n"
+	} else {
+		content += "Navigate with ↑/↓ and press Enter to execute:\n\n"
+
+		currentCategory := ""
+		for i, cmd := range m.usageCommands {
+			if cmd.Category != currentCategory {
+				if currentCategory != "" {
+					content += "\n"
+				}
+				content += successStyle.Render(cmd.Category+":") + "\n"
+				currentCategory = cmd.Category
+			}
+
+			cursor := "  "
+			cmdText := cmd.Command
+			if i == m.usageCursor {
+				cursor = "▶ "
+				cmdText = selectedItemStyle.Render(cmd.Command)
+			}
+
+			content += fmt.Sprintf("%s%s\n", cursor, cmdText)
+			if cmd.Description != "" && i == m.usageCursor {
+				content += helpStyle.Render("   └─ "+cmd.Description) + "\n"
+			}
+		}
+	}
+
+	content += "\n" + helpStyle.Render("📚 Full documentation: /opt/rayanpbx/README.md")
+
 	return menuStyle.Render(content)
+}
+
+// getUsageCommands returns a list of CLI commands for the usage guide
+func getUsageCommands() []UsageCommand {
+	return []UsageCommand{
+		{"Extensions", "rayanpbx-cli extension list", "List all configured extensions"},
+		{"Extensions", "rayanpbx-cli extension create <num> <name> <pass>", "Create a new extension"},
+		{"Extensions", "rayanpbx-cli extension status <num>", "Check extension registration status"},
+		{"Trunks", "rayanpbx-cli trunk list", "List all configured trunks"},
+		{"Trunks", "rayanpbx-cli trunk test <name>", "Test trunk connectivity"},
+		{"Trunks", "rayanpbx-cli trunk status <name>", "Get trunk status and statistics"},
+		{"Asterisk", "rayanpbx-cli asterisk status", "Check Asterisk service status"},
+		{"Asterisk", "rayanpbx-cli asterisk start", "Start Asterisk service"},
+		{"Asterisk", "rayanpbx-cli asterisk stop", "Stop Asterisk service"},
+		{"Asterisk", "rayanpbx-cli asterisk restart", "Restart Asterisk service"},
+		{"Asterisk", "rayanpbx-cli asterisk reload", "Reload Asterisk configuration"},
+		{"Diagnostics", "rayanpbx-cli diag test-extension <num>", "Test extension registration"},
+		{"Diagnostics", "rayanpbx-cli diag test-trunk <name>", "Test trunk connectivity"},
+		{"Diagnostics", "rayanpbx-cli diag health-check", "Run comprehensive system health check"},
+		{"System", "rayanpbx-cli system status", "Show overall system status"},
+		{"System", "rayanpbx-cli system update", "Update RayanPBX from git repository"},
+		{"System", "rayanpbx-cli system logs", "View recent system logs"},
+	}
+}
+
+// executeCommand shows a message about executing the command
+// TODO: Implement actual command execution using exec.Command for better user experience
+func (m *model) executeCommand(command string) {
+	// For now, just show that the command would be executed
+	// In a real implementation, this could use exec.Command to run it
+	m.successMsg = fmt.Sprintf("Command ready to execute: %s", command)
+	m.errorMsg = "Note: Command execution is simulated in TUI. Please run in terminal."
+}
+
+// initCreateExtension initializes the extension creation form
+func (m *model) initCreateExtension() {
+	m.currentScreen = createExtensionScreen
+	m.inputMode = true
+	m.inputFields = []string{"Extension Number", "Name", "Password"}
+	m.inputValues = []string{"", "", ""}
+	m.inputCursor = 0
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
+// initCreateTrunk initializes the trunk creation form
+func (m *model) initCreateTrunk() {
+	m.currentScreen = createTrunkScreen
+	m.inputMode = true
+	m.inputFields = []string{"Name", "Host", "Port", "Priority"}
+	m.inputValues = []string{"", "", "5060", "1"}
+	m.inputCursor = 0
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
+// handleInputMode handles keyboard input when in input mode
+func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Cancel input
+		m.inputMode = false
+		if m.currentScreen == createExtensionScreen {
+			m.currentScreen = extensionsScreen
+		} else if m.currentScreen == createTrunkScreen {
+			m.currentScreen = trunksScreen
+		}
+		m.errorMsg = ""
+		m.successMsg = ""
+
+	case "up":
+		if m.inputCursor > 0 {
+			m.inputCursor--
+		}
+
+	case "down":
+		if m.inputCursor < len(m.inputFields)-1 {
+			m.inputCursor++
+		}
+
+	case "enter":
+		// Move to next field or submit
+		if m.inputCursor < len(m.inputFields)-1 {
+			m.inputCursor++
+		} else {
+			// Submit the form
+			if m.currentScreen == createExtensionScreen {
+				m.createExtension()
+			} else if m.currentScreen == createTrunkScreen {
+				m.createTrunk()
+			}
+		}
+
+	case "backspace":
+		// Delete last character from current field
+		if m.inputCursor < len(m.inputValues) && len(m.inputValues[m.inputCursor]) > 0 {
+			m.inputValues[m.inputCursor] = m.inputValues[m.inputCursor][:len(m.inputValues[m.inputCursor])-1]
+		}
+
+	default:
+		// Add character to current field
+		if len(msg.String()) == 1 && m.inputCursor < len(m.inputValues) {
+			m.inputValues[m.inputCursor] += msg.String()
+		}
+	}
+
+	return m, nil
+}
+
+// renderCreateExtension renders the extension creation form
+func (m model) renderCreateExtension() string {
+	content := infoStyle.Render("📱 Create New Extension") + "\n\n"
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter value>")
+		} else if field == "Password" {
+			// Use fixed mask to not reveal password length (security best practice)
+			// This prevents potential attackers from guessing password complexity
+			value = "********"
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Fill in all fields and press Enter on the last field to create")
+
+	return menuStyle.Render(content)
+}
+
+// renderCreateTrunk renders the trunk creation form
+func (m model) renderCreateTrunk() string {
+	content := infoStyle.Render("🔗 Create New Trunk") + "\n\n"
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter value>")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Fill in all fields and press Enter on the last field to create")
+
+	return menuStyle.Render(content)
+}
+
+// createExtension creates a new extension in the database
+func (m *model) createExtension() {
+	// Validate inputs using field constants
+	if m.inputValues[extFieldNumber] == "" || m.inputValues[extFieldName] == "" || m.inputValues[extFieldPassword] == "" {
+		m.errorMsg = "All fields are required"
+		return
+	}
+
+	// Insert into database with default configuration values
+	// Note: Default context is 'from-internal' (standard internal dial context)
+	// Note: Default transport is 'transport-udp' (standard UDP transport)
+	// Note: Extensions are enabled by default
+	// TODO: Consider extracting these defaults as constants for better maintainability
+	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, created_at, updated_at)
+			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, NOW(), NOW())`
+
+	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword])
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
+		return
+	}
+
+	// Success - reload extensions and return to list
+	m.successMsg = fmt.Sprintf("Extension %s created successfully!", m.inputValues[extFieldNumber])
+	m.inputMode = false
+
+	// Reload extensions
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+	}
+
+	m.currentScreen = extensionsScreen
+}
+
+// createTrunk creates a new trunk in the database
+func (m *model) createTrunk() {
+	// Validate inputs using field constants
+	if m.inputValues[trunkFieldName] == "" || m.inputValues[trunkFieldHost] == "" || m.inputValues[trunkFieldPort] == "" || m.inputValues[trunkFieldPriority] == "" {
+		m.errorMsg = "All fields are required"
+		return
+	}
+
+	// Insert into database with default configuration values
+	// Note: Trunks are enabled by default (enabled=1)
+	// This is the standard behavior for newly created trunks
+	// TODO: Consider extracting these defaults as constants for better maintainability
+	query := `INSERT INTO trunks (name, host, port, priority, enabled, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, 1, NOW(), NOW())`
+
+	_, err := m.db.Exec(query, m.inputValues[trunkFieldName], m.inputValues[trunkFieldHost], m.inputValues[trunkFieldPort], m.inputValues[trunkFieldPriority])
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to create trunk: %v", err)
+		return
+	}
+
+	// Success - reload trunks and return to list
+	m.successMsg = fmt.Sprintf("Trunk %s created successfully!", m.inputValues[trunkFieldName])
+	m.inputMode = false
+
+	// Reload trunks
+	if trunks, err := GetTrunks(m.db); err == nil {
+		m.trunks = trunks
+	}
+
+	m.currentScreen = trunksScreen
 }
 
 func main() {
@@ -430,7 +754,7 @@ func main() {
 	green := color.New(color.FgGreen)
 	cyan := color.New(color.FgCyan)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("🔧 Loading configuration...")
 	config, err := LoadConfig()
 	if err != nil {
@@ -448,7 +772,7 @@ func main() {
 	}
 	defer db.Close()
 	green.Println("✅ Database connected")
-	
+
 	fmt.Println()
 	cyan.Println("🚀 Starting TUI interface...")
 	fmt.Println()

@@ -63,7 +63,7 @@ func LoadConfig() (*Config, error) {
 // findRootPath finds the root directory of the project
 func findRootPath() string {
 	currentDir, _ := os.Getwd()
-	
+
 	// Look for .env file up to 3 levels up
 	for i := 0; i < 3; i++ {
 		envPath := filepath.Join(currentDir, ".env")
@@ -72,7 +72,7 @@ func findRootPath() string {
 		}
 		currentDir = filepath.Dir(currentDir)
 	}
-	
+
 	return "."
 }
 
@@ -110,11 +110,11 @@ func ConnectDB(config *Config) (*sql.DB, error) {
 func PrintBanner() {
 	// Create figlet text
 	myFigure := figure.NewFigure("RayanPBX", "slant", true)
-	
+
 	// Print with gradient colors
 	cyan := color.New(color.FgCyan, color.Bold)
 	magenta := color.New(color.FgMagenta, color.Bold)
-	
+
 	lines := strings.Split(myFigure.String(), "\n")
 	for i, line := range lines {
 		if i%2 == 0 {
@@ -123,7 +123,7 @@ func PrintBanner() {
 			magenta.Println(line)
 		}
 	}
-	
+
 	// Subtitle with version
 	yellow := color.New(color.FgYellow)
 	green := color.New(color.FgGreen)
@@ -203,28 +203,28 @@ func PrintExtensions(extensions []Extension) {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("\n📱 Extensions:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("%-15s %-25s %-10s\n", "Number", "Name", "Status")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	for _, ext := range extensions {
 		status := "🔴 Disabled"
 		if ext.Enabled {
 			status = "🟢 Enabled"
 		}
-		
+
 		fmt.Printf("%-15s ", ext.ExtensionNumber)
 		fmt.Printf("%-25s ", ext.Name)
-		
+
 		if ext.Enabled {
 			green.Printf("%-10s\n", status)
 		} else {
 			red.Printf("%-10s\n", status)
 		}
 	}
-	
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Total: %d extensions\n\n", len(extensions))
 }
@@ -240,31 +240,31 @@ func PrintTrunks(trunks []Trunk) {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("\n🔗 Trunks:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("%-15s %-30s %-10s %-10s\n", "Name", "Host", "Priority", "Status")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	for _, trunk := range trunks {
 		status := "🔴 Disabled"
 		if trunk.Enabled {
 			status = "🟢 Enabled"
 		}
-		
+
 		hostPort := fmt.Sprintf("%s:%d", trunk.Host, trunk.Port)
-		
+
 		fmt.Printf("%-15s ", trunk.Name)
 		fmt.Printf("%-30s ", hostPort)
 		fmt.Printf("%-10d ", trunk.Priority)
-		
+
 		if trunk.Enabled {
 			green.Printf("%-10s\n", status)
 		} else {
 			red.Printf("%-10s\n", status)
 		}
 	}
-	
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Total: %d trunks\n\n", len(trunks))
 }
@@ -273,10 +273,10 @@ func PrintTrunks(trunks []Trunk) {
 func PrintSystemStatus(db *sql.DB) {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
-	
+
 	cyan.Println("\n📊 System Status:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Database status
 	if err := db.Ping(); err == nil {
 		green.Println("✅ Database: Connected")
@@ -284,14 +284,15 @@ func PrintSystemStatus(db *sql.DB) {
 		red := color.New(color.FgRed)
 		red.Println("❌ Database: Disconnected")
 	}
-	
+
 	// Get counts
 	var extCount, trunkCount int
 	db.QueryRow("SELECT COUNT(*) FROM extensions WHERE enabled = 1").Scan(&extCount)
 	db.QueryRow("SELECT COUNT(*) FROM trunks WHERE enabled = 1").Scan(&trunkCount)
-	
+
 	green.Printf("📱 Active Extensions: %d\n", extCount)
 	green.Printf("🔗 Active Trunks: %d\n", trunkCount)
-	
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 }

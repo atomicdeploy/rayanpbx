@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -60,7 +63,7 @@ func newHub() *Hub {
 func (h *Hub) run() {
 	green := color.New(color.FgGreen)
 	yellow := color.New(color.FgYellow)
-	
+
 	for {
 		select {
 		case client := <-h.register:

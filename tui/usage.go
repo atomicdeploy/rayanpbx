@@ -12,10 +12,10 @@ func ShowCLIUsage() {
 	green := color.New(color.FgGreen)
 	yellow := color.New(color.FgYellow)
 	magenta := color.New(color.FgMagenta)
-	
+
 	cyan.Println("\n📖 RayanPBX CLI Usage Guide")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Extension Management
 	magenta.Println("\n📱 Extension Management:")
 	yellow.Println("  rayanpbx-cli extension list")
@@ -32,7 +32,7 @@ func ShowCLIUsage() {
 	yellow.Println("  rayanpbx-cli extension status <number>")
 	fmt.Println("    └─ Check extension registration status")
 	green.Println("       Example: rayanpbx-cli extension status 100")
-	
+
 	// Trunk Management
 	magenta.Println("\n🔗 Trunk Management:")
 	yellow.Println("  rayanpbx-cli trunk list")
@@ -48,7 +48,7 @@ func ShowCLIUsage() {
 	fmt.Println()
 	yellow.Println("  rayanpbx-cli trunk status <name>")
 	fmt.Println("    └─ Get trunk status and statistics")
-	
+
 	// Asterisk Management
 	magenta.Println("\n⚙️  Asterisk Management:")
 	yellow.Println("  rayanpbx-cli asterisk status")
@@ -69,7 +69,7 @@ func ShowCLIUsage() {
 	yellow.Println("  rayanpbx-cli asterisk command \"<cli_command>\"")
 	fmt.Println("    └─ Execute Asterisk CLI command")
 	green.Println("       Example: rayanpbx-cli asterisk command \"pjsip show endpoints\"")
-	
+
 	// Diagnostics
 	magenta.Println("\n🔍 Diagnostics:")
 	yellow.Println("  rayanpbx-cli diag test-extension <number>")
@@ -90,7 +90,7 @@ func ShowCLIUsage() {
 	fmt.Println()
 	yellow.Println("  rayanpbx-cli diag health-check")
 	fmt.Println("    └─ Run comprehensive system health check")
-	
+
 	// System
 	magenta.Println("\n🖥️  System:")
 	yellow.Println("  rayanpbx-cli system status")
@@ -104,7 +104,7 @@ func ShowCLIUsage() {
 	fmt.Println()
 	yellow.Println("  rayanpbx-cli system health-check")
 	fmt.Println("    └─ Run system health checks")
-	
+
 	// Help
 	magenta.Println("\n❓ Help:")
 	yellow.Println("  rayanpbx-cli help")
@@ -113,14 +113,14 @@ func ShowCLIUsage() {
 	yellow.Println("  rayanpbx-cli help <command>")
 	fmt.Println("    └─ Show detailed help for specific command")
 	green.Println("       Example: rayanpbx-cli help extension")
-	
+
 	// Output Options
 	magenta.Println("\n📊 Output Options:")
 	fmt.Println("  Add --json flag for JSON output (scriptable)")
 	fmt.Println("  Add --csv flag for CSV output")
 	fmt.Println("  Add --quiet flag to suppress colors")
 	green.Println("  Example: rayanpbx-cli extension list --json")
-	
+
 	// Exit Codes
 	magenta.Println("\n🚦 Exit Codes:")
 	fmt.Println("  0  - Success")
@@ -128,9 +128,9 @@ func ShowCLIUsage() {
 	fmt.Println("  2  - Invalid arguments")
 	fmt.Println("  3  - Service/connection error")
 	fmt.Println("  4  - Configuration error")
-	
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Tips
 	cyan.Println("\n💡 Tips:")
 	fmt.Println("  • Use TAB for command completion (if bash-completion installed)")
@@ -138,7 +138,7 @@ func ShowCLIUsage() {
 	fmt.Println("  • Add -v or --verbose for detailed output")
 	fmt.Println("  • Configuration file: /opt/rayanpbx/.env")
 	fmt.Println("  • Logs directory: /var/log/rayanpbx/")
-	
+
 	fmt.Println()
 }
 
@@ -147,10 +147,10 @@ func ShowExtensionHelp() {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
 	yellow := color.New(color.FgYellow)
-	
+
 	cyan.Println("\n📱 Extension Commands - Detailed Help")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	yellow.Println("\nCOMMAND: extension list")
 	fmt.Println("  Lists all configured SIP extensions")
 	fmt.Println()
@@ -163,7 +163,7 @@ func ShowExtensionHelp() {
 	fmt.Println("    rayanpbx-cli extension list")
 	fmt.Println("    rayanpbx-cli extension list --active")
 	fmt.Println("    rayanpbx-cli extension list --json")
-	
+
 	yellow.Println("\nCOMMAND: extension create <number> <name> <password>")
 	fmt.Println("  Creates a new SIP extension")
 	fmt.Println()
@@ -180,7 +180,7 @@ func ShowExtensionHelp() {
 	green.Println("  Examples:")
 	fmt.Println("    rayanpbx-cli extension create 100 \"John Doe\" MySecretPass123")
 	fmt.Println("    rayanpbx-cli extension create 101 Sales sales@123 --voicemail")
-	
+
 	yellow.Println("\nCOMMAND: extension status <number>")
 	fmt.Println("  Checks the registration status of an extension")
 	fmt.Println()
@@ -193,6 +193,7 @@ func ShowExtensionHelp() {
 	fmt.Println()
 	green.Println("  Example:")
 	fmt.Println("    rayanpbx-cli extension status 100")
-	
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 }

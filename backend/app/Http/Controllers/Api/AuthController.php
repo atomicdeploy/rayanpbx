@@ -29,7 +29,7 @@ class AuthController extends Controller
 
         $key = 'login:' . $request->ip();
         
-        if (RateLimiter::tooManyAttempts($key, env('RATE_LIMIT_LOGIN', 5))) {
+        if (RateLimiter::tooManyAttempts($key, (int) env('RATE_LIMIT_LOGIN', 5))) {
             throw ValidationException::withMessages([
                 'username' => ['Too many login attempts. Please try again later.'],
             ]);
@@ -42,7 +42,7 @@ class AuthController extends Controller
         );
 
         if (!$authenticated) {
-            RateLimiter::hit($key, env('RATE_LIMIT_LOGIN_DECAY', 60));
+            RateLimiter::hit($key, (int) env('RATE_LIMIT_LOGIN_DECAY', 60));
             
             throw ValidationException::withMessages([
                 'username' => ['The provided credentials are incorrect.'],
@@ -69,7 +69,7 @@ class AuthController extends Controller
             'token' => $token,
             'refresh_token' => $refreshToken,
             'token_type' => 'bearer',
-            'expires_in' => env('JWT_EXPIRATION', 7200),
+            'expires_in' => (int) env('JWT_EXPIRATION', 7200),
             'user' => $user,
         ]);
 
@@ -77,7 +77,7 @@ class AuthController extends Controller
         return $response->cookie(
             'rayanpbx_token',
             $token,
-            env('JWT_EXPIRATION', 7200) / 60,
+            (int) env('JWT_EXPIRATION', 7200) / 60,
             '/',
             null,
             env('SESSION_SECURE_COOKIE', false),
@@ -110,7 +110,7 @@ class AuthController extends Controller
             'token' => $token,
             'refresh_token' => $newRefreshToken,
             'token_type' => 'bearer',
-            'expires_in' => env('JWT_EXPIRATION', 7200),
+            'expires_in' => (int) env('JWT_EXPIRATION', 7200),
         ]);
     }
 

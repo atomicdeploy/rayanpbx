@@ -20,7 +20,7 @@ func NewAsteriskManager() *AsteriskManager {
 func (am *AsteriskManager) GetServiceStatus() (string, error) {
 	cmd := exec.Command("systemctl", "status", "asterisk")
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		// Check if service is stopped
 		if strings.Contains(string(output), "inactive") || strings.Contains(string(output), "dead") {
@@ -28,13 +28,13 @@ func (am *AsteriskManager) GetServiceStatus() (string, error) {
 		}
 		return "unknown", err
 	}
-	
+
 	if strings.Contains(string(output), "active (running)") {
 		return "running", nil
 	} else if strings.Contains(string(output), "inactive") {
 		return "stopped", nil
 	}
-	
+
 	return "unknown", nil
 }
 
@@ -42,13 +42,13 @@ func (am *AsteriskManager) GetServiceStatus() (string, error) {
 func (am *AsteriskManager) StartService() error {
 	green := color.New(color.FgGreen)
 	cyan := color.New(color.FgCyan)
-	
+
 	cyan.Println("🔄 Starting Asterisk service...")
 	cmd := exec.Command("systemctl", "start", "asterisk")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start service: %v", err)
 	}
-	
+
 	green.Println("✅ Asterisk service started successfully")
 	return nil
 }
@@ -57,13 +57,13 @@ func (am *AsteriskManager) StartService() error {
 func (am *AsteriskManager) StopService() error {
 	yellow := color.New(color.FgYellow)
 	green := color.New(color.FgGreen)
-	
+
 	yellow.Println("⏸️  Stopping Asterisk service...")
 	cmd := exec.Command("systemctl", "stop", "asterisk")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to stop service: %v", err)
 	}
-	
+
 	green.Println("✅ Asterisk service stopped successfully")
 	return nil
 }
@@ -72,13 +72,13 @@ func (am *AsteriskManager) StopService() error {
 func (am *AsteriskManager) RestartService() error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
-	
+
 	cyan.Println("🔄 Restarting Asterisk service...")
 	cmd := exec.Command("systemctl", "restart", "asterisk")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to restart service: %v", err)
 	}
-	
+
 	green.Println("✅ Asterisk service restarted successfully")
 	return nil
 }
@@ -87,11 +87,11 @@ func (am *AsteriskManager) RestartService() error {
 func (am *AsteriskManager) ExecuteCLICommand(command string) (string, error) {
 	cmd := exec.Command("asterisk", "-rx", command)
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		return "", fmt.Errorf("failed to execute command: %v", err)
 	}
-	
+
 	return string(output), nil
 }
 
@@ -99,13 +99,13 @@ func (am *AsteriskManager) ExecuteCLICommand(command string) (string, error) {
 func (am *AsteriskManager) ReloadPJSIP() error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
-	
+
 	cyan.Println("🔄 Reloading PJSIP configuration...")
 	output, err := am.ExecuteCLICommand("module reload res_pjsip.so")
 	if err != nil {
 		return err
 	}
-	
+
 	green.Println("✅ PJSIP configuration reloaded")
 	fmt.Println(output)
 	return nil
@@ -115,13 +115,13 @@ func (am *AsteriskManager) ReloadPJSIP() error {
 func (am *AsteriskManager) ReloadDialplan() error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
-	
+
 	cyan.Println("🔄 Reloading dialplan...")
 	output, err := am.ExecuteCLICommand("dialplan reload")
 	if err != nil {
 		return err
 	}
-	
+
 	green.Println("✅ Dialplan reloaded")
 	fmt.Println(output)
 	return nil
@@ -131,13 +131,13 @@ func (am *AsteriskManager) ReloadDialplan() error {
 func (am *AsteriskManager) ReloadAll() error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
-	
+
 	cyan.Println("🔄 Reloading all modules...")
 	output, err := am.ExecuteCLICommand("core reload")
 	if err != nil {
 		return err
 	}
-	
+
 	green.Println("✅ All modules reloaded")
 	fmt.Println(output)
 	return nil
@@ -168,31 +168,31 @@ func (am *AsteriskManager) ValidateConfiguration() error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("🔍 Validating Asterisk configuration...")
-	
+
 	// Check PJSIP configuration
 	output, err := am.ExecuteCLICommand("pjsip show endpoints")
 	if err != nil {
 		red.Printf("❌ Error checking PJSIP endpoints: %v\n", err)
 		return err
 	}
-	
+
 	if strings.Contains(output, "No objects found") {
 		red.Println("⚠️  Warning: No PJSIP endpoints configured")
 	} else {
 		green.Println("✅ PJSIP endpoints validated")
 	}
-	
+
 	// Check dialplan
 	output, err = am.ExecuteCLICommand("dialplan show")
 	if err != nil {
 		red.Printf("❌ Error checking dialplan: %v\n", err)
 		return err
 	}
-	
+
 	green.Println("✅ Dialplan validated")
-	
+
 	return nil
 }
 
@@ -202,16 +202,16 @@ func (am *AsteriskManager) PrintServiceStatus() {
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
 	yellow := color.New(color.FgYellow)
-	
+
 	cyan.Println("\n⚙️  Asterisk Service Status:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	status, err := am.GetServiceStatus()
 	if err != nil {
 		red.Printf("❌ Error: %v\n", err)
 		return
 	}
-	
+
 	switch status {
 	case "running":
 		green.Println("✅ Status: Running")
@@ -220,6 +220,7 @@ func (am *AsteriskManager) PrintServiceStatus() {
 	default:
 		yellow.Println("⚠️  Status: Unknown")
 	}
-	
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 }
