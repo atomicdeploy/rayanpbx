@@ -842,7 +842,12 @@ check_rayanpbx_user_privileges() {
     print_verbose "Testing if user '$db_user' has sufficient privileges..."
     
     # Create temporary config file for secure password passing
+    # Set restrictive umask to prevent race condition
+    local old_umask=$(umask)
+    umask 077
     local temp_cnf=$(mktemp)
+    umask "$old_umask"
+    
     cat > "$temp_cnf" <<EOF
 [client]
 user=$db_user
@@ -963,9 +968,11 @@ if [ -f "/opt/rayanpbx/.env" ]; then
     print_verbose "Found existing .env file, checking for database credentials..."
     
     # Try to extract existing credentials from .env
-    EXISTING_DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'")
-    EXISTING_DB_PASSWORD=$(grep "^DB_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'")
-    EXISTING_DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    # Handle values that may contain equals signs by only splitting on first =
+    # Handle both quoted and unquoted values properly
+    EXISTING_DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
+    EXISTING_DB_PASSWORD=$(grep "^DB_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
+    EXISTING_DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
     
     if [ -n "$EXISTING_DB_USER" ] && [ -n "$EXISTING_DB_PASSWORD" ]; then
         print_verbose "Found existing credentials for user: $EXISTING_DB_USER"
@@ -1002,7 +1009,12 @@ if [ "$USE_EXISTING_CREDENTIALS" = false ]; then
     
     print_verbose "Creating database and user..."
     # Use mysql --defaults-extra-file for secure password passing
+    # Set restrictive umask to prevent race condition
+    old_umask=$(umask)
+    umask 077
     MYSQL_TMP_CNF=$(mktemp)
+    umask "$old_umask"
+    
     cat > "$MYSQL_TMP_CNF" <<EOF
 [client]
 user=root
