@@ -1066,6 +1066,13 @@ else
     print_success "Environment file already exists"
 fi
 
+# Copy .env to backend directory for Laravel
+if [ ! -f "backend/.env" ]; then
+    print_progress "Setting up backend environment..."
+    cp .env backend/.env
+    print_success "Backend environment configured"
+fi
+
 # Backend Setup
 next_step "Backend API Setup"
 print_progress "Installing backend dependencies..."
