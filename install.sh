@@ -402,7 +402,8 @@ print_info "Installing PM2 process manager..."
 if ! command -v pm2 &> /dev/null; then
     if npm install -g pm2 > /dev/null 2>&1; then
         # pm2 startup may fail if www-data user doesn't exist yet or if systemd is not available
-        # This is not critical as we can configure it manually later
+        # We use '|| true' to allow this to fail gracefully without stopping the installation
+        # PM2 startup can be configured manually later if needed
         pm2 startup systemd -u www-data --hp /var/www > /dev/null 2>&1 || true
         print_success "PM2 installed"
     else
