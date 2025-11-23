@@ -44,7 +44,13 @@ class RayanPBXRestore extends Command
                 $tempDir = sys_get_temp_dir() . '/rayanpbx_restore_' . time();
                 File::makeDirectory($tempDir, 0755, true);
                 
-                exec("tar -xzf {$backupPath} -C {$tempDir}", $output, $returnCode);
+                $command = sprintf(
+                    'tar -xzf %s -C %s',
+                    escapeshellarg($backupPath),
+                    escapeshellarg($tempDir)
+                );
+                
+                exec($command, $output, $returnCode);
                 
                 if ($returnCode !== 0) {
                     throw new Exception('Failed to extract backup archive');

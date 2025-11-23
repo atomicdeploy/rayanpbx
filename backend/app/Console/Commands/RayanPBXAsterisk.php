@@ -8,6 +8,14 @@ use Exception;
 
 class RayanPBXAsterisk extends Command
 {
+    protected SystemctlService $systemctl;
+
+    public function __construct(SystemctlService $systemctl)
+    {
+        parent::__construct();
+        $this->systemctl = $systemctl;
+    }
+
     /**
      * The name and signature of the console command.
      *
@@ -28,7 +36,6 @@ class RayanPBXAsterisk extends Command
     public function handle()
     {
         $command = $this->argument('command');
-        $systemctl = new SystemctlService();
 
         if (!$command) {
             // Show common commands menu
@@ -84,7 +91,7 @@ class RayanPBXAsterisk extends Command
             $this->info("Executing: asterisk -rx \"{$command}\"");
             $this->newLine();
             
-            $output = $systemctl->execAsteriskCLI($command);
+            $output = $this->systemctl->execAsteriskCLI($command);
             
             if (empty($output)) {
                 $this->warn('Command executed but returned no output');

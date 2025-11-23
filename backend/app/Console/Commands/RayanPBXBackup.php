@@ -103,7 +103,14 @@ class RayanPBXBackup extends Command
                 $archiveName = "backup_{$timestamp}.tar.gz";
                 $archivePath = "{$backupPath}/{$archiveName}";
                 
-                exec("tar -czf {$archivePath} -C {$backupPath} backup_{$timestamp}", $output, $returnCode);
+                $command = sprintf(
+                    'tar -czf %s -C %s %s',
+                    escapeshellarg($archivePath),
+                    escapeshellarg($backupPath),
+                    escapeshellarg("backup_{$timestamp}")
+                );
+                
+                exec($command, $output, $returnCode);
                 
                 if ($returnCode === 0) {
                     File::deleteDirectory($backupDir);

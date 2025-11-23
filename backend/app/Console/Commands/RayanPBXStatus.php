@@ -9,6 +9,16 @@ use Exception;
 
 class RayanPBXStatus extends Command
 {
+    protected SystemctlService $systemctl;
+    protected AsteriskStatusService $asterisk;
+
+    public function __construct(SystemctlService $systemctl, AsteriskStatusService $asterisk)
+    {
+        parent::__construct();
+        $this->systemctl = $systemctl;
+        $this->asterisk = $asterisk;
+    }
+
     /**
      * The name and signature of the console command.
      *
@@ -28,9 +38,6 @@ class RayanPBXStatus extends Command
      */
     public function handle()
     {
-        $systemctl = new SystemctlService();
-        $asterisk = new AsteriskStatusService();
-
         $this->info('═══════════════════════════════════════════════════════');
         $this->info('   RayanPBX System Status');
         $this->info('═══════════════════════════════════════════════════════');
@@ -41,7 +48,7 @@ class RayanPBXStatus extends Command
         // Check Asterisk service
         $this->comment('Asterisk PBX:');
         try {
-            $asteriskStatus = $systemctl->getAsteriskStatus();
+            $asteriskStatus = $this->systemctl->getAsteriskStatus();
             $status['asterisk'] = $asteriskStatus;
             
             if ($asteriskStatus['active']) {
@@ -71,7 +78,7 @@ class RayanPBXStatus extends Command
         // Check RayanPBX API service
         $this->comment('RayanPBX API:');
         try {
-            $apiStatus = $systemctl->getStatus('rayanpbx-api');
+            $apiStatus = $this->systemctl->getStatus('rayanpbx-api');
             $status['api'] = $apiStatus;
             
             if ($apiStatus['active']) {
@@ -98,7 +105,7 @@ class RayanPBXStatus extends Command
         // Check MySQL service
         $this->comment('MySQL Database:');
         try {
-            $mysqlStatus = $systemctl->getStatus('mysql');
+            $mysqlStatus = $this->systemctl->getStatus('mysql');
             $status['mysql'] = $mysqlStatus;
             
             if ($mysqlStatus['active']) {
@@ -118,7 +125,7 @@ class RayanPBXStatus extends Command
         // Check Redis service
         $this->comment('Redis Cache:');
         try {
-            $redisStatus = $systemctl->getStatus('redis-server');
+            $redisStatus = $this->systemctl->getStatus('redis-server');
             $status['redis'] = $redisStatus;
             
             if ($redisStatus['active']) {

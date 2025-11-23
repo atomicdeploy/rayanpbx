@@ -8,6 +8,14 @@ use Exception;
 
 class RayanPBXService extends Command
 {
+    protected SystemctlService $systemctl;
+
+    public function __construct(SystemctlService $systemctl)
+    {
+        parent::__construct();
+        $this->systemctl = $systemctl;
+    }
+
     /**
      * The name and signature of the console command.
      *
@@ -49,10 +57,8 @@ class RayanPBXService extends Command
             return 1;
         }
 
-        $systemctl = new SystemctlService();
-
         if ($service === 'all') {
-            return $this->handleAllServices($action, $systemctl);
+            return $this->handleAllServices($action);
         }
 
         // Map service names
@@ -69,7 +75,7 @@ class RayanPBXService extends Command
             switch ($action) {
                 case 'start':
                     $this->info("Starting {$service}...");
-                    if ($systemctl->start($actualService)) {
+                    if ($this->systemctl->start($actualService)) {
                         $this->info("✓ {$service} started successfully");
                         return 0;
                     } else {
@@ -79,7 +85,7 @@ class RayanPBXService extends Command
 
                 case 'stop':
                     $this->info("Stopping {$service}...");
-                    if ($systemctl->stop($actualService)) {
+                    if ($this->systemctl->stop($actualService)) {
                         $this->info("✓ {$service} stopped successfully");
                         return 0;
                     } else {
@@ -89,7 +95,7 @@ class RayanPBXService extends Command
 
                 case 'restart':
                     $this->info("Restarting {$service}...");
-                    if ($systemctl->restart($actualService)) {
+                    if ($this->systemctl->restart($actualService)) {
                         $this->info("✓ {$service} restarted successfully");
                         return 0;
                     } else {
@@ -100,7 +106,7 @@ class RayanPBXService extends Command
                 case 'reload':
                     if ($service === 'asterisk') {
                         $this->info("Reloading Asterisk configuration...");
-                        if ($systemctl->reloadAsterisk()) {
+                        if ($this->systemctl->reloadAsterisk()) {
                             $this->info("✓ Asterisk configuration reloaded successfully");
                             return 0;
                         } else {
@@ -109,7 +115,7 @@ class RayanPBXService extends Command
                         }
                     } else {
                         $this->info("Reloading {$service}...");
-                        if ($systemctl->reload($actualService)) {
+                        if ($this->systemctl->reload($actualService)) {
                             $this->info("✓ {$service} reloaded successfully");
                             return 0;
                         } else {
@@ -119,7 +125,7 @@ class RayanPBXService extends Command
                     }
 
                 case 'status':
-                    $status = $systemctl->getStatus($actualService);
+                    $status = $this->systemctl->getStatus($actualService);
                     $this->info("Status for {$service}:");
                     $this->table(
                         ['Property', 'Value'],
@@ -145,7 +151,7 @@ class RayanPBXService extends Command
     /**
      * Handle action for all services
      */
-    private function handleAllServices(string $action, SystemctlService $systemctl): int
+    private function handleAllServices(string $action): int
     {
         $services = ['mysql', 'redis-server', 'asterisk', 'rayanpbx-api'];
         $serviceNames = ['MySQL', 'Redis', 'Asterisk', 'RayanPBX API'];
@@ -163,7 +169,7 @@ class RayanPBXService extends Command
                 switch ($action) {
                     case 'start':
                         $this->info("Starting {$name}...");
-                        if (!$systemctl->start($service)) {
+                        if (!$this->systemctl->start($service)) {
                             $this->error("✗ Failed to start {$name}");
                             $failed = true;
                         } else {
@@ -173,7 +179,7 @@ class RayanPBXService extends Command
 
                     case 'stop':
                         $this->info("Stopping {$name}...");
-                        if (!$systemctl->stop($service)) {
+                        if (!$this->systemctl->stop($service)) {
                             $this->error("✗ Failed to stop {$name}");
                             $failed = true;
                         } else {
@@ -183,7 +189,7 @@ class RayanPBXService extends Command
 
                     case 'restart':
                         $this->info("Restarting {$name}...");
-                        if (!$systemctl->restart($service)) {
+                        if (!$this->systemctl->restart($service)) {
                             $this->error("✗ Failed to restart {$name}");
                             $failed = true;
                         } else {
@@ -192,7 +198,7 @@ class RayanPBXService extends Command
                         break;
 
                     case 'status':
-                        $status = $systemctl->getStatus($service);
+                        $status = $this->systemctl->getStatus($service);
                         $statusText = $status['active'] ? '<info>✓ Running</info>' : '<error>✗ Stopped</error>';
                         $this->line("{$name}: {$statusText}");
                         break;
