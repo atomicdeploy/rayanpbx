@@ -1051,27 +1051,38 @@ next_step "Environment Configuration"
 if [ ! -f ".env" ]; then
     print_progress "Creating unified environment configuration..."
     cp .env.example .env
-    
-    # Update database password
-    sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$ESCAPED_DB_PASSWORD/" .env
-    sed -i "s/DB_DATABASE=.*/DB_DATABASE=rayanpbx/" .env
-    sed -i "s/DB_USERNAME=.*/DB_USERNAME=rayanpbx/" .env
-    
-    # Generate JWT secret
-    JWT_SECRET=$(openssl rand -base64 32)
-    sed -i "s|JWT_SECRET=.*|JWT_SECRET=$JWT_SECRET|" .env
-    
-    print_success "Environment configured"
+    print_verbose ".env file created from template"
 else
-    print_success "Environment file already exists"
+    print_progress "Updating existing environment configuration..."
 fi
 
-# Copy .env to backend directory for Laravel
-if [ ! -f "backend/.env" ]; then
-    print_progress "Setting up backend environment..."
-    cp .env backend/.env
-    print_success "Backend environment configured"
+# Always update database credentials (in case of re-run or fresh install)
+sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$ESCAPED_DB_PASSWORD/" .env
+sed -i "s/DB_DATABASE=.*/DB_DATABASE=rayanpbx/" .env
+sed -i "s/DB_USERNAME=.*/DB_USERNAME=rayanpbx/" .env
+print_verbose "Database credentials updated in .env"
+
+# Generate JWT secret if not already set
+if ! grep -q "JWT_SECRET=.\{10,\}" .env; then
+    JWT_SECRET=$(openssl rand -base64 32)
+    sed -i "s|JWT_SECRET=.*|JWT_SECRET=$JWT_SECRET|" .env
+    print_verbose "JWT secret generated"
 fi
+
+# Generate Laravel APP_KEY if not already set
+if ! grep -q "APP_KEY=.\{10,\}" .env; then
+    APP_KEY="base64:$(openssl rand -base64 32)"
+    sed -i "s|APP_KEY=.*|APP_KEY=$APP_KEY|" .env
+    print_verbose "Laravel APP_KEY generated"
+fi
+
+print_success "Environment configured"
+
+# Copy .env to backend directory for Laravel
+print_progress "Setting up backend environment..."
+cp .env backend/.env
+print_verbose "Backend .env synchronized with root .env"
+print_success "Backend environment configured"
 
 # Backend Setup
 next_step "Backend API Setup"
