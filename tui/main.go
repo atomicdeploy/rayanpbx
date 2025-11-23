@@ -400,7 +400,7 @@ func main() {
 		cyan := color.New(color.FgCyan, color.Bold)
 		green := color.New(color.FgGreen)
 		yellow := color.New(color.FgYellow)
-		
+
 		cyan.Print("RayanPBX TUI ")
 		green.Printf("v%s\n\n", Version)
 		

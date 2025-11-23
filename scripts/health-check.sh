@@ -293,7 +293,12 @@ main() {
             echo
             ;;
         *)
-            echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-mysql|check-pm2|get-username|full-check} [args...]"
+            if [ -z "$action" ]; then
+                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
+            else
+                echo "Unknown command: $action"
+                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
+            fi
             echo
             echo "Commands:"
             echo "  check-port PORT [SERVICE]           - Check if port is available"
@@ -305,6 +310,7 @@ main() {
             echo "  check-pm2                           - Check PM2 services"
             echo "  get-username                        - Get default Linux username"
             echo "  full-check                          - Run all health checks"
+            echo "  --version, -v                       - Show version information"
             exit 1
             ;;
     esac
