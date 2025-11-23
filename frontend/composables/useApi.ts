@@ -17,11 +17,17 @@ export const useApi = () => {
         headers,
       })
     } catch (error: any) {
-      if (error.response?.status === 401) {
+      if (error.status === 401 || error.statusCode === 401) {
         // Unauthorized - clear auth and redirect to login
         await authStore.logout()
         navigateTo('/login')
       }
+      
+      // Enhance error with message from backend if available
+      if (error.data?.message && !error.message) {
+        error.message = error.data.message
+      }
+      
       throw error
     }
   }
