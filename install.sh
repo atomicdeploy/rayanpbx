@@ -435,7 +435,7 @@ else
                 
                 print_error "Backend API is not responding correctly"
                 print_info "Checking for error details..."
-                local api_response=$(sanitize_output "$(curl -s http://localhost:8000/api/health 2>&1)" 200)
+                local api_response=$(sanitize_output "$(curl -s $url 2>&1)" 200)
                 print_verbose "API response (sanitized): ${api_response}..."
                 print_info "Check backend logs:"
                 print_cmd "journalctl -u rayanpbx-api -n 50 --no-pager"
