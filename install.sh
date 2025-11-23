@@ -997,6 +997,38 @@ fi
 php -v | head -n 1
 print_verbose "PHP configuration file: $(php --ini | grep 'Loaded Configuration File' | cut -d: -f2 | xargs)"
 
+# Verify and enable Redis extension
+print_verbose "Verifying Redis extension is enabled..."
+if ! php -m | grep -q "redis"; then
+    print_warning "Redis extension not loaded, attempting to enable..."
+    
+    # Try to enable the extension
+    if command -v phpenmod &> /dev/null; then
+        print_verbose "Using phpenmod to enable redis extension..."
+        if phpenmod redis 2>/dev/null; then
+            print_success "Redis extension enabled via phpenmod"
+        else
+            print_verbose "phpenmod failed, extension may already be configured"
+        fi
+    fi
+    
+    # Restart PHP-FPM to ensure extension is loaded
+    if systemctl is-active --quiet php8.3-fpm; then
+        print_verbose "Restarting PHP-FPM to load Redis extension..."
+        systemctl restart php8.3-fpm
+    fi
+    
+    # Verify again
+    if php -m | grep -q "redis"; then
+        print_success "Redis extension verified and loaded"
+    else
+        print_warning "Redis extension may not be properly loaded. Fallback to predis will be used if needed."
+    fi
+else
+    print_success "Redis extension already loaded"
+    print_verbose "Redis extension version: $(php -r "echo phpversion('redis');" 2>/dev/null || echo 'unknown')"
+fi
+
 # Composer Installation
 next_step "Composer Installation"
 print_verbose "Checking for Composer..."
