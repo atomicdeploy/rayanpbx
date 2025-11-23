@@ -45,8 +45,8 @@ create_env_file() {
 TEST_DIR=$(mktemp -d)
 trap 'rm -rf "$TEST_DIR"' EXIT
 
-# Test 1: Script should not crash with problematic .env order
-print_test "Testing CLI with WEBSOCKET_PORT referenced before definition"
+# Test 1: Script should auto-fix problematic .env order
+print_test "Testing CLI with WEBSOCKET_PORT referenced before definition (auto-fix)"
 create_env_file "$TEST_DIR" 'API_BASE_URL=http://localhost:8000
 APP_NAME=RayanPBX
 
@@ -56,8 +56,13 @@ VITE_WS_URL=ws://localhost:${WEBSOCKET_PORT}
 # WEBSOCKET_PORT defined AFTER being referenced
 WEBSOCKET_PORT=9000'
 
-if test_cli_version "$TEST_DIR"; then
-    print_pass "Script runs without crashing even with problematic variable order"
+output=$(RAYANPBX_ROOT="$TEST_DIR" bash scripts/rayanpbx-cli.sh version 2>&1)
+if echo "$output" | grep -q "RayanPBX CLI"; then
+    print_pass "Script runs without crashing and auto-fixes problematic variable order"
+    # Verify the .env was actually normalized
+    if grep -q "WEBSOCKET_PORT=9000" "$TEST_DIR/.env" && grep -A1 "WEBSOCKET_PORT=9000" "$TEST_DIR/.env" | grep -q "VITE_WS_URL"; then
+        print_pass ".env file was normalized with correct variable ordering"
+    fi
 else
     print_fail "Script crashed or didn't produce expected output"
 fi

@@ -72,6 +72,11 @@ HEADER
         echo "${key}=${CONFIG[$key]}" >> "$ENV_FILE"
     done
     
+    # Normalize .env file to ensure proper variable ordering
+    if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
+        bash "$SCRIPT_DIR/normalize-env.sh" "$ENV_FILE"
+    fi
+    
     echo -e "${GREEN}✅ Configuration saved to $ENV_FILE${RESET}"
 }
 
