@@ -123,7 +123,7 @@ find_project_root() {
     local max_depth=3
     
     for ((i=0; i<max_depth; i++)); do
-        if [ -f "$current_dir/VERSION" ] || [ -f "$current_dir/.env" ]; then
+        if [ -f "$current_dir/VERSION" ]; then
             echo "$current_dir"
             return
         fi

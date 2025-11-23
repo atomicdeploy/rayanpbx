@@ -294,14 +294,13 @@ func loadConfig() (string, string, string, error) {
 	}
 	
 	// Add project root .env (find by looking for VERSION file)
-	currentDir, _ := os.Getwd()
-	projectRootFound := false
+	cwd, _ := os.Getwd()
+	currentDir := cwd
 	for i := 0; i < 3; i++ {
 		versionPath := filepath.Join(currentDir, "VERSION")
 		
 		if _, err := os.Stat(versionPath); err == nil {
 			envPaths = append(envPaths, filepath.Join(currentDir, ".env"))
-			projectRootFound = true
 			break
 		}
 		
@@ -316,7 +315,6 @@ func loadConfig() (string, string, string, error) {
 	// (it will be covered by current directory if needed)
 	
 	// Add current directory .env
-	cwd, _ := os.Getwd()
 	localEnvPath := filepath.Join(cwd, ".env")
 	envPaths = append(envPaths, localEnvPath)
 	
