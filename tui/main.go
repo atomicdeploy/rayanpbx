@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -66,6 +67,11 @@ const (
 	trunkFieldPriority
 )
 
+// Default port values
+const (
+	DefaultSIPPort = "5060"
+)
+
 type screen int
 
 const (
@@ -113,6 +119,14 @@ type model struct {
 	diagnosticsManager *DiagnosticsManager
 	diagnosticsMenu    []string
 	diagnosticsOutput  string
+}
+
+// isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
+func (m model) isDiagnosticsInputScreen() bool {
+	return m.currentScreen == diagTestExtensionScreen ||
+		m.currentScreen == diagTestTrunkScreen ||
+		m.currentScreen == diagTestRoutingScreen ||
+		m.currentScreen == diagPortTestScreen
 }
 
 func initialModel(db *sql.DB, config *Config) model {
@@ -254,10 +268,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.currentScreen != mainMenu {
 				// If in a diagnostics submenu, go back to diagnostics menu
-				if m.currentScreen == diagTestExtensionScreen ||
-					m.currentScreen == diagTestTrunkScreen ||
-					m.currentScreen == diagTestRoutingScreen ||
-					m.currentScreen == diagPortTestScreen {
+				if m.isDiagnosticsInputScreen() {
 					m.currentScreen = diagnosticsMenuScreen
 					m.errorMsg = ""
 					m.successMsg = ""
@@ -346,8 +357,7 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
 	} else if m.currentScreen == diagnosticsMenuScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back to Main Menu • q: Quit")
-	} else if m.currentScreen == diagTestExtensionScreen || m.currentScreen == diagTestTrunkScreen || 
-		m.currentScreen == diagTestRoutingScreen || m.currentScreen == diagPortTestScreen {
+	} else if m.isDiagnosticsInputScreen() {
 		if m.inputMode {
 			s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 		} else {
@@ -987,7 +997,7 @@ func (m *model) handleDiagnosticsMenuSelection() {
 		m.currentScreen = diagPortTestScreen
 		m.inputMode = true
 		m.inputFields = []string{"Host", "Port"}
-		m.inputValues = []string{"", "5060"}
+		m.inputValues = []string{"", DefaultSIPPort}
 		m.inputCursor = 0
 	case 8: // Back to Main Menu
 		m.currentScreen = mainMenu
@@ -1050,10 +1060,16 @@ func (m *model) executeDiagPortTest() {
 		return
 	}
 
-	// Convert port to int
-	port := 0
-	if _, err := fmt.Sscanf(m.inputValues[1], "%d", &port); err != nil {
+	// Convert port to int and validate
+	port, err := strconv.Atoi(m.inputValues[1])
+	if err != nil {
 		m.errorMsg = "Invalid port number"
+		return
+	}
+	
+	// Validate port range
+	if port < 1 || port > 65535 {
+		m.errorMsg = "Port must be between 1 and 65535"
 		return
 	}
 

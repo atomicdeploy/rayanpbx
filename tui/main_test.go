@@ -208,4 +208,57 @@ func TestDiagnosticsInputValidation(t *testing.T) {
 	if m.errorMsg == "" {
 		t.Error("Expected error message for invalid port number")
 	}
+	
+	// Test port test with out-of-range port (too low)
+	m.errorMsg = ""
+	m.inputValues = []string{"localhost", "0"}
+	m.executeDiagPortTest()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for port 0")
+	}
+	
+	// Test port test with out-of-range port (too high)
+	m.errorMsg = ""
+	m.inputValues = []string{"localhost", "65536"}
+	m.executeDiagPortTest()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for port > 65535")
+	}
+}
+
+// TestIsDiagnosticsInputScreen tests the helper function
+func TestIsDiagnosticsInputScreen(t *testing.T) {
+	m := initialModel(nil, nil)
+	
+	// Test that diagnostics input screens return true
+	diagnosticsInputScreens := []screen{
+		diagTestExtensionScreen,
+		diagTestTrunkScreen,
+		diagTestRoutingScreen,
+		diagPortTestScreen,
+	}
+	
+	for _, scr := range diagnosticsInputScreens {
+		m.currentScreen = scr
+		if !m.isDiagnosticsInputScreen() {
+			t.Errorf("Expected isDiagnosticsInputScreen() to return true for screen %d", scr)
+		}
+	}
+	
+	// Test that other screens return false
+	otherScreens := []screen{
+		mainMenu,
+		extensionsScreen,
+		trunksScreen,
+		asteriskScreen,
+		diagnosticsMenuScreen,
+		statusScreen,
+	}
+	
+	for _, scr := range otherScreens {
+		m.currentScreen = scr
+		if m.isDiagnosticsInputScreen() {
+			t.Errorf("Expected isDiagnosticsInputScreen() to return false for screen %d", scr)
+		}
+	}
 }
