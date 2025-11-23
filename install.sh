@@ -1293,6 +1293,8 @@ print_success "Permissions set for backend"
 
 # Configure frontend to be served by Apache (proxying to Node.js)
 print_info "Setting up Apache virtual host for Nuxt frontend..."
+# Note: Using quoted EOF to prevent variable expansion for Apache config variables
+# This preserves $1 and ${APACHE_LOG_DIR} as literal strings for Apache
 cat > /etc/apache2/sites-available/rayanpbx-frontend.conf << 'EOF'
 <VirtualHost *:8080>
     ServerName rayanpbx.local
