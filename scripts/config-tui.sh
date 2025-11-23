@@ -13,6 +13,8 @@ readonly MAGENTA='\033[0;35m'
 readonly BOLD='\033[1m'
 readonly DIM='\033[2m'
 readonly RESET='\033[0m'
+readonly REVERSE='\033[7m'
+readonly REVERSE_OFF='\033[27m'
 
 # Configuration variables
 declare -A CONFIG
@@ -317,6 +319,131 @@ configure_cli_styling() {
     echo
 }
 
+# Enhanced menu selection with arrow key support
+# Reads input with validation and displays it with reversed background
+read_menu_option() {
+    local valid_options=("1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12" "Q" "S" "X")
+    local input=""
+    local cursor_pos=0
+    local empty_display="  "  # Two spaces for empty input placeholder
+    
+    # Helper function to display selection with reversed background
+    display_selection() {
+        local value="$1"
+        echo -ne "\r${YELLOW}Select option: ${REVERSE} $value ${REVERSE_OFF}${RESET}"
+    }
+    
+    # Helper function to submit selection
+    submit_selection() {
+        local value="$1"
+        display_selection "$value"
+        echo  # Move to next line
+        echo "$value"
+    }
+    
+    while true; do
+        # Display prompt with space after colon and reversed background for input
+        local display_input="${input:-$empty_display}"
+        display_selection "$display_input"
+        
+        # Read single character without echo
+        IFS= read -rsn1 char
+        
+        # Handle escape sequences (arrow keys)
+        if [ "$char" = $'\x1b' ]; then
+            read -rsn2 -t 0.1 rest
+            case "$rest" in
+                '[A') # Up arrow
+                    if [ $cursor_pos -gt 0 ]; then
+                        ((cursor_pos--))
+                        input="${valid_options[$cursor_pos]}"
+                        display_selection "$input"
+                    fi
+                    ;;
+                '[B') # Down arrow
+                    if [ $cursor_pos -lt $((${#valid_options[@]} - 1)) ]; then
+                        ((cursor_pos++))
+                        input="${valid_options[$cursor_pos]}"
+                        display_selection "$input"
+                    fi
+                    ;;
+            esac
+            continue
+        fi
+        
+        # Handle Enter key
+        if [ "$char" = "" ]; then
+            if [ -n "$input" ]; then
+                # Validate input is in valid options
+                local valid=0
+                for opt in "${valid_options[@]}"; do
+                    # Case-insensitive comparison
+                    if [ "${input,,}" = "${opt,,}" ]; then
+                        valid=1
+                        break
+                    fi
+                done
+                
+                if [ $valid -eq 1 ]; then
+                    submit_selection "$input"
+                    return
+                fi
+            fi
+            # Invalid or empty, stay in loop
+            continue
+        fi
+        
+        # Handle backspace
+        if [ "$char" = $'\x7f' ] || [ "$char" = $'\x08' ]; then
+            if [ -n "$input" ]; then
+                input="${input%?}"
+            fi
+            continue
+        fi
+        
+        # Normalize input to uppercase for validation
+        local char_upper="${char^^}"
+        
+        # Check if character is digit, Q, S, or X
+        if [[ "$char_upper" =~ ^[0-9QSX]$ ]]; then
+            # Check if this could be part of 10, 11, or 12
+            if [ "$char" = "1" ] && [ -z "$input" ]; then
+                # Could be start of 10, 11, or 12
+                input="$char"
+                continue
+            fi
+            
+            # Build test input
+            local test_input="$input$char"
+            local valid=0
+            
+            # Validate against options (case-insensitive)
+            for opt in "${valid_options[@]}"; do
+                if [ "${test_input,,}" = "${opt,,}" ]; then
+                    valid=1
+                    break
+                fi
+            done
+            
+            if [ $valid -eq 1 ]; then
+                # Valid input - submit and exit
+                submit_selection "$test_input"
+                return
+            elif [ "$char" = "0" ] && [ "$input" = "1" ]; then
+                # Complete "10"
+                submit_selection "10"
+                return
+            elif [[ "$char" =~ ^[12]$ ]] && [ "$input" = "1" ]; then
+                # Complete "11" or "12"
+                submit_selection "1$char"
+                return
+            fi
+            # Invalid combination, ignore and continue
+        fi
+        # Invalid character - don't display or update
+    done
+}
+
 # Main menu
 main_menu() {
     while true; do
@@ -340,7 +467,8 @@ main_menu() {
         echo "  X. ❌ Exit without Saving"
         echo
         
-        read -p "$(echo -e ${YELLOW}Select option:${RESET} )" choice
+        # Use enhanced menu selection with validation
+        choice=$(read_menu_option)
         
         case "$choice" in
             1) configure_application ;;
