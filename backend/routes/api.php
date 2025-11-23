@@ -106,6 +106,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 });
 
 // Health check endpoint (public)
+// Usage: curl -s http://localhost:8000/api/health | jq '.'
+// Extract specific fields: curl -s http://localhost:8000/api/health | jq -r '.status, .services.database'
 Route::get('/health', function () {
     try {
         // Check database connectivity
