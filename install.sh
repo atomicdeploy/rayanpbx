@@ -324,8 +324,8 @@ error_handler() {
 is_port_listening() {
     local port=$1
     # Check both netstat and ss with consistent patterns
-    # Both use space or end-of-line after port to avoid matching partial port numbers
-    if netstat -tuln 2>/dev/null | grep -qE ":${port}[[:space:]]" || ss -tuln 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
+    # Match port followed by space or end-of-line to avoid matching partial port numbers
+    if netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" || ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
         return 0
     fi
     return 1
@@ -361,8 +361,8 @@ check_http_health() {
     print_verbose "Checking HTTP health at $url (max ${max_attempts} attempts)..."
     
     while [ $attempt -lt $max_attempts ]; do
-        # Try to connect and get response
-        local response=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "$url" 2>/dev/null)
+        # Try to connect and get response (5 second timeout for starting services)
+        local response=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null)
         
         if [ "$response" = "200" ] || [ "$response" = "302" ]; then
             print_verbose "$service_name responded with HTTP $response"
@@ -373,8 +373,8 @@ check_http_health() {
         if [ "$response" = "500" ]; then
             print_warning "$service_name returned HTTP 500, attempting to get error details..."
             # Limit to 200 chars (balance between debugging info and security)
-            # Remove control chars and common sensitive patterns
-            local error_details=$(curl -s --connect-timeout 2 "$url" 2>/dev/null | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|key|secret)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
+            # Remove control chars and redact common sensitive patterns
+            local error_details=$(curl -s --connect-timeout 5 "$url" 2>/dev/null | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?key)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
             if [ -n "$error_details" ]; then
                 print_verbose "Error response preview (sanitized): ${error_details}..."
             fi
@@ -430,7 +430,7 @@ test_service_health() {
                 
                 # Try to get more details about the error (sanitized, limited to 200 chars for security)
                 # Remove control chars and redact common sensitive patterns
-                local api_response=$(curl -s http://localhost:8000/api/health 2>&1 | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|key|secret)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
+                local api_response=$(curl -s http://localhost:8000/api/health 2>&1 | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?key)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
                 print_verbose "API response (sanitized): ${api_response}..."
                 
                 print_info "Check backend logs:"
