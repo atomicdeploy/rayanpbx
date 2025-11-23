@@ -392,7 +392,10 @@ cmd_system_set_mode() {
     fi
     
     # Backup .env file
-    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    if ! cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"; then
+        print_error "Failed to create backup of $ENV_FILE"
+        exit 1
+    fi
     print_verbose "Backup created"
     
     # Update APP_ENV
@@ -462,7 +465,10 @@ cmd_system_toggle_debug() {
     print_info "Setting: APP_DEBUG=$new_debug"
     
     # Backup .env file
-    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    if ! cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"; then
+        print_error "Failed to create backup of $ENV_FILE"
+        exit 1
+    fi
     
     # Update APP_DEBUG
     if grep -q "^APP_DEBUG=" "$ENV_FILE"; then

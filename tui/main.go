@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -815,6 +816,15 @@ func (m *model) setMode(env string, debug bool) {
 		return
 	}
 
+	// Create backup with timestamp
+	timestamp := time.Now().Format("20060102_150405")
+	backupFile := fmt.Sprintf("%s.backup.%s", envFile, timestamp)
+	err = os.WriteFile(backupFile, content, 0644)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to create backup: %v", err)
+		return
+	}
+
 	// Replace APP_ENV and APP_DEBUG
 	lines := string(content)
 	lines = replaceEnvValue(lines, "APP_ENV", env)
@@ -843,12 +853,11 @@ func (m *model) setMode(env string, debug bool) {
 		}
 	}
 
-	// Restart API service
-	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Restarting API...", env, debug)
-
 	// Reload config
 	m.config.AppEnv = env
 	m.config.AppDebug = debug
+	
+	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Changes will take effect after service restart.", env, debug)
 }
 
 // Helper function to replace environment variable value in .env content
