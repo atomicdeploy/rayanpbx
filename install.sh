@@ -325,8 +325,11 @@ error_handler() {
 # Health Check Functions - Source from health-check.sh script
 # ════════════════════════════════════════════════════════════════════════
 
+# Determine script directory early for sourcing health-check.sh
+INSTALL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Source the health check script for DRY code
-HEALTH_CHECK_SCRIPT="$SCRIPT_DIR/scripts/health-check.sh"
+HEALTH_CHECK_SCRIPT="$INSTALL_SCRIPT_DIR/scripts/health-check.sh"
 if [ -f "$HEALTH_CHECK_SCRIPT" ]; then
     # Source the health check script to get all health check functions
     source "$HEALTH_CHECK_SCRIPT"
