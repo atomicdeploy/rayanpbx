@@ -5,6 +5,14 @@
 
 set -euo pipefail
 
+# Version - read from VERSION file
+VERSION="2.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -30,6 +38,7 @@ print_header() {
     echo "║  $ROCKET RayanPBX Update Utility $ROCKET                   ║"
     echo "╚════════════════════════════════════════════════════╝"
     echo -e "${NC}"
+    echo -e "${CYAN}Version: ${VERSION}${NC}\n"
 }
 
 print_success() {
