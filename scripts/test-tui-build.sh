@@ -34,7 +34,7 @@ if ! command -v go &> /dev/null; then
     print_fail "Go is not installed"
 fi
 
-GO_VERSION=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+' || echo "unknown")
+GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//' || echo "unknown")
 print_info "Go version: $GO_VERSION"
 
 # Get repository root
