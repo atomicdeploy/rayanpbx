@@ -5,6 +5,16 @@ set -e
 # RayanPBX Installation Script for Ubuntu 24.04 LTS
 # This script installs and configures RayanPBX with Asterisk 22
 
+# Script version
+readonly SCRIPT_VERSION="2.0.0"
+
+# ════════════════════════════════════════════════════════════════════════
+# Configuration Variables
+# ════════════════════════════════════════════════════════════════════════
+
+VERBOSE=false
+DRY_RUN=false
+
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
 # ════════════════════════════════════════════════════════════════════════
@@ -36,18 +46,105 @@ readonly CLEAR_LINE='\033[2K'
 STEP_NUMBER=0
 
 # ════════════════════════════════════════════════════════════════════════
+# Usage and Help Functions
+# ════════════════════════════════════════════════════════════════════════
+
+show_version() {
+    echo -e "${CYAN}${BOLD}RayanPBX Installation Script${RESET} ${GREEN}v${SCRIPT_VERSION}${RESET}"
+    echo -e "${DIM}For Ubuntu 24.04 LTS${RESET}"
+    exit 0
+}
+
+show_help() {
+    echo -e "${CYAN}${BOLD}RayanPBX Installation Script${RESET} ${GREEN}v${SCRIPT_VERSION}${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}USAGE:${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh [OPTIONS]${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}DESCRIPTION:${RESET}"
+    echo -e "    Installs and configures RayanPBX with Asterisk 22, including all"
+    echo -e "    required dependencies (MariaDB, PHP 8.3, Node.js 24, Go 1.23)."
+    echo ""
+    echo -e "${YELLOW}${BOLD}OPTIONS:${RESET}"
+    echo -e "    ${GREEN}-h, --help${RESET}          Show this help message and exit"
+    echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
+    echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
+    echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
+    echo ""
+    echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
+    echo -e "    ${CYAN}•${RESET} Ubuntu 24.04 LTS (recommended)"
+    echo -e "    ${CYAN}•${RESET} Root privileges (run with sudo)"
+    echo -e "    ${CYAN}•${RESET} Internet connection"
+    echo -e "    ${CYAN}•${RESET} At least 4GB RAM"
+    echo -e "    ${CYAN}•${RESET} At least 10GB free disk space"
+    echo ""
+    echo -e "${YELLOW}${BOLD}EXAMPLES:${RESET}"
+    echo -e "    ${DIM}# Standard installation${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Verbose installation (helpful for debugging)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --verbose${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Show version${RESET}"
+    echo -e "    ${WHITE}./install.sh --version${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}DOCUMENTATION:${RESET}"
+    echo -e "    ${BLUE}GitHub:${RESET}  https://github.com/atomicdeploy/rayanpbx"
+    echo -e "    ${BLUE}Issues:${RESET}  https://github.com/atomicdeploy/rayanpbx/issues"
+    echo ""
+    exit 0
+}
+
+# ════════════════════════════════════════════════════════════════════════
 # Helper Functions
 # ════════════════════════════════════════════════════════════════════════
 
+print_verbose() {
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${DIM}[VERBOSE] $1${RESET}"
+    fi
+}
+
 print_banner() {
     clear
+    print_verbose "Displaying banner..."
+    
     if command -v figlet &> /dev/null; then
-        if command -v lolcat &> /dev/null; then
-            figlet -f slant "RayanPBX" | lolcat
+        print_verbose "figlet found, checking for slant font..."
+        # Try to use figlet with slant font, but fall back gracefully
+        if figlet -f slant "RayanPBX" > /dev/null 2>&1; then
+            if command -v lolcat &> /dev/null; then
+                print_verbose "Using figlet with lolcat"
+                figlet -f slant "RayanPBX" | lolcat
+            else
+                print_verbose "Using figlet without lolcat"
+                echo -e "${CYAN}$(figlet -f slant "RayanPBX")${RESET}"
+            fi
         else
-            echo -e "${CYAN}$(figlet -f slant "RayanPBX")${RESET}"
+            print_verbose "slant font not available, trying default font..."
+            # Try default font if slant is not available
+            if figlet "RayanPBX" > /dev/null 2>&1; then
+                if command -v lolcat &> /dev/null; then
+                    figlet "RayanPBX" | lolcat
+                else
+                    echo -e "${CYAN}$(figlet "RayanPBX")${RESET}"
+                fi
+            else
+                print_verbose "figlet failed, using fallback banner"
+                # If figlet fails completely, use fallback
+                echo -e "${CYAN}${BOLD}"
+                echo "╔══════════════════════════════════════════╗"
+                echo "║                                          ║"
+                echo "║        🚀  RayanPBX Installer  🚀        ║"
+                echo "║                                          ║"
+                echo "║   Modern SIP Server Management Suite    ║"
+                echo "║                                          ║"
+                echo "╚══════════════════════════════════════════╝"
+                echo -e "${RESET}"
+            fi
         fi
     else
+        print_verbose "figlet not found, using fallback banner"
         echo -e "${CYAN}${BOLD}"
         echo "╔══════════════════════════════════════════╗"
         echo "║                                          ║"
@@ -132,50 +229,130 @@ check_installed() {
 }
 
 # ════════════════════════════════════════════════════════════════════════
+# Error Handler (for verbose mode)
+# ════════════════════════════════════════════════════════════════════════
+
+error_handler() {
+    local line_number=$1
+    local command="$2"
+    print_error "Script failed at line $line_number"
+    if [ "$VERBOSE" = true ]; then
+        print_error "Failed command: $command"
+    fi
+    exit 1
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# Parse Command Line Arguments
+# ════════════════════════════════════════════════════════════════════════
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -V|--version)
+            show_version
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            echo "Dry-run mode enabled (not yet fully implemented)"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Set up error trap after parsing arguments
+if [ "$VERBOSE" = true ]; then
+    # Use -E to inherit ERR trap in functions, command substitutions, and subshells
+    set -eE
+    trap 'error_handler ${LINENO} "$BASH_COMMAND"' ERR
+    print_verbose "Verbose mode enabled"
+fi
+
+# ════════════════════════════════════════════════════════════════════════
 # Main Installation
 # ════════════════════════════════════════════════════════════════════════
+
+print_verbose "Starting RayanPBX installation script v${SCRIPT_VERSION}"
+print_verbose "System: $(uname -a)"
+print_verbose "User: $(whoami)"
 
 print_banner
 
 # Check if running as root
+print_verbose "Checking if running as root (EUID: $EUID)..."
 if [[ $EUID -ne 0 ]]; then
    print_error "This script must be run as root"
    echo -e "${YELLOW}💡 Please run: ${WHITE}sudo $0${RESET}"
    exit 1
 fi
+print_verbose "Root check passed"
 
 # Check Ubuntu version
 next_step "System Verification"
+print_verbose "Checking Ubuntu version..."
+print_verbose "Reading OS release information..."
+if [ "$VERBOSE" = true ]; then
+    head -n 5 /etc/os-release
+fi
+
 if ! grep -q "24.04" /etc/os-release; then
     print_warning "This script is designed for Ubuntu 24.04 LTS"
     echo -e "${YELLOW}Your version: $(lsb_release -d | cut -f2)${RESET}"
     read -p "Continue anyway? (y/n) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_verbose "User chose not to continue on non-24.04 system"
         exit 1
     fi
 else
     print_success "Ubuntu 24.04 LTS detected"
 fi
+print_verbose "System verification complete"
 
 # Install nala if not present
 next_step "Package Manager Setup"
+print_verbose "Checking for nala package manager..."
 if ! command -v nala &> /dev/null; then
     print_progress "Installing nala package manager..."
+    print_verbose "Running apt-get update..."
     if ! apt-get update -qq 2>&1; then
         print_error "Failed to update package lists"
         print_warning "Check your internet connection and repository configuration"
+        if [ "$VERBOSE" = true ]; then
+            print_verbose "Running apt-get update with full output for diagnosis..."
+            apt-get update
+        fi
         exit 1
     fi
+    print_verbose "apt-get update completed successfully"
+    
+    print_verbose "Installing nala package..."
     if ! apt-get install -y nala > /dev/null 2>&1; then
         print_error "Failed to install nala package manager"
         print_warning "Falling back to apt-get for remaining operations"
+        if [ "$VERBOSE" = true ]; then
+            print_verbose "Attempting nala install with full output..."
+            apt-get install -y nala
+        fi
         # Don't exit, just use apt-get instead
     else
         print_success "nala installed"
+        print_verbose "nala version: $(nala --version 2>&1 | head -n 1 || echo 'unable to determine')"
     fi
 else
     print_success "nala already installed"
+    print_verbose "nala version: $(nala --version 2>&1 | head -n 1 || echo 'unable to determine')"
 fi
 
 # System update
@@ -187,21 +364,46 @@ PKG_MGR="nala"
 if ! command -v nala &> /dev/null; then
     PKG_MGR="apt-get"
 fi
+print_verbose "Using package manager: $PKG_MGR"
 
-if ! $PKG_MGR update > /dev/null 2>&1; then
-    print_error "Failed to update package lists"
-    print_warning "This may cause issues with package installation"
-    print_warning "Check your internet connection and /etc/apt/sources.list"
-    echo -e "${YELLOW}Continue anyway? (y/n)${RESET}"
-    read -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
+print_verbose "Running $PKG_MGR update..."
+if [ "$VERBOSE" = true ]; then
+    # Show output in verbose mode
+    if ! $PKG_MGR update; then
+        print_error "Failed to update package lists"
+        print_warning "This may cause issues with package installation"
+        print_warning "Check your internet connection and /etc/apt/sources.list"
+        echo -e "${YELLOW}Continue anyway? (y/n)${RESET}"
+        read -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+else
+    # Hide output in normal mode
+    if ! $PKG_MGR update > /dev/null 2>&1; then
+        print_error "Failed to update package lists"
+        print_warning "This may cause issues with package installation"
+        print_warning "Check your internet connection and /etc/apt/sources.list"
+        echo -e "${YELLOW}Continue anyway? (y/n)${RESET}"
+        read -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
     fi
 fi
 
-if ! $PKG_MGR upgrade -y > /dev/null 2>&1; then
-    print_warning "System upgrade encountered issues but will continue"
+print_verbose "Running $PKG_MGR upgrade..."
+if [ "$VERBOSE" = true ]; then
+    if ! $PKG_MGR upgrade -y; then
+        print_warning "System upgrade encountered issues but will continue"
+    fi
+else
+    if ! $PKG_MGR upgrade -y > /dev/null 2>&1; then
+        print_warning "System upgrade encountered issues but will continue"
+    fi
 fi
 print_success "System updated"
 
@@ -227,33 +429,59 @@ PACKAGES=(
 )
 
 print_info "Installing essential packages..."
+print_verbose "Package list: ${PACKAGES[*]}"
+
 for package in "${PACKAGES[@]}"; do
+    print_verbose "Checking package: $package"
     if ! dpkg -l | grep -q "^ii  $package "; then
         echo -e "${DIM}   Installing $package...${RESET}"
-        if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
-            print_error "Failed to install $package"
-            print_warning "Some features may not work without $package"
-            # Continue with other packages
+        print_verbose "Running: $PKG_MGR install -y $package"
+        
+        if [ "$VERBOSE" = true ]; then
+            if ! $PKG_MGR install -y "$package"; then
+                print_error "Failed to install $package"
+                print_warning "Some features may not work without $package"
+                # Continue with other packages
+            else
+                print_success "✓ $package"
+            fi
         else
-            print_success "✓ $package"
+            if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
+                print_error "Failed to install $package"
+                print_warning "Some features may not work without $package"
+                # Continue with other packages
+            else
+                print_success "✓ $package"
+            fi
         fi
     else
         echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        print_verbose "$package is already installed"
     fi
 done
 
 # Install GitHub CLI
 next_step "GitHub CLI Installation"
+print_verbose "Checking for GitHub CLI..."
 if ! check_installed "gh" "GitHub CLI"; then
     print_progress "Installing GitHub CLI..."
+    print_verbose "Downloading GitHub CLI keyring..."
     if curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null; then
         chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+        print_verbose "Adding GitHub CLI repository..."
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        print_verbose "Updating package lists..."
         $PKG_MGR update > /dev/null 2>&1
+        print_verbose "Installing gh package..."
         if ! $PKG_MGR install -y gh > /dev/null 2>&1; then
             print_warning "Failed to install GitHub CLI (optional)"
+            if [ "$VERBOSE" = true ]; then
+                print_verbose "Attempting with full output..."
+                $PKG_MGR install -y gh
+            fi
         else
             print_success "GitHub CLI installed"
+            print_verbose "GitHub CLI version: $(gh --version | head -n 1)"
         fi
     else
         print_warning "Failed to download GitHub CLI keyring (optional)"
@@ -262,18 +490,38 @@ fi
 
 # MySQL/MariaDB Installation
 next_step "Database Setup (MySQL/MariaDB)"
+print_verbose "Checking for MySQL/MariaDB..."
 if ! command -v mysql &> /dev/null; then
     print_progress "Installing MariaDB..."
-    if ! $PKG_MGR install -y mariadb-server mariadb-client > /dev/null 2>&1; then
-        print_error "Failed to install MariaDB"
-        print_warning "Database is required for RayanPBX to function"
-        exit 1
+    print_verbose "Installing mariadb-server and mariadb-client..."
+    
+    if [ "$VERBOSE" = true ]; then
+        if ! $PKG_MGR install -y mariadb-server mariadb-client; then
+            print_error "Failed to install MariaDB"
+            print_warning "Database is required for RayanPBX to function"
+            exit 1
+        fi
+    else
+        if ! $PKG_MGR install -y mariadb-server mariadb-client > /dev/null 2>&1; then
+            print_error "Failed to install MariaDB"
+            print_warning "Database is required for RayanPBX to function"
+            exit 1
+        fi
     fi
+    
+    print_verbose "Enabling MariaDB service..."
     systemctl enable mariadb
+    print_verbose "Starting MariaDB service..."
     systemctl start mariadb
     print_success "MariaDB installed and started"
     
+    print_verbose "Checking MariaDB service status..."
+    if [ "$VERBOSE" = true ]; then
+        systemctl status mariadb --no-pager | head -n 10
+    fi
+    
     # Check if MySQL is already secured
+    print_verbose "Checking if MySQL root access requires password..."
     if mysql -u root -e "SELECT 1" &> /dev/null; then
         print_warning "MySQL root has no password - securing now..."
         echo -e "${YELLOW}Please set a secure MySQL root password${RESET}"
@@ -296,6 +544,7 @@ if ! command -v mysql &> /dev/null; then
         done
         
         print_progress "Securing MySQL installation..."
+        print_verbose "Setting root password and removing test databases..."
         mysql -u root <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';
 DELETE FROM mysql.user WHERE User='';
@@ -307,121 +556,225 @@ EOF
         print_success "MySQL secured"
     else
         print_info "MySQL already secured"
+        print_verbose "MySQL root access requires password"
         read -sp "$(echo -e ${CYAN}Enter MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
         echo
     fi
 else
     print_success "MySQL/MariaDB already installed"
+    print_verbose "MySQL version: $(mysql --version)"
     read -sp "$(echo -e ${CYAN}Enter MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
     echo
 fi
 
 # Create RayanPBX database
 print_progress "Creating RayanPBX database..."
+print_verbose "Generating random database password..."
 ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
+print_verbose "Database password generated (random hex string)"
 
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
+print_verbose "Creating database and user..."
+# Use mysql --defaults-extra-file for secure password passing
+MYSQL_TMP_CNF=$(mktemp)
+cat > "$MYSQL_TMP_CNF" <<EOF
+[client]
+user=root
+password=$MYSQL_ROOT_PASSWORD
+EOF
+chmod 600 "$MYSQL_TMP_CNF"
+
+if mysql --defaults-extra-file="$MYSQL_TMP_CNF" <<EOSQL
 CREATE DATABASE IF NOT EXISTS rayanpbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON rayanpbx.* TO 'rayanpbx'@'localhost';
 FLUSH PRIVILEGES;
-EOF
+EOSQL
 then
     print_success "Database 'rayanpbx' created"
+    print_verbose "Database user 'rayanpbx' created with privileges"
+    rm -f "$MYSQL_TMP_CNF"
 else
     print_error "Failed to create database"
     print_warning "Check your MySQL root password and database access"
+    if [ "$VERBOSE" = true ]; then
+        print_verbose "Attempting to verify MySQL connection..."
+        mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -n 10
+    fi
+    rm -f "$MYSQL_TMP_CNF"
     exit 1
 fi
 
 # PHP 8.3 Installation
 next_step "PHP 8.3 Installation"
+print_verbose "Checking for PHP 8.3..."
 if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
     print_progress "Installing PHP 8.3 and extensions..."
-    if ! $PKG_MGR install -y \
-        php8.3 \
-        php8.3-cli \
-        php8.3-fpm \
-        php8.3-mysql \
-        php8.3-xml \
-        php8.3-mbstring \
-        php8.3-curl \
-        php8.3-zip \
-        php8.3-gd \
-        php8.3-bcmath \
-        php8.3-redis > /dev/null 2>&1; then
-        print_error "Failed to install PHP 8.3"
-        print_warning "PHP is required for the backend API"
-        exit 1
+    print_verbose "Installing PHP 8.3 packages..."
+    
+    if [ "$VERBOSE" = true ]; then
+        if ! $PKG_MGR install -y \
+            php8.3 \
+            php8.3-cli \
+            php8.3-fpm \
+            php8.3-mysql \
+            php8.3-xml \
+            php8.3-mbstring \
+            php8.3-curl \
+            php8.3-zip \
+            php8.3-gd \
+            php8.3-bcmath \
+            php8.3-redis; then
+            print_error "Failed to install PHP 8.3"
+            print_warning "PHP is required for the backend API"
+            exit 1
+        fi
+    else
+        if ! $PKG_MGR install -y \
+            php8.3 \
+            php8.3-cli \
+            php8.3-fpm \
+            php8.3-mysql \
+            php8.3-xml \
+            php8.3-mbstring \
+            php8.3-curl \
+            php8.3-zip \
+            php8.3-gd \
+            php8.3-bcmath \
+            php8.3-redis > /dev/null 2>&1; then
+            print_error "Failed to install PHP 8.3"
+            print_warning "PHP is required for the backend API"
+            exit 1
+        fi
     fi
     print_success "PHP 8.3 installed"
 else
     print_success "PHP 8.3 already installed"
 fi
-php -v | head -1
+php -v | head -n 1
+print_verbose "PHP configuration file: $(php --ini | grep 'Loaded Configuration File' | cut -d: -f2 | xargs)"
 
 # Composer Installation
 next_step "Composer Installation"
+print_verbose "Checking for Composer..."
 if ! check_installed "composer" "Composer"; then
     print_progress "Installing Composer..."
-    if curl -sS https://getcomposer.org/installer | php > /dev/null 2>&1; then
-        mv composer.phar /usr/local/bin/composer
-        chmod +x /usr/local/bin/composer
-        print_success "Composer installed"
+    print_verbose "Downloading Composer installer..."
+    
+    if [ "$VERBOSE" = true ]; then
+        if curl -sS https://getcomposer.org/installer | php; then
+            mv composer.phar /usr/local/bin/composer
+            chmod +x /usr/local/bin/composer
+            print_success "Composer installed"
+        else
+            print_error "Failed to install Composer"
+            print_warning "Composer is required for backend dependencies"
+            exit 1
+        fi
     else
-        print_error "Failed to install Composer"
-        print_warning "Composer is required for backend dependencies"
-        exit 1
+        if curl -sS https://getcomposer.org/installer | php > /dev/null 2>&1; then
+            mv composer.phar /usr/local/bin/composer
+            chmod +x /usr/local/bin/composer
+            print_success "Composer installed"
+        else
+            print_error "Failed to install Composer"
+            print_warning "Composer is required for backend dependencies"
+            exit 1
+        fi
     fi
 fi
-composer --version | head -1
+composer --version | head -n 1
+print_verbose "Composer location: $(which composer)"
 
 # Node.js 24 Installation
 next_step "Node.js 24 Installation"
+print_verbose "Checking for Node.js 24..."
 if ! command -v node &> /dev/null || ! node -v | grep -q "v24"; then
     print_progress "Installing Node.js 24..."
-    if curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1; then
-        if ! $PKG_MGR install -y nodejs > /dev/null 2>&1; then
-            print_error "Failed to install Node.js"
-            print_warning "Node.js is required for the frontend"
+    print_verbose "Adding NodeSource repository..."
+    
+    if [ "$VERBOSE" = true ]; then
+        if curl -fsSL https://deb.nodesource.com/setup_24.x | bash -; then
+            print_verbose "Installing nodejs package..."
+            if ! $PKG_MGR install -y nodejs; then
+                print_error "Failed to install Node.js"
+                print_warning "Node.js is required for the frontend"
+                exit 1
+            fi
+            print_success "Node.js 24 installed"
+        else
+            print_error "Failed to add Node.js repository"
             exit 1
         fi
-        print_success "Node.js 24 installed"
     else
-        print_error "Failed to add Node.js repository"
-        exit 1
+        if curl -fsSL https://deb.nodesource.com/setup_24.x | bash - > /dev/null 2>&1; then
+            if ! $PKG_MGR install -y nodejs > /dev/null 2>&1; then
+                print_error "Failed to install Node.js"
+                print_warning "Node.js is required for the frontend"
+                exit 1
+            fi
+            print_success "Node.js 24 installed"
+        else
+            print_error "Failed to add Node.js repository"
+            exit 1
+        fi
     fi
 else
     print_success "Node.js 24 already installed"
 fi
 node -v
 npm -v
+print_verbose "Node.js location: $(which node)"
+print_verbose "npm location: $(which npm)"
 
 # PM2 Installation
 print_info "Installing PM2 process manager..."
+print_verbose "Checking for PM2..."
 if ! command -v pm2 &> /dev/null; then
-    if npm install -g pm2 > /dev/null 2>&1; then
-        # pm2 startup may fail if www-data user doesn't exist yet or if systemd is not available
-        # We use '|| true' to allow this to fail gracefully without stopping the installation
-        # PM2 startup can be configured manually later if needed
-        pm2 startup systemd -u www-data --hp /var/www > /dev/null 2>&1 || true
-        print_success "PM2 installed"
+    print_verbose "Installing PM2 globally via npm..."
+    
+    if [ "$VERBOSE" = true ]; then
+        if npm install -g pm2; then
+            # pm2 startup may fail if www-data user doesn't exist yet or if systemd is not available
+            # We use '|| true' to allow this to fail gracefully without stopping the installation
+            # PM2 startup can be configured manually later if needed
+            print_verbose "Configuring PM2 startup..."
+            pm2 startup systemd -u www-data --hp /var/www || true
+            print_success "PM2 installed"
+        else
+            print_error "Failed to install PM2"
+            print_warning "PM2 is required for process management"
+            exit 1
+        fi
     else
-        print_error "Failed to install PM2"
-        print_warning "PM2 is required for process management"
-        exit 1
+        if npm install -g pm2 > /dev/null 2>&1; then
+            # pm2 startup may fail if www-data user doesn't exist yet or if systemd is not available
+            # We use '|| true' to allow this to fail gracefully without stopping the installation
+            # PM2 startup can be configured manually later if needed
+            pm2 startup systemd -u www-data --hp /var/www > /dev/null 2>&1 || true
+            print_success "PM2 installed"
+        else
+            print_error "Failed to install PM2"
+            print_warning "PM2 is required for process management"
+            exit 1
+        fi
     fi
 else
     print_success "PM2 already installed"
 fi
 pm2 -v
+print_verbose "PM2 location: $(which pm2)"
 
 # Go 1.23 Installation
 next_step "Go 1.23 Installation"
+print_verbose "Checking for Go..."
 if ! check_installed "go" "Go"; then
     print_progress "Installing Go 1.23..."
+    print_verbose "Downloading Go 1.23.4..."
+    
     if wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz; then
+        print_verbose "Extracting Go to /usr/local..."
         if tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz > /dev/null 2>&1; then
+            print_verbose "Adding Go to PATH in /etc/profile..."
             echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
             export PATH=$PATH:/usr/local/go/bin
             rm go1.23.4.linux-amd64.tar.gz
@@ -438,13 +791,15 @@ if ! check_installed "go" "Go"; then
     fi
 fi
 /usr/local/go/bin/go version
+print_verbose "Go location: /usr/local/go/bin/go"
+print_verbose "GOPATH: $(go env GOPATH 2>/dev/null || echo 'not set')"
 
 # Asterisk 22 Installation
 next_step "Asterisk 22 Installation"
 SKIP_ASTERISK=""
 
 if command -v asterisk &> /dev/null; then
-    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | grep -oP '\d+' | head -1)
+    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | grep -oP '\d+' | head -n 1)
     if [ "$ASTERISK_VERSION" -ge 22 ]; then
         print_success "Asterisk $ASTERISK_VERSION already installed"
         asterisk -V
@@ -751,7 +1106,7 @@ fi
 
 if systemctl is-active --quiet asterisk; then
     print_success "✓ Asterisk running"
-    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | head -1)
+    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | head -n 1)
     echo -e "${DIM}   $ASTERISK_VERSION${RESET}"
 else
     print_warning "✗ Asterisk issue - check: systemctl status asterisk"

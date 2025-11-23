@@ -313,5 +313,63 @@ jobs:
             echo "✅ All error handling functions are defined"
           '
       
+      - name: 🧪 Test command-line options
+        run: |
+          # Test --help option
+          output=$(bash install.sh --help 2>&1 || true)
+          if echo "$output" | grep -q "USAGE:"; then
+            echo "✅ --help flag working correctly"
+          else
+            echo "❌ --help flag failed"
+            exit 1
+          fi
+          
+          # Test -h short option
+          output=$(bash install.sh -h 2>&1 || true)
+          if echo "$output" | grep -q "USAGE:"; then
+            echo "✅ -h flag working correctly"
+          else
+            echo "❌ -h flag failed"
+            exit 1
+          fi
+          
+          # Test --version option
+          output=$(bash install.sh --version 2>&1 || true)
+          if echo "$output" | grep -q "RayanPBX Installation Script v"; then
+            echo "✅ --version flag working correctly"
+          else
+            echo "❌ --version flag failed"
+            exit 1
+          fi
+          
+          # Test -V short option
+          output=$(bash install.sh -V 2>&1 || true)
+          if echo "$output" | grep -q "RayanPBX Installation Script v"; then
+            echo "✅ -V flag working correctly"
+          else
+            echo "❌ -V flag failed"
+            exit 1
+          fi
+          
+          # Test --verbose option
+          output=$(bash install.sh --verbose 2>&1 || true)
+          if echo "$output" | grep -q "\[VERBOSE\]"; then
+            echo "✅ --verbose flag working correctly"
+          else
+            echo "❌ --verbose flag failed"
+            exit 1
+          fi
+          
+          # Test -v short option
+          output=$(bash install.sh -v 2>&1 || true)
+          if echo "$output" | grep -q "\[VERBOSE\]"; then
+            echo "✅ -v flag working correctly"
+          else
+            echo "❌ -v flag failed"
+            exit 1
+          fi
+          
+          echo "✅ All command-line options working correctly"
+      
       - name: ✅ Install script tests complete
         run: echo "🎉 Installation script tests passed!"

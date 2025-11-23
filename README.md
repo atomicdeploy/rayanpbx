@@ -122,9 +122,42 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/atomicdeploy/rayanp
 git clone https://github.com/atomicdeploy/rayanpbx.git
 cd rayanpbx
 
-# Run the installer
+# Run the installer (standard mode)
 sudo ./install.sh
+
+# Or with verbose mode for debugging
+sudo ./install.sh --verbose
 ```
+
+### Installation Options
+
+The installer supports several command-line options:
+
+```bash
+# Show help and available options
+./install.sh --help
+
+# Show version
+./install.sh --version
+
+# Install with verbose output (recommended for debugging)
+sudo ./install.sh --verbose
+```
+
+For detailed information about command-line options, see [COMMAND_LINE_OPTIONS.md](COMMAND_LINE_OPTIONS.md).
+
+### Troubleshooting Installation
+
+If the installation fails or exits unexpectedly:
+
+1. **Use verbose mode** to see detailed information:
+   ```bash
+   sudo ./install.sh --verbose 2>&1 | tee install.log
+   ```
+
+2. **Check the log** to identify where it failed.
+
+3. **Report issues** with the log file at: https://github.com/atomicdeploy/rayanpbx/issues
 
 ### Configuration
 
