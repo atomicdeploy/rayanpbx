@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\ConsoleController;
 use App\Http\Controllers\Api\HelpController;
 use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
+use App\Http\Controllers\Api\ValidationController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -81,6 +82,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/asterisk/channel/rtp', [AsteriskStatusController::class, 'getRTPStats']);
     Route::post('/asterisk/trunk/status', [AsteriskStatusController::class, 'getTrunkStatus']);
     Route::get('/asterisk/status/complete', [AsteriskStatusController::class, 'getCompleteStatus']);
+    
+    // Configuration Validation & Testing
+    Route::post('/validate/pjsip', [ValidationController::class, 'validatePjsip']);
+    Route::post('/validate/dialplan', [ValidationController::class, 'validateDialplan']);
+    Route::post('/validate/analyze', [ValidationController::class, 'analyzeConfig']);
+    Route::get('/validate/trunk/{name}', [ValidationController::class, 'validateTrunk']);
+    Route::get('/validate/extension/{extension}', [ValidationController::class, 'validateExtension']);
+    Route::post('/validate/routing', [ValidationController::class, 'testRouting']);
+    Route::get('/validate/hooks/registration', [ValidationController::class, 'getRegistrationHooks']);
+    Route::get('/validate/hooks/grandstream', [ValidationController::class, 'getGrandstreamHooks']);
 });
 
 // Health check endpoint (public)
