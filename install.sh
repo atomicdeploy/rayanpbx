@@ -16,6 +16,7 @@ VERBOSE=false
 DRY_RUN=false
 INSTALL_TTS=false
 INSTALL_EMAIL=false
+INSTALL_SECURITY_TOOLS=false
 INSTALL_ADVANCED_SECURITY=false
 
 # ════════════════════════════════════════════════════════════════════════
@@ -75,6 +76,7 @@ show_help() {
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
     echo -e "    ${GREEN}--with-tts${RESET}          Install Text-to-Speech engines (gTTS and Piper)"
     echo -e "    ${GREEN}--with-email${RESET}        Install email server (Postfix and Dovecot)"
+    echo -e "    ${GREEN}--with-security-tools${RESET} Install security tools (fail2ban, iptables, ipset)"
     echo -e "    ${GREEN}--with-security${RESET}     Install advanced security tools (coming soon)"
     echo ""
     echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
@@ -97,8 +99,11 @@ show_help() {
     echo -e "    ${DIM}# Installation with email server (Postfix + Dovecot)${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --with-email${RESET}"
     echo ""
-    echo -e "    ${DIM}# Combined: TTS and email${RESET}"
-    echo -e "    ${WHITE}sudo ./install.sh --with-tts --with-email${RESET}"
+    echo -e "    ${DIM}# Installation with security tools (fail2ban, iptables)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-security-tools${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Combined: TTS, email, and security${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-tts --with-email --with-security-tools${RESET}"
     echo ""
     echo -e "    ${DIM}# Show version${RESET}"
     echo -e "    ${WHITE}./install.sh --version${RESET}"
@@ -286,6 +291,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_EMAIL=true
             shift
             ;;
+        --with-security-tools)
+            INSTALL_SECURITY_TOOLS=true
+            shift
+            ;;
         --with-security)
             INSTALL_ADVANCED_SECURITY=true
             shift
@@ -458,9 +467,6 @@ PACKAGES=(
     dialog
     vim
     net-tools
-    ipset
-    iptables
-    fail2ban
     sox
     libsox-fmt-all
     ffmpeg
@@ -1127,13 +1133,42 @@ print_info "Configuring cron jobs..."
 
 print_success "Cron jobs configured"
 
-# Configure Fail2ban
-next_step "Security Configuration (Fail2ban)"
-print_info "Configuring Fail2ban for Asterisk protection..."
-
-if command -v fail2ban-client &> /dev/null; then
-    # Create Asterisk jail configuration
-    cat > /etc/fail2ban/jail.d/asterisk.conf << 'EOF'
+# Optional: Install Security Tools (fail2ban, iptables, ipset)
+if [ "$INSTALL_SECURITY_TOOLS" = true ]; then
+    next_step "Security Tools Installation (Optional)"
+    
+    # Install security packages
+    print_info "Installing security tools..."
+    SECURITY_PACKAGES=(fail2ban iptables ipset)
+    
+    for package in "${SECURITY_PACKAGES[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $package "; then
+            echo -e "${DIM}   Installing $package...${RESET}"
+            if [ "$VERBOSE" = true ]; then
+                if ! $PKG_MGR install -y "$package"; then
+                    print_error "Failed to install $package"
+                    print_warning "Security tools may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            else
+                if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
+                    print_error "Failed to install $package"
+                    print_warning "Security tools may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            fi
+        else
+            echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        fi
+    done
+    
+    # Configure Fail2ban
+    if command -v fail2ban-client &> /dev/null; then
+        print_info "Configuring Fail2ban for Asterisk protection..."
+        # Create Asterisk jail configuration
+        cat > /etc/fail2ban/jail.d/asterisk.conf << 'EOF'
 [asterisk]
 enabled = true
 port = 5060,5061
@@ -1155,11 +1190,18 @@ bantime = 3600
 findtime = 600
 EOF
 
-    systemctl enable fail2ban > /dev/null 2>&1
-    systemctl restart fail2ban
-    print_success "Fail2ban configured for Asterisk"
+        systemctl enable fail2ban > /dev/null 2>&1
+        systemctl restart fail2ban
+        print_success "Fail2ban configured for Asterisk"
+    else
+        print_warning "Fail2ban not available after installation"
+    fi
+    
+    print_success "Security tools installed and configured"
+    print_info "Use 'rayanpbx-cli firewall setup' to configure UFW firewall"
 else
-    print_warning "Fail2ban not available - skipping security configuration"
+    print_info "Security tools not requested (use --with-security-tools to install)"
+    print_info "Note: UFW firewall can still be configured via 'rayanpbx-cli firewall setup'"
 fi
 
 # Optional: Install Email Server (Postfix + Dovecot)
@@ -1330,9 +1372,12 @@ fi
 print_info "Additional tools installed:"
 echo -e "  ${DIM}• htop${RESET}      - System process viewer"
 echo -e "  ${DIM}• sngrep${RESET}    - SIP packet analyzer"
-echo -e "  ${DIM}• fail2ban${RESET}  - Intrusion prevention"
 echo -e "  ${DIM}• sox/ffmpeg${RESET} - Audio conversion tools"
 echo -e "  ${DIM}• jq${RESET}        - JSON processor"
+if [ "$INSTALL_SECURITY_TOOLS" = true ]; then
+    echo -e "  ${DIM}• fail2ban${RESET}  - Intrusion prevention"
+    echo -e "  ${DIM}• iptables/ipset${RESET} - Firewall tools"
+fi
 if [ "$INSTALL_TTS" = true ]; then
     echo -e "  ${DIM}• gTTS/Piper${RESET}  - Text-to-Speech engines"
 fi
@@ -1501,10 +1546,16 @@ echo -e "  ${DIM}Security status:${RESET}   fail2ban-client status asterisk"
 echo -e "  ${DIM}JSON processor:${RESET}    jq"
 echo ""
 
-echo -e "${BOLD}${CYAN}🔒 Security Tools:${RESET}"
-echo -e "  ${DIM}Fail2ban:${RESET}         Configured for Asterisk (port 5060/5061)"
-echo -e "  ${DIM}Firewall:${RESET}         Use ${WHITE}rayanpbx-cli firewall setup${RESET}"
+echo -e "${BOLD}${CYAN}🔒 Security:${RESET}"
+if [ "$INSTALL_SECURITY_TOOLS" = true ]; then
+    echo -e "  ${DIM}Fail2ban:${RESET}         Configured for Asterisk (port 5060/5061)"
+    echo -e "  ${DIM}iptables/ipset:${RESET}   Installed for advanced firewall rules"
+fi
+echo -e "  ${DIM}UFW Firewall:${RESET}     Use ${WHITE}rayanpbx-cli firewall setup${RESET}"
 echo -e "  ${DIM}Certificates:${RESET}     Use ${WHITE}rayanpbx-cli certificate${RESET}"
+if [ "$INSTALL_SECURITY_TOOLS" != true ]; then
+    echo -e "  ${DIM}Security tools:${RESET}   Use ${WHITE}--with-security-tools${RESET} to install fail2ban"
+fi
 echo ""
 
 if [ "$INSTALL_EMAIL" = true ]; then

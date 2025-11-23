@@ -313,7 +313,6 @@ sudo postconf -e "smtp_sasl_auth_enable = yes"
 ## Implementation Priority
 
 ### Current Implementation (Already Done)
-- ✅ Fail2ban for Asterisk security
 - ✅ UFW firewall management (via CLI)
 - ✅ Sound file management
 - ✅ Certificate management (Let's Encrypt)
@@ -325,6 +324,7 @@ sudo postconf -e "smtp_sasl_auth_enable = yes"
 ### Optional Features (Flag-based)
 - ✅ Text-to-Speech (gTTS + Piper) - Use `--with-tts` flag
 - ✅ Email Server (Postfix + Dovecot) - Use `--with-email` flag
+- ✅ Security Tools (fail2ban, iptables, ipset) - Use `--with-security-tools` flag
 
 ### Future Releases (Needs Planning)
 1. **Advanced Security Suite** (`--with-advanced-security`)

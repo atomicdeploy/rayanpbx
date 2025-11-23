@@ -70,22 +70,30 @@ Installs:
 
 **Note**: For production use, configure SSL/TLS certificates using `rayanpbx-cli certificate`
 
-### 3. Security Enhancements
-
-#### Enhanced Fail2ban
+#### Security Tools (--with-security-tools flag)
 ```bash
-- Configured for Asterisk (ports 5060/5061)
-- UDP and TCP protocol support
-- 5 retry attempts before ban
-- 1 hour ban time
-- 10 minute find time window
+sudo ./install.sh --with-security-tools
 ```
 
-**Removed/Deferred:**
-- ❌ Port knocking (knockd) - Deferred to future release
-- ❌ IPv6 disabling - Anti-pattern, not implemented
+Installs:
+- **fail2ban** (Intrusion Prevention)
+  - Configured for Asterisk (ports 5060/5061)
+  - UDP and TCP protocol support
+  - 5 retry attempts before ban
+  - 1 hour ban time
+  - 10 minute find time window
+  
+- **iptables** (Firewall)
+  - Netfilter firewall tool
+  - Used with fail2ban for dynamic banning
+  
+- **ipset** (IP Sets)
+  - Efficient IP address management
+  - Used with iptables for bulk operations
 
-### 4. System Configuration
+**Note**: UFW firewall is available via `rayanpbx-cli firewall setup` regardless of this flag
+
+### 3. System Configuration
 
 #### VIM Configuration
 ```bash
@@ -162,6 +170,12 @@ sudo ./install.sh --with-email
 ```
 Installs Postfix (SMTP) and Dovecot (IMAP/POP3) for complete email functionality.
 
+### With Security Tools
+```bash
+sudo ./install.sh --with-security-tools
+```
+Installs fail2ban, iptables, and ipset for intrusion prevention and firewall management.
+
 ### Verbose Mode
 ```bash
 sudo ./install.sh --verbose
@@ -170,7 +184,7 @@ Shows detailed installation steps for debugging.
 
 ### Multiple Flags
 ```bash
-sudo ./install.sh --verbose --with-tts --with-email
+sudo ./install.sh --verbose --with-tts --with-email --with-security-tools
 ```
 
 ## Deferred Features
@@ -234,6 +248,13 @@ See **DEFERRED_FEATURES.md** for detailed information on features that were iden
 | dovecot-core | IMAP/POP3 server core |
 | dovecot-imapd | IMAP daemon |
 | dovecot-pop3d | POP3 daemon |
+
+### Optional Packages (--with-security-tools flag)
+| Package | Purpose |
+|---------|---------|
+| fail2ban | Intrusion prevention system |
+| iptables | Netfilter firewall tool |
+| ipset | IP address set management |
 
 ### Configuration Sections Added
 1. **Shell Environment Configuration**
