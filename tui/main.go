@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fatih/color"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fatih/color"
 )
 
 // Styles
@@ -68,27 +68,27 @@ const (
 )
 
 type model struct {
-	currentScreen   screen
-	menuItems       []string
-	cursor          int
-	width           int
-	height          int
-	db              *sql.DB
-	config          *Config
-	extensions      []Extension
-	trunks          []Trunk
-	errorMsg        string
-	successMsg      string
-	
+	currentScreen screen
+	menuItems     []string
+	cursor        int
+	width         int
+	height        int
+	db            *sql.DB
+	config        *Config
+	extensions    []Extension
+	trunks        []Trunk
+	errorMsg      string
+	successMsg    string
+
 	// Input fields for creation forms
-	inputMode       bool
-	inputFields     []string
-	inputValues     []string
-	inputCursor     int
-	
+	inputMode   bool
+	inputFields []string
+	inputValues []string
+	inputCursor int
+
 	// CLI usage navigation
-	usageCommands   []UsageCommand
-	usageCursor     int
+	usageCommands []UsageCommand
+	usageCursor   int
 }
 
 func initialModel(db *sql.DB, config *Config) model {
@@ -121,7 +121,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.inputMode {
 			return m.handleInputMode(msg)
 		}
-		
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -220,12 +220,12 @@ func (m model) View() string {
 
 	// Show error if any
 	if m.errorMsg != "" {
-		s += errorStyle.Render("❌ " + m.errorMsg) + "\n\n"
+		s += errorStyle.Render("❌ "+m.errorMsg) + "\n\n"
 	}
-	
+
 	// Show success message if any
 	if m.successMsg != "" {
-		s += successStyle.Render("✅ " + m.successMsg) + "\n\n"
+		s += successStyle.Render("✅ "+m.successMsg) + "\n\n"
 	}
 
 	switch m.currentScreen {
@@ -289,19 +289,19 @@ func (m model) renderMainMenu() string {
 
 func (m model) renderExtensions() string {
 	content := infoStyle.Render("📱 Extensions Management") + "\n\n"
-	
+
 	if len(m.extensions) == 0 {
 		content += "📭 No extensions configured\n\n"
 	} else {
 		content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
-		
+
 		for _, ext := range m.extensions {
 			status := "🔴 Disabled"
 			if ext.Enabled {
 				status = "🟢 Enabled"
 			}
-			
-			line := fmt.Sprintf("  %s - %s (%s)\n", 
+
+			line := fmt.Sprintf("  %s - %s (%s)\n",
 				successStyle.Render(ext.ExtensionNumber),
 				ext.Name,
 				status,
@@ -309,7 +309,7 @@ func (m model) renderExtensions() string {
 			content += line
 		}
 	}
-	
+
 	content += "\n" + helpStyle.Render("💡 Tip: Extensions allow users to make and receive calls")
 
 	return menuStyle.Render(content)
@@ -317,18 +317,18 @@ func (m model) renderExtensions() string {
 
 func (m model) renderTrunks() string {
 	content := infoStyle.Render("🔗 Trunk Configuration") + "\n\n"
-	
+
 	if len(m.trunks) == 0 {
 		content += "📭 No trunks configured\n\n"
 	} else {
 		content += fmt.Sprintf("Total Trunks: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.trunks))))
-		
+
 		for _, trunk := range m.trunks {
 			status := "🔴 Disabled"
 			if trunk.Enabled {
 				status = "🟢 Enabled"
 			}
-			
+
 			line := fmt.Sprintf("  %s - %s:%d (Priority: %d) %s\n",
 				successStyle.Render(trunk.Name),
 				trunk.Host,
@@ -339,7 +339,7 @@ func (m model) renderTrunks() string {
 			content += line
 		}
 	}
-	
+
 	content += "\n" + helpStyle.Render("💡 Tip: Trunks connect your PBX to external phone networks")
 
 	return menuStyle.Render(content)
@@ -347,28 +347,28 @@ func (m model) renderTrunks() string {
 
 func (m model) renderStatus() string {
 	content := infoStyle.Render("📊 System Status") + "\n\n"
-	
+
 	// Check database
 	if err := m.db.Ping(); err == nil {
 		content += successStyle.Render("✅ Database: Connected") + "\n"
 	} else {
 		content += errorStyle.Render("❌ Database: Disconnected") + "\n"
 	}
-	
+
 	// Get statistics
 	var extTotal, extActive, trunkTotal, trunkActive int
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions").Scan(&extTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions WHERE enabled = 1").Scan(&extActive)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks").Scan(&trunkTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks WHERE enabled = 1").Scan(&trunkActive)
-	
+
 	content += "\n📈 Statistics:\n"
-	content += fmt.Sprintf("  📱 Extensions: %s active / %d total\n", 
+	content += fmt.Sprintf("  📱 Extensions: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", extActive)), extTotal)
 	content += fmt.Sprintf("  🔗 Trunks: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", trunkActive)), trunkTotal)
 	content += "  📞 Active Calls: 0\n"
-	
+
 	content += "\n" + helpStyle.Render("🔄 Status updates in real-time")
 
 	return menuStyle.Render(content)
@@ -388,9 +388,9 @@ func (m model) renderLogs() string {
 
 func (m model) renderAsterisk() string {
 	content := infoStyle.Render("⚙️  Asterisk Management") + "\n\n"
-	
+
 	am := NewAsteriskManager()
-	
+
 	// Show service status
 	status, _ := am.GetServiceStatus()
 	statusText := "🔴 Stopped"
@@ -398,7 +398,7 @@ func (m model) renderAsterisk() string {
 		statusText = "🟢 Running"
 	}
 	content += fmt.Sprintf("Service Status: %s\n\n", statusText)
-	
+
 	content += "Available Actions:\n"
 	content += "  • Start/Stop/Restart Service\n"
 	content += "  • Reload PJSIP Configuration\n"
@@ -406,15 +406,15 @@ func (m model) renderAsterisk() string {
 	content += "  • Execute CLI Commands\n"
 	content += "  • View Endpoints\n"
 	content += "  • View Active Channels\n\n"
-	
+
 	content += helpStyle.Render("💡 Use rayanpbx-cli for direct Asterisk management")
-	
+
 	return menuStyle.Render(content)
 }
 
 func (m model) renderDiagnostics() string {
 	content := infoStyle.Render("🔍 Diagnostics & Debugging") + "\n\n"
-	
+
 	content += "Diagnostic Tools:\n"
 	content += "  🔍 SIP Debugging\n"
 	content += "  📡 Network Diagnostics\n"
@@ -423,20 +423,20 @@ func (m model) renderDiagnostics() string {
 	content += "  🌐 Trunk Connectivity Tests\n"
 	content += "  📊 Traffic Analysis\n"
 	content += "  🏥 System Health Check\n\n"
-	
+
 	content += helpStyle.Render("💡 Use rayanpbx-cli diag for diagnostic commands")
-	
+
 	return menuStyle.Render(content)
 }
 
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
-	
+
 	if len(m.usageCommands) == 0 {
 		content += "Loading commands...\n"
 	} else {
 		content += "Navigate with ↑/↓ and press Enter to execute:\n\n"
-		
+
 		currentCategory := ""
 		for i, cmd := range m.usageCommands {
 			if cmd.Category != currentCategory {
@@ -446,23 +446,23 @@ func (m model) renderUsage() string {
 				content += successStyle.Render(cmd.Category+":") + "\n"
 				currentCategory = cmd.Category
 			}
-			
+
 			cursor := "  "
 			cmdText := cmd.Command
 			if i == m.usageCursor {
 				cursor = "▶ "
 				cmdText = selectedItemStyle.Render(cmd.Command)
 			}
-			
+
 			content += fmt.Sprintf("%s%s\n", cursor, cmdText)
 			if cmd.Description != "" && i == m.usageCursor {
 				content += helpStyle.Render("   └─ "+cmd.Description) + "\n"
 			}
 		}
 	}
-	
+
 	content += "\n" + helpStyle.Render("📚 Full documentation: /opt/rayanpbx/README.md")
-	
+
 	return menuStyle.Render(content)
 }
 
@@ -532,17 +532,17 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
-		
+
 	case "up":
 		if m.inputCursor > 0 {
 			m.inputCursor--
 		}
-		
+
 	case "down":
 		if m.inputCursor < len(m.inputFields)-1 {
 			m.inputCursor++
 		}
-		
+
 	case "enter":
 		// Move to next field or submit
 		if m.inputCursor < len(m.inputFields)-1 {
@@ -555,27 +555,27 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.createTrunk()
 			}
 		}
-		
+
 	case "backspace":
 		// Delete last character from current field
 		if m.inputCursor < len(m.inputValues) && len(m.inputValues[m.inputCursor]) > 0 {
 			m.inputValues[m.inputCursor] = m.inputValues[m.inputCursor][:len(m.inputValues[m.inputCursor])-1]
 		}
-		
+
 	default:
 		// Add character to current field
 		if len(msg.String()) == 1 && m.inputCursor < len(m.inputValues) {
 			m.inputValues[m.inputCursor] += msg.String()
 		}
 	}
-	
+
 	return m, nil
 }
 
 // renderCreateExtension renders the extension creation form
 func (m model) renderCreateExtension() string {
 	content := infoStyle.Render("📱 Create New Extension") + "\n\n"
-	
+
 	for i, field := range m.inputFields {
 		cursor := "  "
 		fieldStyle := lipgloss.NewStyle()
@@ -583,26 +583,26 @@ func (m model) renderCreateExtension() string {
 			cursor = "▶ "
 			fieldStyle = selectedItemStyle
 		}
-		
+
 		value := m.inputValues[i]
 		if value == "" {
 			value = helpStyle.Render("<enter value>")
 		} else if field == "Password" {
 			value = strings.Repeat("*", len(value))
 		}
-		
+
 		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
 	}
-	
+
 	content += "\n" + helpStyle.Render("💡 Fill in all fields and press Enter on the last field to create")
-	
+
 	return menuStyle.Render(content)
 }
 
 // renderCreateTrunk renders the trunk creation form
 func (m model) renderCreateTrunk() string {
 	content := infoStyle.Render("🔗 Create New Trunk") + "\n\n"
-	
+
 	for i, field := range m.inputFields {
 		cursor := "  "
 		fieldStyle := lipgloss.NewStyle()
@@ -610,17 +610,17 @@ func (m model) renderCreateTrunk() string {
 			cursor = "▶ "
 			fieldStyle = selectedItemStyle
 		}
-		
+
 		value := m.inputValues[i]
 		if value == "" {
 			value = helpStyle.Render("<enter value>")
 		}
-		
+
 		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
 	}
-	
+
 	content += "\n" + helpStyle.Render("💡 Fill in all fields and press Enter on the last field to create")
-	
+
 	return menuStyle.Render(content)
 }
 
@@ -631,26 +631,26 @@ func (m *model) createExtension() {
 		m.errorMsg = "All fields are required"
 		return
 	}
-	
+
 	// Insert into database
 	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, created_at, updated_at)
 			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, NOW(), NOW())`
-	
+
 	_, err := m.db.Exec(query, m.inputValues[0], m.inputValues[1], m.inputValues[2])
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
 		return
 	}
-	
+
 	// Success - reload extensions and return to list
 	m.successMsg = fmt.Sprintf("Extension %s created successfully!", m.inputValues[0])
 	m.inputMode = false
-	
+
 	// Reload extensions
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
 	}
-	
+
 	m.currentScreen = extensionsScreen
 }
 
@@ -661,29 +661,28 @@ func (m *model) createTrunk() {
 		m.errorMsg = "All fields are required"
 		return
 	}
-	
+
 	// Insert into database
 	query := `INSERT INTO trunks (name, host, port, priority, enabled, created_at, updated_at)
 			  VALUES (?, ?, ?, ?, 1, NOW(), NOW())`
-	
+
 	_, err := m.db.Exec(query, m.inputValues[0], m.inputValues[1], m.inputValues[2], m.inputValues[3])
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create trunk: %v", err)
 		return
 	}
-	
+
 	// Success - reload trunks and return to list
 	m.successMsg = fmt.Sprintf("Trunk %s created successfully!", m.inputValues[0])
 	m.inputMode = false
-	
+
 	// Reload trunks
 	if trunks, err := GetTrunks(m.db); err == nil {
 		m.trunks = trunks
 	}
-	
+
 	m.currentScreen = trunksScreen
 }
-
 
 func main() {
 	// Check for version flag
@@ -731,7 +730,7 @@ func main() {
 	green := color.New(color.FgGreen)
 	cyan := color.New(color.FgCyan)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("🔧 Loading configuration...")
 	config, err := LoadConfig()
 	if err != nil {
@@ -749,7 +748,7 @@ func main() {
 	}
 	defer db.Close()
 	green.Println("✅ Database connected")
-	
+
 	fmt.Println()
 	cyan.Println("🚀 Starting TUI interface...")
 	fmt.Println()
