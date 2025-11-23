@@ -790,8 +790,8 @@ if ! check_installed "go" "Go"; then
         exit 1
     fi
 fi
-/usr/local/go/bin/go version
-print_verbose "Go location: /usr/local/go/bin/go"
+go version
+print_verbose "Go location: $(which go)"
 print_verbose "GOPATH: $(go env GOPATH 2>/dev/null || echo 'not set')"
 
 # Asterisk 22 Installation
@@ -989,15 +989,15 @@ print_success "Frontend built successfully"
 next_step "TUI (Terminal UI) Build"
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
-/usr/local/go/bin/go mod download
-/usr/local/go/bin/go build -o /usr/local/bin/rayanpbx-tui main.go config.go
+go mod download
+go build -o /usr/local/bin/rayanpbx-tui main.go config.go
 chmod +x /usr/local/bin/rayanpbx-tui
 
 print_success "TUI built: /usr/local/bin/rayanpbx-tui"
 
 # WebSocket Server Setup
 print_progress "Building WebSocket server..."
-/usr/local/go/bin/go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
+go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
 chmod +x /usr/local/bin/rayanpbx-ws
 
 print_success "WebSocket server built: /usr/local/bin/rayanpbx-ws"
