@@ -834,6 +834,13 @@ fi
 # MySQL/MariaDB Helper Functions
 # ════════════════════════════════════════════════════════════════════════
 
+# Extract value from .env file, handling quotes and equals signs properly
+extract_env_value() {
+    local env_file="$1"
+    local key="$2"
+    grep "^${key}=" "$env_file" 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'
+}
+
 check_rayanpbx_user_privileges() {
     local db_user="$1"
     local db_password="$2"
@@ -869,7 +876,13 @@ EOF
         print_verbose "User '$db_user' has access to database '$db_name'"
         
         # Test if user can create tables (sufficient for migrations)
-        if mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "CREATE TABLE IF NOT EXISTS _rayanpbx_test_privileges (id INT); DROP TABLE IF EXISTS _rayanpbx_test_privileges;" &> /dev/null; then
+        # Create test table, verify, and ensure cleanup even on partial failure
+        local create_result=0
+        mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "CREATE TABLE IF NOT EXISTS _rayanpbx_test_privileges (id INT);" &> /dev/null || create_result=1
+        
+        if [ $create_result -eq 0 ]; then
+            # Table created successfully, now clean it up
+            mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "DROP TABLE IF EXISTS _rayanpbx_test_privileges;" &> /dev/null
             print_verbose "User '$db_user' has sufficient privileges for database operations"
             rm -f "$temp_cnf"
             return 0
@@ -969,12 +982,10 @@ USE_EXISTING_CREDENTIALS=false
 if [ -f "/opt/rayanpbx/.env" ]; then
     print_verbose "Found existing .env file, checking for database credentials..."
     
-    # Try to extract existing credentials from .env
-    # Handle values that may contain equals signs by only splitting on first =
-    # Handle both quoted and unquoted values properly
-    EXISTING_DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
-    EXISTING_DB_PASSWORD=$(grep "^DB_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
-    EXISTING_DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
+    # Try to extract existing credentials from .env using helper function
+    EXISTING_DB_USER=$(extract_env_value "/opt/rayanpbx/.env" "DB_USERNAME")
+    EXISTING_DB_PASSWORD=$(extract_env_value "/opt/rayanpbx/.env" "DB_PASSWORD")
+    EXISTING_DB_NAME=$(extract_env_value "/opt/rayanpbx/.env" "DB_DATABASE")
     
     if [ -n "$EXISTING_DB_USER" ] && [ -n "$EXISTING_DB_PASSWORD" ]; then
         print_verbose "Found existing credentials for user: $EXISTING_DB_USER"
