@@ -373,6 +373,63 @@ if [[ $EUID -ne 0 ]]; then
 fi
 print_verbose "Root check passed"
 
+# Check for git updates
+next_step "Checking for Updates"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+print_verbose "Script directory: $SCRIPT_DIR"
+
+if [ -d "$SCRIPT_DIR/.git" ]; then
+    print_verbose "Git repository detected, checking for updates..."
+    cd "$SCRIPT_DIR"
+    
+    # Fetch the latest changes without merging
+    print_progress "Fetching latest updates from repository..."
+    if git fetch origin main 2>&1 | grep -v "^$" > /dev/null; then
+        print_verbose "Fetch completed successfully"
+    else
+        print_verbose "Fetch completed (no output or warnings)"
+    fi
+    
+    # Get current and remote commit hashes
+    LOCAL_COMMIT=$(git rev-parse HEAD 2>/dev/null)
+    REMOTE_COMMIT=$(git rev-parse origin/main 2>/dev/null)
+    
+    print_verbose "Local commit: $LOCAL_COMMIT"
+    print_verbose "Remote commit: $REMOTE_COMMIT"
+    
+    if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
+        print_warning "Updates available for RayanPBX!"
+        echo ""
+        print_info "Changelog:"
+        git log --oneline "$LOCAL_COMMIT".."$REMOTE_COMMIT" | head -5
+        echo ""
+        
+        read -p "$(echo -e ${CYAN}Pull updates and restart installation? \(y/n\) ${RESET})" -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_progress "Pulling latest updates..."
+            if git pull origin main; then
+                print_success "Updates pulled successfully"
+                print_info "Restarting installation with latest version..."
+                echo ""
+                sleep 2
+                
+                # Re-execute the script with the same arguments
+                exec "$0" "$@"
+            else
+                print_error "Failed to pull updates"
+                print_warning "Continuing with current version..."
+            fi
+        else
+            print_info "Continuing with current version..."
+        fi
+    else
+        print_success "Already running the latest version"
+    fi
+else
+    print_verbose "Not a git repository, skipping update check"
+fi
+
 # Check Ubuntu version
 next_step "System Verification"
 print_verbose "Checking Ubuntu version..."
@@ -1083,11 +1140,28 @@ print_progress "Running database migrations..."
 php artisan migrate --force
 
 if [ $? -eq 0 ]; then
-    print_success "Backend configured successfully"
+    print_success "Database migrations completed"
 else
     print_error "Database migration failed"
     exit 1
 fi
+
+# Check and fix database collation
+print_progress "Checking database collation..."
+if php artisan db:check-collation > /dev/null 2>&1; then
+    print_success "Database collation is correct"
+else
+    print_warning "Database collation needs to be fixed"
+    print_progress "Fixing database collation..."
+    if php artisan db:check-collation --fix; then
+        print_success "Database collation fixed successfully"
+    else
+        print_warning "Could not fix database collation automatically"
+        print_info "You may need to fix it manually later"
+    fi
+fi
+
+print_success "Backend configured successfully"
 
 # Frontend Setup
 next_step "Frontend Web UI Setup"
