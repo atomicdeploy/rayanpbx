@@ -19,17 +19,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => array_filter(array_merge(
+    'allowed_origins' => array_filter(array_unique(array_merge(
         [
             env('FRONTEND_URL', 'http://localhost:3000'),
-            env('APP_URL', 'http://localhost:3000'),
         ],
         // Support for comma-separated CORS_ALLOWED_ORIGINS env variable
         // Trim whitespace to prevent issues with spaces in configuration
-        env('CORS_ALLOWED_ORIGINS') 
-            ? array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS'))) 
-            : []
-    )),
+        array_map('trim', array_filter(explode(',', env('CORS_ALLOWED_ORIGINS', ''))))
+    ))),
 
     'allowed_origins_patterns' => [],
 

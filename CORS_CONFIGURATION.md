@@ -19,10 +19,8 @@ CORS is needed when:
 
 The CORS configuration is automatically enabled with sensible defaults. The following origins are allowed by default:
 
-- `http://localhost:3000` (Development frontend)
-- `http://127.0.0.1:3000` (Alternative localhost)
-- Value from `FRONTEND_URL` environment variable
-- Value from `APP_URL` environment variable
+- `http://localhost:3000` (from `FRONTEND_URL` environment variable)
+- Additional origins specified in `CORS_ALLOWED_ORIGINS`
 
 ### Environment Variables
 
