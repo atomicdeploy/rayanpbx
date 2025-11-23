@@ -326,7 +326,8 @@ sanitize_output() {
     local max_length="${2:-200}"
     # Remove control chars and redact common sensitive patterns
     # Limit output length for security (balance between debugging and data exposure)
-    echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?key)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
+    # Patterns: password, token, secret, key, api_key, access_token, auth_token, client_secret, private_key, env vars
+    echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?(token|key)|client[_-]?secret|private[_-]?key|[A-Z_]+PASSWORD)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
 }
 
 is_port_listening() {
@@ -369,14 +370,16 @@ check_http_health() {
     
     print_verbose "Checking HTTP health at $url (max ${max_attempts} attempts)..."
     
+    # Set up trap for cleanup in case of unexpected exit
+    local temp_file=$(mktemp)
+    trap "rm -f '$temp_file'" RETURN
+    
     while [ $attempt -lt $max_attempts ]; do
         # Capture both response body and status in single request (5 second timeout)
-        local temp_file=$(mktemp)
         local response=$(curl -s -w "%{http_code}" --connect-timeout 5 -o "$temp_file" "$url" 2>/dev/null)
         
         # Success codes: 200 (OK), 302 (redirect - common for web apps)
         if [ "$response" = "200" ] || [ "$response" = "302" ]; then
-            rm -f "$temp_file"
             print_verbose "$service_name responded with HTTP $response"
             return 0
         fi
@@ -390,7 +393,6 @@ check_http_health() {
             fi
         fi
         
-        rm -f "$temp_file"
         attempt=$((attempt + 1))
         sleep 2
     done
@@ -1336,9 +1338,11 @@ if ! grep -q "APP_KEY=.\{10,\}" .env; then
 fi
 
 # Enable debug mode for better error visibility during installation
+# This is intentionally set regardless of user preferences to ensure proper error reporting
+# during installation. Users can switch to production mode afterward (see final instructions).
 sed -i "s|APP_DEBUG=.*|APP_DEBUG=true|" .env
 sed -i "s|APP_ENV=.*|APP_ENV=development|" .env
-print_verbose "Debug mode enabled for installation"
+print_verbose "Debug mode enabled for installation (can be changed to production after setup)"
 
 print_success "Environment configured"
 
