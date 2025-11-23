@@ -323,7 +323,9 @@ error_handler() {
 
 is_port_listening() {
     local port=$1
-    if netstat -tuln 2>/dev/null | grep -q ":${port} " || ss -tuln 2>/dev/null | grep -q ":${port} "; then
+    # Check both netstat and ss with consistent patterns
+    # Both use space or end-of-line after port to avoid matching partial port numbers
+    if netstat -tuln 2>/dev/null | grep -qE ":${port}[[:space:]]" || ss -tuln 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
         return 0
     fi
     return 1
@@ -370,8 +372,9 @@ check_http_health() {
         # For debugging, show actual errors (sanitized to prevent sensitive data exposure)
         if [ "$response" = "500" ]; then
             print_warning "$service_name returned HTTP 500, attempting to get error details..."
-            # Limit to 200 chars consistently and sanitize potential sensitive data
-            local error_details=$(curl -s --connect-timeout 2 "$url" 2>/dev/null | head -c 200 | tr -d '\000-\037')
+            # Limit to 200 chars (balance between debugging info and security)
+            # Remove control chars and common sensitive patterns
+            local error_details=$(curl -s --connect-timeout 2 "$url" 2>/dev/null | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|key|secret)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
             if [ -n "$error_details" ]; then
                 print_verbose "Error response preview (sanitized): ${error_details}..."
             fi
@@ -425,8 +428,9 @@ test_service_health() {
                 print_error "Backend API is not responding correctly"
                 print_info "Checking for error details..."
                 
-                # Try to get more details about the error (sanitized, limited to 200 chars)
-                local api_response=$(curl -s http://localhost:8000/api/health 2>&1 | head -c 200 | tr -d '\000-\037')
+                # Try to get more details about the error (sanitized, limited to 200 chars for security)
+                # Remove control chars and redact common sensitive patterns
+                local api_response=$(curl -s http://localhost:8000/api/health 2>&1 | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|key|secret)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
                 print_verbose "API response (sanitized): ${api_response}..."
                 
                 print_info "Check backend logs:"
