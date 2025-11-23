@@ -1,0 +1,112 @@
+{
+  "app": {
+    "title": "RayanPBX",
+    "subtitle": "Modern SIP Server Management"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "extensions": "Extensions",
+    "trunks": "Trunks",
+    "logs": "Logs",
+    "settings": "Settings"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "username": "Username",
+    "password": "Password",
+    "loginButton": "Sign In",
+    "loginError": "Invalid credentials"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Welcome to RayanPBX",
+    "systemStatus": "System Status",
+    "asterisk": "Asterisk",
+    "database": "Database",
+    "extensionsTitle": "Extensions",
+    "trunksTitle": "Trunks",
+    "total": "Total",
+    "active": "Active",
+    "registered": "Registered",
+    "online": "Online"
+  },
+  "extensions": {
+    "title": "Extensions",
+    "add": "Add Extension",
+    "edit": "Edit Extension",
+    "delete": "Delete Extension",
+    "number": "Extension Number",
+    "name": "Name",
+    "email": "Email",
+    "password": "Password",
+    "enabled": "Enabled",
+    "status": "Status",
+    "actions": "Actions",
+    "notes": "Notes",
+    "callerID": "Caller ID",
+    "codecs": "Codecs",
+    "voicemail": "Voicemail",
+    "context": "Context",
+    "transport": "Transport",
+    "maxContacts": "Max Contacts",
+    "save": "Save",
+    "cancel": "Cancel",
+    "deleteConfirm": "Are you sure you want to delete this extension?",
+    "created": "Extension created successfully",
+    "updated": "Extension updated successfully",
+    "deleted": "Extension deleted successfully"
+  },
+  "trunks": {
+    "title": "Trunks",
+    "add": "Add Trunk",
+    "edit": "Edit Trunk",
+    "delete": "Delete Trunk",
+    "name": "Name",
+    "host": "Host",
+    "port": "Port",
+    "username": "Username",
+    "password": "Password",
+    "enabled": "Enabled",
+    "status": "Status",
+    "actions": "Actions",
+    "notes": "Notes",
+    "prefix": "Dial Prefix",
+    "stripDigits": "Strip Digits",
+    "priority": "Priority",
+    "maxChannels": "Max Channels",
+    "codecs": "Codecs",
+    "transport": "Transport",
+    "save": "Save",
+    "cancel": "Cancel",
+    "deleteConfirm": "Are you sure you want to delete this trunk?",
+    "created": "Trunk created successfully",
+    "updated": "Trunk updated successfully",
+    "deleted": "Trunk deleted successfully"
+  },
+  "logs": {
+    "title": "System Logs",
+    "refresh": "Refresh",
+    "clear": "Clear",
+    "level": "Level",
+    "timestamp": "Timestamp",
+    "message": "Message",
+    "source": "Source"
+  },
+  "status": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "unknown": "Unknown",
+    "registered": "Registered",
+    "offline": "Offline",
+    "online": "Online"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "close": "Close",
+    "search": "Search",
+    "filter": "Filter"
+  }
+}

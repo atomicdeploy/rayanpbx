@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+.nuxt/
+.output/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.phpunit.result.cache
+
+# Laravel specific
+storage/app/*
+!storage/app/.gitkeep
+storage/framework/cache/*
+!storage/framework/cache/.gitkeep
+storage/framework/sessions/*
+!storage/framework/sessions/.gitkeep
+storage/framework/views/*
+!storage/framework/views/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+bootstrap/cache/*
+!bootstrap/cache/.gitkeep
+
+# Compiled binaries
+/tui/rayanpbx-tui
+*.exe
+
+# Temporary files
+tmp/
+*.tmp
+
+# Database
+*.sqlite
+*.db
