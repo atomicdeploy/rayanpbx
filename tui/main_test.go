@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -100,6 +101,11 @@ func TestScreenEnumValues(t *testing.T) {
 		usageScreen,
 		createExtensionScreen,
 		createTrunkScreen,
+		diagnosticsMenuScreen,
+		diagTestExtensionScreen,
+		diagTestTrunkScreen,
+		diagTestRoutingScreen,
+		diagPortTestScreen,
 	}
 	
 	// Check that all values are unique
@@ -113,5 +119,93 @@ func TestScreenEnumValues(t *testing.T) {
 	
 	if len(seen) != len(screens) {
 		t.Errorf("Expected %d unique screen values, got %d", len(screens), len(seen))
+	}
+}
+
+// TestDiagnosticsMenuInitialization tests diagnostics menu initialization
+func TestDiagnosticsMenuInitialization(t *testing.T) {
+	m := initialModel(nil, nil)
+	
+	if m.diagnosticsManager == nil {
+		t.Error("Expected diagnosticsManager to be initialized")
+	}
+	
+	if len(m.diagnosticsMenu) == 0 {
+		t.Error("Expected diagnosticsMenu to be populated")
+	}
+	
+	// Check for key menu items
+	expectedItems := []string{"Health Check", "System Information", "SIP Debugging"}
+	found := make(map[string]bool)
+	for _, item := range m.diagnosticsMenu {
+		for _, expected := range expectedItems {
+			if strings.Contains(item, expected) {
+				found[expected] = true
+			}
+		}
+	}
+	
+	for _, expected := range expectedItems {
+		if !found[expected] {
+			t.Errorf("Expected to find menu item containing '%s'", expected)
+		}
+	}
+}
+
+// TestDiagnosticsInputValidation tests input validation for diagnostics operations
+func TestDiagnosticsInputValidation(t *testing.T) {
+	m := initialModel(nil, nil)
+	
+	// Test extension test initialization
+	m.currentScreen = diagTestExtensionScreen
+	m.inputMode = true
+	m.inputFields = []string{"Extension Number"}
+	m.inputValues = []string{""}
+	
+	// Execute with empty value should fail
+	m.executeDiagTestExtension()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for empty extension number")
+	}
+	
+	// Test trunk test initialization
+	m.currentScreen = diagTestTrunkScreen
+	m.inputMode = true
+	m.inputFields = []string{"Trunk Name"}
+	m.inputValues = []string{""}
+	
+	// Execute with empty value should fail
+	m.executeDiagTestTrunk()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for empty trunk name")
+	}
+	
+	// Test routing test validation
+	m.currentScreen = diagTestRoutingScreen
+	m.inputFields = []string{"From Extension", "To Number"}
+	m.inputValues = []string{"", ""}
+	
+	// Execute with empty values should fail
+	m.executeDiagTestRouting()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for empty routing fields")
+	}
+	
+	// Test port test validation
+	m.currentScreen = diagPortTestScreen
+	m.inputFields = []string{"Host", "Port"}
+	m.inputValues = []string{"", ""}
+	
+	// Execute with empty values should fail
+	m.executeDiagPortTest()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for empty port fields")
+	}
+	
+	// Test port test with invalid port
+	m.inputValues = []string{"localhost", "invalid"}
+	m.executeDiagPortTest()
+	if m.errorMsg == "" {
+		t.Error("Expected error message for invalid port number")
 	}
 }

@@ -79,6 +79,11 @@ const (
 	usageScreen
 	createExtensionScreen
 	createTrunkScreen
+	diagnosticsMenuScreen
+	diagTestExtensionScreen
+	diagTestTrunkScreen
+	diagTestRoutingScreen
+	diagPortTestScreen
 )
 
 type model struct {
@@ -103,9 +108,17 @@ type model struct {
 	// CLI usage navigation
 	usageCommands []UsageCommand
 	usageCursor   int
+
+	// Diagnostics
+	diagnosticsManager *DiagnosticsManager
+	diagnosticsMenu    []string
+	diagnosticsOutput  string
 }
 
 func initialModel(db *sql.DB, config *Config) model {
+	asteriskManager := NewAsteriskManager()
+	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
+	
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
@@ -118,9 +131,21 @@ func initialModel(db *sql.DB, config *Config) model {
 			"📖 CLI Usage Guide",
 			"❌ Exit",
 		},
-		cursor: 0,
-		db:     db,
-		config: config,
+		cursor:             0,
+		db:                 db,
+		config:             config,
+		diagnosticsManager: diagnosticsManager,
+		diagnosticsMenu: []string{
+			"🏥 Run System Health Check",
+			"💻 Show System Information",
+			"🔍 Enable SIP Debugging",
+			"🔇 Disable SIP Debugging",
+			"📞 Test Extension Registration",
+			"🔗 Test Trunk Connectivity",
+			"🛣️  Test Call Routing",
+			"🌐 Test Port Connectivity",
+			"🔙 Back to Main Menu",
+		},
 	}
 }
 
@@ -146,6 +171,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor > 0 {
 					m.usageCursor--
 				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Navigate diagnostics menu
+				if m.cursor > 0 {
+					m.cursor--
+				}
 			} else if m.cursor > 0 {
 				m.cursor--
 			}
@@ -155,6 +185,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate usage commands
 				if m.usageCursor < len(m.usageCommands)-1 {
 					m.usageCursor++
+				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Navigate diagnostics menu
+				if m.cursor < len(m.diagnosticsMenu)-1 {
+					m.cursor++
 				}
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
@@ -190,7 +225,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 2:
 					m.currentScreen = asteriskScreen
 				case 3:
-					m.currentScreen = diagnosticsScreen
+					m.currentScreen = diagnosticsMenuScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.diagnosticsOutput = ""
 				case 4:
 					m.currentScreen = statusScreen
 				case 5:
@@ -207,13 +246,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.usageCursor < len(m.usageCommands) {
 					m.executeCommand(m.usageCommands[m.usageCursor].Command)
 				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Handle diagnostics menu selection
+				m.handleDiagnosticsMenuSelection()
 			}
 
 		case "esc":
 			if m.currentScreen != mainMenu {
-				m.currentScreen = mainMenu
-				m.errorMsg = ""
-				m.successMsg = ""
+				// If in a diagnostics submenu, go back to diagnostics menu
+				if m.currentScreen == diagTestExtensionScreen ||
+					m.currentScreen == diagTestTrunkScreen ||
+					m.currentScreen == diagTestRoutingScreen ||
+					m.currentScreen == diagPortTestScreen {
+					m.currentScreen = diagnosticsMenuScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.diagnosticsOutput = ""
+				} else if m.currentScreen == diagnosticsMenuScreen {
+					m.currentScreen = mainMenu
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.diagnosticsOutput = ""
+				} else {
+					m.currentScreen = mainMenu
+					m.errorMsg = ""
+					m.successMsg = ""
+				}
 			}
 		}
 
@@ -253,6 +312,16 @@ func (m model) View() string {
 		s += m.renderAsterisk()
 	case diagnosticsScreen:
 		s += m.renderDiagnostics()
+	case diagnosticsMenuScreen:
+		s += m.renderDiagnosticsMenu()
+	case diagTestExtensionScreen:
+		s += m.renderDiagTestExtension()
+	case diagTestTrunkScreen:
+		s += m.renderDiagTestTrunk()
+	case diagTestRoutingScreen:
+		s += m.renderDiagTestRouting()
+	case diagPortTestScreen:
+		s += m.renderDiagPortTest()
 	case statusScreen:
 		s += m.renderStatus()
 	case logsScreen:
@@ -275,6 +344,15 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
+	} else if m.currentScreen == diagnosticsMenuScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back to Main Menu • q: Quit")
+	} else if m.currentScreen == diagTestExtensionScreen || m.currentScreen == diagTestTrunkScreen || 
+		m.currentScreen == diagTestRoutingScreen || m.currentScreen == diagPortTestScreen {
+		if m.inputMode {
+			s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
+		} else {
+			s += helpStyle.Render("ESC: Back to Diagnostics Menu • q: Quit")
+		}
 	} else if m.inputMode {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else {
@@ -443,6 +521,152 @@ func (m model) renderDiagnostics() string {
 	return menuStyle.Render(content)
 }
 
+func (m model) renderDiagnosticsMenu() string {
+	content := infoStyle.Render("🔍 Diagnostics & Debugging Menu") + "\n\n"
+
+	// Display diagnostics output if any
+	if m.diagnosticsOutput != "" {
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+		content += m.diagnosticsOutput + "\n"
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+	}
+
+	content += "Select a diagnostic operation:\n\n"
+
+	for i, item := range m.diagnosticsMenu {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		} else {
+			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagTestExtension() string {
+	content := infoStyle.Render("📞 Test Extension Registration") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter extension number>")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Enter the extension number to test")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagTestTrunk() string {
+	content := infoStyle.Render("🔗 Test Trunk Connectivity") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter trunk name>")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Enter the trunk name to test")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagTestRouting() string {
+	content := infoStyle.Render("🛣️  Test Call Routing") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			if field == "From Extension" {
+				value = helpStyle.Render("<enter source extension>")
+			} else {
+				value = helpStyle.Render("<enter destination number>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Test routing from an extension to a destination")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagPortTest() string {
+	content := infoStyle.Render("🌐 Test Port Connectivity") + "\n\n"
+
+	if m.diagnosticsOutput != "" {
+		content += m.diagnosticsOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			if field == "Host" {
+				value = helpStyle.Render("<enter host/IP>")
+			} else {
+				value = helpStyle.Render("<enter port number>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Test network connectivity to a host and port")
+
+	return menuStyle.Render(content)
+}
+
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
 
@@ -568,6 +792,14 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.createExtension()
 			} else if m.currentScreen == createTrunkScreen {
 				m.createTrunk()
+			} else if m.currentScreen == diagTestExtensionScreen {
+				m.executeDiagTestExtension()
+			} else if m.currentScreen == diagTestTrunkScreen {
+				m.executeDiagTestTrunk()
+			} else if m.currentScreen == diagTestRoutingScreen {
+				m.executeDiagTestRouting()
+			} else if m.currentScreen == diagPortTestScreen {
+				m.executeDiagPortTest()
 			}
 		}
 
@@ -706,6 +938,132 @@ func (m *model) createTrunk() {
 	}
 
 	m.currentScreen = trunksScreen
+}
+
+// handleDiagnosticsMenuSelection handles diagnostics menu selection
+func (m *model) handleDiagnosticsMenuSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	m.diagnosticsOutput = ""
+
+	switch m.cursor {
+	case 0: // Run System Health Check
+		m.diagnosticsManager.RunHealthCheck()
+		// Capture output will be shown in the menu
+		m.successMsg = "Health check completed"
+	case 1: // Show System Information
+		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
+	case 2: // Enable SIP Debugging
+		if err := m.diagnosticsManager.EnableSIPDebug(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
+		} else {
+			m.successMsg = "SIP debugging enabled"
+		}
+	case 3: // Disable SIP Debugging
+		if err := m.diagnosticsManager.DisableSIPDebug(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to disable SIP debug: %v", err)
+		} else {
+			m.successMsg = "SIP debugging disabled"
+		}
+	case 4: // Test Extension Registration
+		m.currentScreen = diagTestExtensionScreen
+		m.inputMode = true
+		m.inputFields = []string{"Extension Number"}
+		m.inputValues = []string{""}
+		m.inputCursor = 0
+	case 5: // Test Trunk Connectivity
+		m.currentScreen = diagTestTrunkScreen
+		m.inputMode = true
+		m.inputFields = []string{"Trunk Name"}
+		m.inputValues = []string{""}
+		m.inputCursor = 0
+	case 6: // Test Call Routing
+		m.currentScreen = diagTestRoutingScreen
+		m.inputMode = true
+		m.inputFields = []string{"From Extension", "To Number"}
+		m.inputValues = []string{"", ""}
+		m.inputCursor = 0
+	case 7: // Test Port Connectivity
+		m.currentScreen = diagPortTestScreen
+		m.inputMode = true
+		m.inputFields = []string{"Host", "Port"}
+		m.inputValues = []string{"", "5060"}
+		m.inputCursor = 0
+	case 8: // Back to Main Menu
+		m.currentScreen = mainMenu
+		m.cursor = 0
+	}
+}
+
+// executeDiagTestExtension executes extension registration test
+func (m *model) executeDiagTestExtension() {
+	if m.inputValues[0] == "" {
+		m.errorMsg = "Extension number is required"
+		return
+	}
+
+	if err := m.diagnosticsManager.TestExtensionRegistration(m.inputValues[0]); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Extension %s test completed", m.inputValues[0])
+	}
+
+	m.inputMode = false
+}
+
+// executeDiagTestTrunk executes trunk connectivity test
+func (m *model) executeDiagTestTrunk() {
+	if m.inputValues[0] == "" {
+		m.errorMsg = "Trunk name is required"
+		return
+	}
+
+	if err := m.diagnosticsManager.TestTrunkConnectivity(m.inputValues[0]); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Trunk %s test completed", m.inputValues[0])
+	}
+
+	m.inputMode = false
+}
+
+// executeDiagTestRouting executes call routing test
+func (m *model) executeDiagTestRouting() {
+	if m.inputValues[0] == "" || m.inputValues[1] == "" {
+		m.errorMsg = "Both from extension and to number are required"
+		return
+	}
+
+	if err := m.diagnosticsManager.TestCallRouting(m.inputValues[0], m.inputValues[1]); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Routing test completed for %s -> %s", m.inputValues[0], m.inputValues[1])
+	}
+
+	m.inputMode = false
+}
+
+// executeDiagPortTest executes port connectivity test
+func (m *model) executeDiagPortTest() {
+	if m.inputValues[0] == "" || m.inputValues[1] == "" {
+		m.errorMsg = "Both host and port are required"
+		return
+	}
+
+	// Convert port to int
+	port := 0
+	if _, err := fmt.Sscanf(m.inputValues[1], "%d", &port); err != nil {
+		m.errorMsg = "Invalid port number"
+		return
+	}
+
+	if err := m.diagnosticsManager.CheckPortConnectivity(m.inputValues[0], port); err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+	} else {
+		m.successMsg = fmt.Sprintf("Port test completed for %s:%d", m.inputValues[0], port)
+	}
+
+	m.inputMode = false
 }
 
 func main() {
