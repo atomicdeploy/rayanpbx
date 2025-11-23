@@ -293,8 +293,10 @@ cmd_system_update() {
 # Main command dispatcher
 main() {
     if [ $# -eq 0 ]; then
-        echo "Usage: rayanpbx-cli <command> [options]"
-        echo "Run 'rayanpbx-cli help' for more information"
+        # VT-100 escape codes for styling
+        # Bold: \033[1m, Underline: \033[4m, Reset: \033[0m
+        echo -e "${CYAN}\033[1mUsage:\033[0m ${YELLOW}\033[1mrayanpbx-cli\033[0m ${GREEN}\033[4m<command>\033[0m ${BLUE}[options]${NC}"
+        echo -e "${CYAN}Run '${YELLOW}\033[1mrayanpbx-cli help\033[0m${CYAN}' for more information${NC}"
         exit 2
     fi
     
