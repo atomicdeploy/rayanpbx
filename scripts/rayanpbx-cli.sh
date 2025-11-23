@@ -115,39 +115,98 @@ print_banner() {
 # Configuration
 RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
 API_BASE_URL="http://localhost:8000/api"
-ENV_FILE="$RAYANPBX_ROOT/.env"
 VERBOSE=false
 
-# Load configuration
-if [ -f "$ENV_FILE" ]; then
-    # Detect if .env has forward-referenced variables by checking if VITE_WS_URL contains unexpanded variables
-    set +u
-    # shellcheck source=/dev/null
-    source "$ENV_FILE" 2>/dev/null
-    set -u
+# Helper function to find project root by looking for VERSION file
+find_project_root() {
+    local current_dir="$(pwd)"
+    local max_depth=3
     
-    # Check if variables that should be expanded are actually empty or malformed
-    needs_normalization=false
-    if [[ -n "${VITE_WS_URL:-}" ]] && [[ "$VITE_WS_URL" == *"ws://localhost:"* ]] && [[ "$VITE_WS_URL" != *":${WEBSOCKET_PORT}"* ]] && [[ "$VITE_WS_URL" != *":[0-9]*"* ]]; then
-        needs_normalization=true
-    fi
+    for ((i=0; i<max_depth; i++)); do
+        if [ -f "$current_dir/VERSION" ]; then
+            echo "$current_dir"
+            return
+        fi
+        
+        local parent_dir="$(dirname "$current_dir")"
+        if [ "$parent_dir" = "$current_dir" ]; then
+            break
+        fi
+        current_dir="$parent_dir"
+    done
     
-    if [ "$needs_normalization" = true ]; then
-        # Forward-referenced variables detected, auto-fix the .env file
+    # Return current directory if not found
+    pwd
+}
+
+# Load configuration from multiple .env file paths in priority order
+# Later paths override earlier ones:
+# 1. /opt/rayanpbx/.env
+# 2. /usr/local/rayanpbx/.env
+# 3. /etc/rayanpbx/.env
+# 4. <root of the project>/.env (found by looking for VERSION file)
+# 5. <current working directory>/.env
+load_env_files() {
+    local env_paths=(
+        "/opt/rayanpbx/.env"
+        "/usr/local/rayanpbx/.env"
+        "/etc/rayanpbx/.env"
+    )
+    
+    # Add project root .env
+    local project_root
+    project_root=$(find_project_root)
+    env_paths+=("$project_root/.env")
+    
+    # Add current directory .env
+    local current_dir
+    current_dir=$(pwd)
+    env_paths+=("$current_dir/.env")
+    
+    # Track loaded paths to avoid duplicates
+    declare -A loaded_paths
+    
+    # Load each .env file in order
+    for env_file in "${env_paths[@]}"; do
+        # Skip if already loaded
+        if [ -n "${loaded_paths[$env_file]:-}" ]; then
+            continue
+        fi
+        
+        # Load file if it exists
+        if [ -f "$env_file" ]; then
+            set +u
+            # shellcheck source=/dev/null
+            source "$env_file" 2>/dev/null
+            set -u
+            loaded_paths[$env_file]=1
+            print_verbose "Loaded .env from: $env_file"
+        fi
+    done
+    
+    # Handle normalization for the primary config file (for backward compatibility)
+    local primary_env="/opt/rayanpbx/.env"
+    if [ -f "$primary_env" ] && [[ -n "${VITE_WS_URL:-}" ]] && [[ "$VITE_WS_URL" == *"ws://localhost:"* ]] && [[ "$VITE_WS_URL" != *":${WEBSOCKET_PORT}"* ]] && [[ "$VITE_WS_URL" != *":[0-9]*"* ]]; then
         print_warn ".env file has variable ordering issues. Auto-fixing..."
         
-        # Use normalize-env.sh if available
         if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
-            bash "$SCRIPT_DIR/normalize-env.sh" "$ENV_FILE" > /dev/null 2>&1
+            bash "$SCRIPT_DIR/normalize-env.sh" "$primary_env" > /dev/null 2>&1
             print_success ".env file normalized. Variables now properly ordered."
             # Re-source the normalized file
             unset VITE_WS_URL WEBSOCKET_PORT
-            source "$ENV_FILE"
+            source "$primary_env" 2>/dev/null
         fi
     fi
-    
-    API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
-fi
+}
+
+# Load all .env files
+load_env_files
+
+# Set defaults after loading
+API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
+
+# For backward compatibility, maintain ENV_FILE variable pointing to primary config
+ENV_FILE="$RAYANPBX_ROOT/.env"
 
 # API call helper
 api_call() {

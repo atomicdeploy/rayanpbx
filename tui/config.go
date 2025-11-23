@@ -37,38 +37,59 @@ type Config struct {
 	AppDebug   bool
 }
 
-// LoadConfig loads configuration from root .env file, then overrides with local .env
+// LoadConfig loads configuration from multiple .env file paths in priority order.
+// Later paths override earlier ones:
+// 1. /opt/rayanpbx/.env
+// 2. /usr/local/rayanpbx/.env
+// 3. /etc/rayanpbx/.env
+// 4. <root of the project>/.env (found by looking for VERSION file)
+// 5. <current working directory>/.env
 func LoadConfig() (*Config, error) {
-	// Find root .env file
+	// Define the paths to check in order (earlier paths loaded first, later override)
+	envPaths := []string{
+		"/opt/rayanpbx/.env",
+		"/usr/local/rayanpbx/.env",
+		"/etc/rayanpbx/.env",
+	}
+	
+	// Add project root .env
 	rootPath := findRootPath()
 	rootEnvPath := filepath.Join(rootPath, ".env")
+	envPaths = append(envPaths, rootEnvPath)
 	
-	// Load root .env first
-	rootLoaded := false
-	if _, err := os.Stat(rootEnvPath); err == nil {
-		if err := godotenv.Load(rootEnvPath); err == nil {
-			rootLoaded = true
-		}
-	}
-	
-	// Then load local .env to override if it exists and is different from root
+	// Add current directory .env
 	currentDir, _ := os.Getwd()
 	localEnvPath := filepath.Join(currentDir, ".env")
+	envPaths = append(envPaths, localEnvPath)
 	
-	// Only load local .env if it's different from root .env
-	if localEnvPath != rootEnvPath {
-		if _, err := os.Stat(localEnvPath); err == nil {
-			// godotenv.Overload will override existing env vars
-			if err := godotenv.Overload(localEnvPath); err != nil {
-				// Log warning but don't fail - root config is already loaded
-				fmt.Fprintf(os.Stderr, "Warning: Failed to load local .env file %s: %v\n", localEnvPath, err)
+	// Track which paths we've already loaded to avoid duplicates
+	loadedPaths := make(map[string]bool)
+	anyLoaded := false
+	
+	// Load each .env file in order
+	for _, envPath := range envPaths {
+		// Skip if we've already loaded this path
+		if loadedPaths[envPath] {
+			continue
+		}
+		
+		// Check if file exists
+		if _, err := os.Stat(envPath); err == nil {
+			// Use Overload for all but the first file (Overload overwrites existing values)
+			var loadErr error
+			if anyLoaded {
+				loadErr = godotenv.Overload(envPath)
+			} else {
+				loadErr = godotenv.Load(envPath)
+			}
+			
+			if loadErr == nil {
+				anyLoaded = true
+				loadedPaths[envPath] = true
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load .env file %s: %v\n", envPath, loadErr)
 			}
 		}
-	}
-	
-	if !rootLoaded {
-		// If no root .env found, try current directory
-		godotenv.Load()
 	}
 
 	config := &Config{

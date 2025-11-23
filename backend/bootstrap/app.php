@@ -6,6 +6,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withProviders([
+        App\Providers\EnvLoaderServiceProvider::class,
         App\Providers\RedisServiceProvider::class,
     ])
     ->withRouting(

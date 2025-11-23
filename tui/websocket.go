@@ -362,15 +362,67 @@ func monitorRedis(hub *Hub, redisHost, redisPort, redisPassword string) {
 }
 
 func loadConfig() (string, string, string, string, string, string, error) {
-	// Find root .env file
-	currentDir, _ := os.Getwd()
+	// Load .env files from multiple paths in priority order
+	// Later paths override earlier ones:
+	// 1. /opt/rayanpbx/.env
+	// 2. /usr/local/rayanpbx/.env
+	// 3. /etc/rayanpbx/.env
+	// 4. <root of the project>/.env (found by looking for VERSION file)
+	// 5. <current working directory>/.env
+	envPaths := []string{
+		"/opt/rayanpbx/.env",
+		"/usr/local/rayanpbx/.env",
+		"/etc/rayanpbx/.env",
+	}
+	
+	// Add project root .env (find by looking for VERSION file)
+	cwd, _ := os.Getwd()
+	currentDir := cwd
 	for i := 0; i < 3; i++ {
-		envPath := filepath.Join(currentDir, ".env")
-		if _, err := os.Stat(envPath); err == nil {
-			godotenv.Load(envPath)
+		versionPath := filepath.Join(currentDir, "VERSION")
+		
+		if _, err := os.Stat(versionPath); err == nil {
+			envPaths = append(envPaths, filepath.Join(currentDir, ".env"))
 			break
 		}
-		currentDir = filepath.Dir(currentDir)
+		
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			break
+		}
+		currentDir = parentDir
+	}
+	
+	// If no VERSION file found, don't add a project root path
+	// (it will be covered by current directory if needed)
+	
+	// Add current directory .env
+	localEnvPath := filepath.Join(cwd, ".env")
+	envPaths = append(envPaths, localEnvPath)
+	
+	// Track loaded paths to avoid duplicates
+	loadedPaths := make(map[string]bool)
+	anyLoaded := false
+	
+	// Load each .env file in order
+	for _, envPath := range envPaths {
+		if loadedPaths[envPath] {
+			continue
+		}
+		
+		if _, err := os.Stat(envPath); err == nil {
+			var loadErr error
+			if anyLoaded {
+				loadErr = godotenv.Overload(envPath)
+			} else {
+				loadErr = godotenv.Load(envPath)
+			}
+			
+			if loadErr == nil {
+				anyLoaded = true
+				loadedPaths[envPath] = true
+			}
+		}
 	}
 
 	wsHost := getEnv("WEBSOCKET_HOST", "0.0.0.0")

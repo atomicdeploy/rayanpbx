@@ -136,7 +136,12 @@ func ShowCLIUsage() {
 	fmt.Println("  • Use TAB for command completion (if bash-completion installed)")
 	fmt.Println("  • Commands require sudo for system-level operations")
 	fmt.Println("  • Add -v or --verbose for detailed output")
-	fmt.Println("  • Configuration file: /opt/rayanpbx/.env")
+	fmt.Println("  • Configuration files loaded in order (later overrides earlier):")
+	fmt.Println("    1. /opt/rayanpbx/.env")
+	fmt.Println("    2. /usr/local/rayanpbx/.env")
+	fmt.Println("    3. /etc/rayanpbx/.env")
+	fmt.Println("    4. <project root>/.env")
+	fmt.Println("    5. <current directory>/.env")
 	fmt.Println("  • Logs directory: /var/log/rayanpbx/")
 
 	fmt.Println()
