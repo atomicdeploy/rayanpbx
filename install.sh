@@ -321,11 +321,20 @@ error_handler() {
 # Health Check Functions
 # ════════════════════════════════════════════════════════════════════════
 
+sanitize_output() {
+    local text="$1"
+    local max_length="${2:-200}"
+    # Remove control chars and redact common sensitive patterns
+    # Limit output length for security (balance between debugging and data exposure)
+    echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?key)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
+}
+
 is_port_listening() {
     local port=$1
-    # Check both netstat and ss with consistent patterns
+    # Check both ss (modern) and netstat (legacy) with consistent patterns
     # Match port followed by space or end-of-line to avoid matching partial port numbers
-    if netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" || ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
+    # netstat fallback for older systems that might not have ss
+    if ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" || netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
         return 0
     fi
     return 1
@@ -361,25 +370,27 @@ check_http_health() {
     print_verbose "Checking HTTP health at $url (max ${max_attempts} attempts)..."
     
     while [ $attempt -lt $max_attempts ]; do
-        # Try to connect and get response (5 second timeout for starting services)
-        local response=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null)
+        # Capture both response body and status in single request (5 second timeout)
+        local temp_file=$(mktemp)
+        local response=$(curl -s -w "%{http_code}" --connect-timeout 5 -o "$temp_file" "$url" 2>/dev/null)
         
+        # Success codes: 200 (OK), 302 (redirect - common for web apps)
         if [ "$response" = "200" ] || [ "$response" = "302" ]; then
+            rm -f "$temp_file"
             print_verbose "$service_name responded with HTTP $response"
             return 0
         fi
         
-        # For debugging, show actual errors (sanitized to prevent sensitive data exposure)
+        # For debugging HTTP 500 errors, show sanitized error details
         if [ "$response" = "500" ]; then
             print_warning "$service_name returned HTTP 500, attempting to get error details..."
-            # Limit to 200 chars (balance between debugging info and security)
-            # Remove control chars and redact common sensitive patterns
-            local error_details=$(curl -s --connect-timeout 5 "$url" 2>/dev/null | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?key)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
+            local error_details=$(sanitize_output "$(cat "$temp_file")" 200)
             if [ -n "$error_details" ]; then
                 print_verbose "Error response preview (sanitized): ${error_details}..."
             fi
         fi
         
+        rm -f "$temp_file"
         attempt=$((attempt + 1))
         sleep 2
     done
@@ -428,9 +439,8 @@ test_service_health() {
                 print_error "Backend API is not responding correctly"
                 print_info "Checking for error details..."
                 
-                # Try to get more details about the error (sanitized, limited to 200 chars for security)
-                # Remove control chars and redact common sensitive patterns
-                local api_response=$(curl -s http://localhost:8000/api/health 2>&1 | head -c 200 | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?key)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi')
+                # Try to get more details using our sanitization function
+                local api_response=$(sanitize_output "$(curl -s http://localhost:8000/api/health 2>&1)" 200)
                 print_verbose "API response (sanitized): ${api_response}..."
                 
                 print_info "Check backend logs:"
