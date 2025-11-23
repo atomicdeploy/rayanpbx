@@ -39,6 +39,7 @@ ROCKET="🚀"
 RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
 API_BASE_URL="http://localhost:8000/api"
 ENV_FILE="$RAYANPBX_ROOT/.env"
+VERBOSE=false
 
 # Load configuration
 if [ -f "$ENV_FILE" ]; then
@@ -63,6 +64,12 @@ print_warn() {
     echo -e "${YELLOW}${WARN}$1${NC}"
 }
 
+print_verbose() {
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${DIM}[VERBOSE] $1${RESET}"
+    fi
+}
+
 print_header() {
     echo -e "${MAGENTA}═══════════════════════════════════════${NC}"
     echo -e "${CYAN}  $1${NC}"
@@ -75,13 +82,22 @@ api_call() {
     local endpoint=$2
     local data=${3:-}
     
+    print_verbose "API Call: $method $API_BASE_URL/$endpoint"
     if [ -n "$data" ]; then
-        curl -s -X "$method" "$API_BASE_URL/$endpoint" \
-            -H "Content-Type: application/json" \
-            -d "$data"
-    else
-        curl -s -X "$method" "$API_BASE_URL/$endpoint"
+        print_verbose "Request body: $data"
     fi
+    
+    local response
+    if [ -n "$data" ]; then
+        response=$(curl -s -X "$method" "$API_BASE_URL/$endpoint" \
+            -H "Content-Type: application/json" \
+            -d "$data")
+    else
+        response=$(curl -s -X "$method" "$API_BASE_URL/$endpoint")
+    fi
+    
+    print_verbose "Response: $response"
+    echo "$response"
 }
 
 # Extension commands
@@ -91,7 +107,7 @@ cmd_extension_list() {
     response=$(api_call GET "extensions")
     
     if command -v jq &> /dev/null; then
-        echo "$response" | jq -r '.[] | "\(.extension_number)\t\(.name)\t\(.enabled)"' | \
+        echo "$response" | jq -r '.extensions[] | "\(.extension_number)\t\(.name)\t\(.enabled)"' | \
             while IFS=$'\t' read -r num name enabled; do
                 if [ "$enabled" == "true" ]; then
                     echo -e "  ${GREEN}●${NC} $num - $name"
@@ -165,7 +181,7 @@ cmd_trunk_list() {
     response=$(api_call GET "trunks")
     
     if command -v jq &> /dev/null; then
-        echo "$response" | jq -r '.[] | "\(.name)\t\(.host):\(.port)\t\(.enabled)"' | \
+        echo "$response" | jq -r '.trunks[] | "\(.name)\t\(.host):\(.port)\t\(.enabled)"' | \
             while IFS=$'\t' read -r name host enabled; do
                 if [ "$enabled" == "true" ]; then
                     echo -e "  ${GREEN}●${NC} $name - $host"
@@ -311,6 +327,60 @@ cmd_version() {
 }
 
 main() {
+    # Parse global flags first
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --verbose|-V)
+                VERBOSE=true
+                print_verbose "Verbose mode enabled"
+                shift
+                ;;
+            --help)
+                # Show help
+                if [ -x "$RAYANPBX_ROOT/tui/rayanpbx-tui" ]; then
+                    "$RAYANPBX_ROOT/tui/rayanpbx-tui" --help
+                else
+                    echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
+                    echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
+                    echo ""
+                    echo "Commands:"
+                    echo "  extension list              - List all extensions"
+                    echo "  extension create <num> <name> <password> - Create extension"
+                    echo "  extension status <num>      - Show extension status"
+                    echo "  trunk list                  - List all trunks"
+                    echo "  trunk test <name>           - Test trunk connectivity"
+                    echo "  asterisk status             - Check Asterisk service status"
+                    echo "  asterisk restart            - Restart Asterisk service"
+                    echo "  asterisk command <cmd>      - Execute Asterisk CLI command"
+                    echo "  diag test-extension <num>   - Test extension registration"
+                    echo "  diag health-check           - Run system health check"
+                    echo "  system update               - Update RayanPBX"
+                    echo "  version                     - Show version information"
+                    echo "  help                        - Show this help message"
+                    echo ""
+                    echo "Global Options:"
+                    echo "  --verbose, -V               - Enable verbose output"
+                    echo "  --version, -v               - Show version information"
+                    echo "  --help                      - Show this help message"
+                fi
+                exit 0
+                ;;
+            --version|-v)
+                cmd_version
+                exit 0
+                ;;
+            -*)
+                print_error "Unknown option: $1"
+                echo "Run 'rayanpbx-cli --help' for usage information"
+                exit 2
+                ;;
+            *)
+                # Not a flag, stop parsing
+                break
+                ;;
+        esac
+    done
+    
     if [ $# -eq 0 ]; then
         # Display colorful usage message with VT-100 styling
         echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
@@ -320,7 +390,7 @@ main() {
     fi
     
     case "$1" in
-        version|--version|-v)
+        version)
             cmd_version
             ;;
         extension)
