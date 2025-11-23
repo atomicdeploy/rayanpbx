@@ -146,7 +146,15 @@ else
 fi
 
 # Clean up test key
-sed -i '/TEST_CLI_KEY=/d' "$ENV_FILE"
+if grep -q "TEST_CLI_KEY=" "$ENV_FILE"; then
+    # Create a backup before cleanup
+    cp "$ENV_FILE" "${ENV_FILE}.test_backup"
+    sed -i '/TEST_CLI_KEY=/d' "$ENV_FILE" || {
+        echo "Warning: Failed to clean up test key, restoring backup"
+        mv "${ENV_FILE}.test_backup" "$ENV_FILE"
+    }
+    rm -f "${ENV_FILE}.test_backup"
+fi
 
 echo ""
 echo "========================================="

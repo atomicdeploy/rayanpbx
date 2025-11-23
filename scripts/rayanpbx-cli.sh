@@ -393,10 +393,14 @@ cmd_config_set() {
     # Backup config file
     cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
     
+    # Escape special characters in value for sed
+    local escaped_value
+    escaped_value=$(printf '%s\n' "$value" | sed 's:[\/&]:\\&:g')
+    
     # Check if key exists
     if grep -q "^${key}=" "$ENV_FILE"; then
-        # Update existing key
-        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+        # Update existing key (using @ as delimiter to avoid conflicts with /)
+        sed -i "s@^${key}=.*@${key}=${escaped_value}@" "$ENV_FILE"
         print_success "Updated ${key}=${value}"
     else
         # Add new key
@@ -414,9 +418,13 @@ cmd_config_list() {
     print_header "⚙️  Configuration"
     
     # Display non-empty, non-comment lines
-    grep -v "^#" "$ENV_FILE" | grep -v "^$" | while IFS='=' read -r key value; do
-        # Mask sensitive values
-        if echo "$key" | grep -qi "password\|secret\|key"; then
+    grep -v "^#" "$ENV_FILE" | grep -v "^$" | while IFS= read -r line; do
+        # Extract key and value (handle multiple equals signs)
+        local key="${line%%=*}"
+        local value="${line#*=}"
+        
+        # Mask sensitive values (more specific patterns)
+        if echo "$key" | grep -qiE "password|secret|private_key|api_key|token"; then
             echo -e "  ${CYAN}${key}${NC}=${DIM}********${NC}"
         else
             echo -e "  ${CYAN}${key}${NC}=${GREEN}${value}${NC}"
