@@ -445,7 +445,8 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
                     # Re-execute the script with the same arguments
                     # Using exec replaces the current process entirely, ensuring the new version runs
                     # This is intentional - we want a clean restart with the updated script
-                    exec "$0" "$@"
+                    # Use absolute path to ensure script is found after directory changes
+                    exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "$@"
                 else
                     print_error "Failed to pull updates"
                     print_warning "Continuing with current version..."
@@ -597,7 +598,11 @@ print_verbose "Package list: ${PACKAGES[*]}"
 
 for package in "${PACKAGES[@]}"; do
     print_verbose "Checking package: $package"
-    if ! dpkg -l | grep -q "^ii  $package "; then
+    # Use dpkg-query for more reliable package status checking
+    if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
+        echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        print_verbose "$package is already installed, skipping"
+    else
         echo -e "${DIM}   Installing $package...${RESET}"
         print_verbose "Running: $PKG_MGR install -y $package"
         
@@ -618,9 +623,6 @@ for package in "${PACKAGES[@]}"; do
                 print_success "✓ $package"
             fi
         fi
-    else
-        echo -e "${DIM}   ✓ $package (already installed)${RESET}"
-        print_verbose "$package is already installed"
     fi
 done
 
