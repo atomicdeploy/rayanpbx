@@ -1177,16 +1177,24 @@ fi
 
 # Check and fix database collation
 print_progress "Checking database collation..."
-if php artisan db:check-collation > /dev/null 2>&1; then
+COLLATION_CHECK_OUTPUT=$(php artisan db:check-collation 2>&1)
+if [ $? -eq 0 ]; then
     print_success "Database collation is correct"
+    print_verbose "$COLLATION_CHECK_OUTPUT"
 else
     print_warning "Database collation needs to be fixed"
+    if [ "$VERBOSE" = true ]; then
+        echo "$COLLATION_CHECK_OUTPUT"
+    fi
     print_progress "Fixing database collation..."
-    if php artisan db:check-collation --fix; then
+    if php artisan db:check-collation --fix 2>&1 | tee -a /tmp/collation-fix.log; then
         print_success "Database collation fixed successfully"
     else
         print_warning "Could not fix database collation automatically"
         print_info "You may need to fix it manually later"
+        if [ -f /tmp/collation-fix.log ]; then
+            print_verbose "Check /tmp/collation-fix.log for details"
+        fi
     fi
 fi
 

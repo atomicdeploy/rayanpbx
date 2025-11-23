@@ -72,6 +72,18 @@ class CheckDatabaseCollation extends Command
                     return 1;
                 }
                 
+                // Validate charset and collation to prevent SQL injection
+                // Even though these are hardcoded constants, validate them for defense in depth
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $expectedCharset)) {
+                    $this->error("Invalid charset format: {$expectedCharset}");
+                    return 1;
+                }
+                
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $expectedCollation)) {
+                    $this->error("Invalid collation format: {$expectedCollation}");
+                    return 1;
+                }
+                
                 // Use backticks to escape the database name
                 $sql = sprintf(
                     "ALTER DATABASE `%s` CHARACTER SET %s COLLATE %s",
