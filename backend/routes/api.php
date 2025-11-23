@@ -6,9 +6,11 @@ use App\Http\Controllers\Api\ExtensionController;
 use App\Http\Controllers\Api\TrunkController;
 use App\Http\Controllers\Api\StatusController;
 use App\Http\Controllers\Api\LogController;
+use App\Http\Controllers\Api\ConsoleController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/refresh', [AuthController::class, 'refresh']);
 
 // Protected routes
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
@@ -38,4 +40,20 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // Logs
     Route::get('/logs', [LogController::class, 'index']);
     Route::get('/logs/stream', [LogController::class, 'stream']);
+    
+    // Asterisk Console
+    Route::post('/console/execute', [ConsoleController::class, 'execute']);
+    Route::get('/console/output', [ConsoleController::class, 'output']);
+    Route::get('/console/commands', [ConsoleController::class, 'commands']);
+    Route::get('/console/version', [ConsoleController::class, 'version']);
+    Route::get('/console/calls', [ConsoleController::class, 'calls']);
+    Route::get('/console/channels', [ConsoleController::class, 'channels']);
+    Route::get('/console/endpoints', [ConsoleController::class, 'endpoints']);
+    Route::get('/console/registrations', [ConsoleController::class, 'registrations']);
+    Route::post('/console/reload', [ConsoleController::class, 'reload']);
+    Route::post('/console/hangup', [ConsoleController::class, 'hangup']);
+    Route::post('/console/originate', [ConsoleController::class, 'originate']);
+    Route::get('/console/dialplan', [ConsoleController::class, 'dialplan']);
+    Route::get('/console/peers', [ConsoleController::class, 'peers']);
+    Route::get('/console/session', [ConsoleController::class, 'session']);
 });

@@ -27,6 +27,8 @@ export const useApi = () => {
   }
 
   return {
+    apiFetch,
+    
     // Extensions
     async getExtensions() {
       return apiFetch('/extensions')
@@ -86,6 +88,63 @@ export const useApi = () => {
     async getLogs(params: any = {}) {
       const query = new URLSearchParams(params).toString()
       return apiFetch(`/logs?${query}`)
+    },
+    
+    // Console
+    async executeConsoleCommand(command: string) {
+      return apiFetch('/console/execute', {
+        method: 'POST',
+        body: { command },
+      })
+    },
+    
+    async getConsoleOutput(lines: number = 50) {
+      return apiFetch(`/console/output?lines=${lines}`)
+    },
+    
+    async getConsoleCommands() {
+      return apiFetch('/console/commands')
+    },
+    
+    async getAsteriskVersion() {
+      return apiFetch('/console/version')
+    },
+    
+    async getActiveCalls() {
+      return apiFetch('/console/calls')
+    },
+    
+    async getChannels() {
+      return apiFetch('/console/channels')
+    },
+    
+    async getEndpoints() {
+      return apiFetch('/console/endpoints')
+    },
+    
+    async getRegistrations() {
+      return apiFetch('/console/registrations')
+    },
+    
+    async reloadAsterisk(module?: string) {
+      return apiFetch('/console/reload', {
+        method: 'POST',
+        body: { module },
+      })
+    },
+    
+    async hangupChannel(channel: string) {
+      return apiFetch('/console/hangup', {
+        method: 'POST',
+        body: { channel },
+      })
+    },
+    
+    async originateCall(channel: string, extension: string, context?: string) {
+      return apiFetch('/console/originate', {
+        method: 'POST',
+        body: { channel, extension, context },
+      })
     },
   }
 }

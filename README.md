@@ -1,38 +1,121 @@
-# RayanPBX
+# 🚀 RayanPBX
 
-A modern, elegant SIP Server Management Toolkit for Ubuntu 24.04 LTS
+> Modern, elegant SIP Server Management Toolkit with Web UI, TUI, and CLI
 
-## Overview
+<div align="center">
 
-RayanPBX provides a comprehensive management layer for Asterisk-based SIP servers with multiple interfaces:
+```
+╭──────────────────────────────────────────────────────────────╮
+│                                                              │
+│             🎯 RayanPBX - SIP Server Management             │
+│                                                              │
+│        A modern, beautiful, and powerful toolkit for         │
+│          managing Asterisk-based PBX systems                 │
+│                                                              │
+╰──────────────────────────────────────────────────────────────╯
+```
 
-- 🌐 **Web Admin Panel**: Modern, beautiful SPA with dark mode and RTL support
-- 💻 **TUI**: Elegant terminal interface for SSH management
-- ⌨️ **CLI**: Scriptable commands for automation and CI/CD
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![PHP](https://img.shields.io/badge/PHP-8.3-777BB4?logo=php)](https://php.net)
+[![Laravel](https://img.shields.io/badge/Laravel-11-FF2D20?logo=laravel)](https://laravel.com)
+[![Node.js](https://img.shields.io/badge/Node.js-24-339933?logo=node.js)](https://nodejs.org)
+[![Vue.js](https://img.shields.io/badge/Vue.js-3-4FC08D?logo=vue.js)](https://vuejs.org)
+[![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go)](https://golang.org)
+[![Asterisk](https://img.shields.io/badge/Asterisk-22-FF6600)](https://asterisk.org)
 
-## Features
+</div>
 
-- 📞 **Extension Management**: Create, update, disable, and delete SIP extensions
-- 🌍 **Trunk Routing**: Configure outbound call routing with failover support
-- 🔐 **PAM Authentication**: Secure access control using Linux user accounts
-- 📊 **Real-time Monitoring**: Live status updates and log streaming
-- 🎨 **Beautiful UI/UX**: Dark mode, smooth transitions, helpful tooltips
-- 🌏 **Internationalization**: English and Persian (Farsi) with RTL support
-- 🔧 **Non-invasive**: Works with existing Asterisk installations
-- 🧪 **Fully Tested**: Automated tests with real SIP call flows
+## ✨ Features
 
-## Quick Start
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🌐 Web Admin Panel    │  Modern, responsive SPA/PWA        │
+│ 🖥️  Terminal UI (TUI)  │  Beautiful CLI interface           │
+│ ⚡ Real-time Events   │  WebSocket-based live updates      │
+│ 🔐 JWT Authentication │  Secure, token-based auth          │
+│ 🎨 Dark Mode          │  Elegant dark/light themes         │
+│ 🌍 i18n Support       │  English & Persian (RTL)           │
+│ 📱 Extension Manager  │  Complete SIP extension lifecycle  │
+│ 🔗 Trunk Routing      │  Advanced outbound call routing    │
+│ 🖥️  Asterisk Console   │  Interactive CLI from web UI       │
+│ 📊 Live Monitoring    │  Real-time call & system status    │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Prerequisites
+## 🏗️ Architecture
 
-- Ubuntu 24.04 LTS
-- Root or sudo access
-- MySQL/MariaDB 8.0+
-- PHP 8.2+
-- Node.js 20+
-- Go 1.21+ (for TUI)
+```
+╭────────────────────────────────────────────────────────────────╮
+│                     RayanPBX Architecture                      │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐    │
+│   │   Web UI     │   │     TUI      │   │     CLI      │    │
+│   │ (Nuxt/Vue3)  │   │  (Go/Bubble) │   │   (Bash)     │    │
+│   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘    │
+│          │                  │                   │             │
+│          └──────────────────┼───────────────────┘             │
+│                             │                                 │
+│   ┌────────────────────────────────────────────────────┐     │
+│   │         API Server (Laravel 11 / PHP 8.3)         │     │
+│   │  ┌─────────────┐  ┌─────────────┐  ┌───────────┐ │     │
+│   │  │  JWT Auth   │  │   Console   │  │  WebSocket │ │     │
+│   │  └─────────────┘  └─────────────┘  └───────────┘ │     │
+│   └────────────────────────┬───────────────────────────┘     │
+│                            │                                  │
+│   ┌────────────┬───────────┴────────┬─────────────┐         │
+│   │            │                    │             │         │
+│   ▼            ▼                    ▼             ▼         │
+│ ┌─────┐   ┌─────────┐        ┌──────────┐   ┌────────┐    │
+│ │MySQL│   │Asterisk │        │  Redis   │   │  PAM   │    │
+│ └─────┘   │   22    │        └──────────┘   └────────┘    │
+│           └─────────┘                                       │
+╰────────────────────────────────────────────────────────────────╯
+```
 
-### Installation
+## 📦 Tech Stack
+
+### Backend
+- **Laravel 11** - Modern PHP framework
+- **PHP 8.3** - Latest PHP version
+- **MySQL/MariaDB** - Database
+- **Redis** - Caching & sessions
+- **JWT** - Stateless authentication
+
+### Frontend
+- **Nuxt 3** - Vue.js framework for SPA/PWA
+- **Vue 3** - Progressive JavaScript framework
+- **TypeScript** - Type-safe development
+- **Tailwind CSS** - Utility-first CSS
+- **SCSS** - Enhanced styling with logical properties
+- **Pinia** - State management
+
+### TUI/CLI
+- **Go 1.23** - Systems programming language
+- **Bubble Tea** - Terminal UI framework
+- **Lipgloss** - Styling for terminals
+- **Figlet** - ASCII art generation
+
+### DevOps
+- **PM2** - Process manager for Node.js
+- **systemd** - Linux service management
+- **GitHub Actions** - CI/CD pipeline
+- **nala** - Modern APT wrapper
+
+### SIP/Telephony
+- **Asterisk 22** - Open source PBX
+- **PJSIP** - Modern SIP stack
+- **AMI** - Asterisk Manager Interface
+
+## 🚀 Quick Start
+
+### One-Line Installation
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/atomicdeploy/rayanpbx/main/install.sh)"
+```
+
+### Manual Installation
 
 ```bash
 # Clone the repository
@@ -41,132 +124,146 @@ cd rayanpbx
 
 # Run the installer
 sudo ./install.sh
-
-# Start the services
-sudo systemctl start rayanpbx-api
-sudo systemctl start rayanpbx-web
 ```
 
-### Access
+### Configuration
 
-- **Web UI**: http://localhost:3000
-- **API**: http://localhost:8000/api
-- **TUI**: `rayanpbx-tui`
-- **CLI**: `rayanpbx` command
-
-## Architecture
-
-```
-rayanpbx/
-├── backend/        # Laravel API server
-├── frontend/       # Nuxt 3 web interface
-├── tui/           # Go-based terminal UI
-├── scripts/       # Installation and setup scripts
-├── tests/         # Integration tests with Docker
-└── docs/          # Documentation
-```
-
-## Technology Stack
-
-- **Backend**: Laravel 11 (PHP 8.2+)
-- **Frontend**: Nuxt 3 (Vue 3 + TypeScript)
-- **TUI**: Go + Bubble Tea
-- **Database**: MySQL/MariaDB
-- **SIP Server**: Asterisk 21 LTS with PJSIP
-- **UI Framework**: Tailwind CSS + HeadlessUI
-- **Icons**: Heroicons
-
-## Development
-
-### Backend Setup
+Interactive configuration tool:
 
 ```bash
-cd backend
+cd /opt/rayanpbx
+./scripts/config-tui.sh
+```
+
+Non-interactive configuration:
+
+```bash
+./scripts/config-tui.sh /opt/rayanpbx/.env /opt/rayanpbx/.env.example --non-interactive
+```
+
+## 📖 Usage
+
+### Web Interface
+
+```
+╭────────────────────────────────────────────────────╮
+│  🌐 Web UI: http://your-server-ip:3000           │
+│  📡 API:    http://your-server-ip:8000/api       │
+│  🔌 WebSocket: ws://your-server-ip:9000/ws       │
+╰────────────────────────────────────────────────────╯
+```
+
+Default login uses your Linux username and password via PAM authentication.
+
+### Terminal UI
+
+```bash
+rayanpbx-tui
+```
+
+### CLI Commands
+
+```bash
+# Using health check script
+/opt/rayanpbx/scripts/health-check.sh full-check
+
+# Using config TUI
+/opt/rayanpbx/scripts/config-tui.sh
+
+# Using INI helper
+/opt/rayanpbx/scripts/ini-helper.sh modify-manager
+```
+
+### Service Management
+
+```bash
+# Check services
+systemctl status rayanpbx-api
+systemctl status asterisk
+
+# View PM2 services
+pm2 list
+pm2 logs
+
+# View logs
+journalctl -u rayanpbx-api -f
+journalctl -u asterisk -f
+```
+
+## 🔧 Development
+
+### Backend Development
+
+```bash
+cd /opt/rayanpbx/backend
 composer install
-cp .env.example .env
-php artisan key:generate
-php artisan migrate
 php artisan serve
 ```
 
-### Frontend Setup
+### Frontend Development
 
 ```bash
-cd frontend
+cd /opt/rayanpbx/frontend
 npm install
 npm run dev
 ```
 
-### TUI Build
+### TUI Development
 
 ```bash
-cd tui
-go build -o rayanpbx-tui
+cd /opt/rayanpbx/tui
+go build -o rayanpbx-tui main.go config.go
 ./rayanpbx-tui
 ```
 
-## Testing
+## 📚 Documentation
 
-```bash
-# Backend tests
-cd backend && php artisan test
-
-# Frontend tests
-cd frontend && npm run test
-
-# Integration tests with Docker
-./scripts/test-integration.sh
+```
+╭─────────────────────────────────────────────────────╮
+│  📖 User Guide:     /docs/user-guide.md           │
+│  🔧 API Docs:       /docs/api.md                  │
+│  🏗️  Architecture:   /docs/architecture.md         │
+│  🚀 Deployment:     /docs/deployment.md           │
+│  🔐 Security:       /docs/security.md             │
+╰─────────────────────────────────────────────────────╯
 ```
 
-## CLI Examples
+## 🤝 Contributing
 
-```bash
-# List extensions
-rayanpbx extensions list
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
 
-# Add an extension
-rayanpbx extensions add 100 "John Doe" --password secret123
+## 📄 License
 
-# Configure trunk
-rayanpbx trunks add primary --host sip.provider.com --username user
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-# View status
-rayanpbx status
+## 💙 Acknowledgments
 
-# Show logs
-rayanpbx logs --follow
+- **Asterisk** - The world's leading open source PBX
+- **Laravel** - The PHP framework for web artisans
+- **Vue.js** - The progressive JavaScript framework
+- **Go** - Build simple, secure, scalable systems
+- **pollination.ai** - AI-powered assistance
+
+## 📞 Support
+
+```
+╭──────────────────────────────────────────────────────╮
+│  🐛 Issues:  github.com/atomicdeploy/rayanpbx/issues │
+│  💬 Discussions: github.com/atomicdeploy/rayanpbx    │
+│  📧 Email:   support@rayanpbx.local                  │
+╰──────────────────────────────────────────────────────╯
 ```
 
-## Configuration
+---
 
-Configuration is stored in:
-- `/etc/rayanpbx/config.yaml` - Main configuration
-- MySQL database - Extensions, trunks, and routing rules
-- Asterisk configs - Auto-generated PJSIP and dialplan files
+<div align="center">
 
-## Security
+**Built with ❤️ by the RayanPBX Team**
 
-- PAM-based authentication with bcrypt password hashing
-- CSRF protection on all forms
-- Rate limiting on authentication endpoints
-- SIP credentials stored as HA1 MD5 hashes
-- No plaintext password storage
-- Session-based authentication with secure tokens
+```
+╭────────────────────────────────────────╮
+│  🚀 Modern • 🎨 Elegant • 💪 Powerful  │
+╰────────────────────────────────────────╯
+```
 
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines.
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues and questions:
-- GitHub Issues: https://github.com/atomicdeploy/rayanpbx/issues
-- Documentation: https://rayanpbx.io/docs
-
-## Credits
-
-Built with ❤️ for the open-source community
+</div>

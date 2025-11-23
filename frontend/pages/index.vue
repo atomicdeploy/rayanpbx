@@ -94,8 +94,8 @@
       </div>
 
       <!-- Quick Actions -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <NuxtLink to="/extensions" class="card hover:shadow-xl cursor-pointer">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <NuxtLink to="/extensions" class="card hover:shadow-xl cursor-pointer transition-shadow">
           <div class="text-center">
             <div class="text-5xl mb-4">📱</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.extensions') }}</h3>
@@ -103,7 +103,7 @@
           </div>
         </NuxtLink>
 
-        <NuxtLink to="/trunks" class="card hover:shadow-xl cursor-pointer">
+        <NuxtLink to="/trunks" class="card hover:shadow-xl cursor-pointer transition-shadow">
           <div class="text-center">
             <div class="text-5xl mb-4">🔗</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.trunks') }}</h3>
@@ -111,7 +111,15 @@
           </div>
         </NuxtLink>
 
-        <NuxtLink to="/logs" class="card hover:shadow-xl cursor-pointer">
+        <NuxtLink to="/console" class="card hover:shadow-xl cursor-pointer transition-shadow">
+          <div class="text-center">
+            <div class="text-5xl mb-4">🖥️</div>
+            <h3 class="text-xl font-bold mb-2">Console</h3>
+            <p class="text-gray-600 dark:text-gray-400">Asterisk CLI</p>
+          </div>
+        </NuxtLink>
+
+        <NuxtLink to="/logs" class="card hover:shadow-xl cursor-pointer transition-shadow">
           <div class="text-center">
             <div class="text-5xl mb-4">📋</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.logs') }}</h3>
