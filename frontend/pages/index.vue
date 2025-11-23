@@ -132,6 +132,10 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({
+  middleware: 'auth'
+})
+
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
 const router = useRouter()
@@ -184,12 +188,10 @@ const fetchStatus = async () => {
 }
 
 onMounted(async () => {
+  // Initialize auth state
   await authStore.checkAuth()
-  if (!authStore.isAuthenticated) {
-    router.push('/login')
-    return
-  }
-
+  
+  // Fetch initial status
   await fetchStatus()
   
   // Refresh status every 5 seconds

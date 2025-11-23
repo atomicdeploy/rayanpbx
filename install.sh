@@ -1220,6 +1220,16 @@ print_progress "Installing frontend dependencies..."
 cd /opt/rayanpbx/frontend
 npm install 2>&1 | grep -E "(added|up to date)" | tail -1
 
+# Create frontend .env file with proper API configuration
+print_progress "Configuring frontend environment..."
+SERVER_IP=$(hostname -I | awk '{print $1}')
+cat > .env << EOF
+NUXT_PUBLIC_API_BASE=http://${SERVER_IP}:8000/api
+NUXT_PUBLIC_WS_URL=ws://${SERVER_IP}:9000/ws
+EOF
+print_verbose "Frontend .env configured with API_BASE=http://${SERVER_IP}:8000/api"
+print_success "Frontend environment configured"
+
 print_progress "Building frontend..."
 npm run build 2>&1 | tee /tmp/frontend-build.log | tail -10
 if [ ${PIPESTATUS[0]} -ne 0 ]; then
