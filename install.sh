@@ -1012,10 +1012,8 @@ if [ "$USE_EXISTING_CREDENTIALS" = false ]; then
     print_verbose "Creating database and user..."
     # Use mysql --defaults-extra-file for secure password passing
     # Set restrictive umask to prevent race condition
-    local old_umask=$(umask)
+    old_umask=$(umask)
     umask 077
-    # Ensure umask is restored even on unexpected exit
-    trap "umask $old_umask" RETURN
     MYSQL_TMP_CNF=$(mktemp)
     umask "$old_umask"
     
