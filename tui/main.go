@@ -50,8 +50,11 @@ const (
 	mainMenu screen = iota
 	extensionsScreen
 	trunksScreen
+	asteriskScreen
+	diagnosticsScreen
 	statusScreen
 	logsScreen
+	usageScreen
 )
 
 type model struct {
@@ -71,10 +74,13 @@ func initialModel(db *sql.DB, config *Config) model {
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
-			"📱 Extensions",
-			"🔗 Trunks",
-			"📊 Status",
-			"📋 Logs",
+			"📱 Extensions Management",
+			"🔗 Trunks Management",
+			"⚙️  Asterisk Management",
+			"🔍 Diagnostics & Debugging",
+			"📊 System Status",
+			"📋 Logs Viewer",
+			"📖 CLI Usage Guide",
 			"❌ Exit",
 		},
 		cursor: 0,
