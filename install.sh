@@ -1221,8 +1221,12 @@ cd /opt/rayanpbx/frontend
 npm install 2>&1 | grep -E "(added|up to date)" | tail -1
 
 print_progress "Building frontend..."
-npm run build 2>&1 | tail -10
-
+npm run build 2>&1 | tee /tmp/frontend-build.log | tail -10
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    print_error "Frontend build failed"
+    echo -e "${YELLOW}Check /tmp/frontend-build.log for details${RESET}"
+    exit 1
+fi
 print_success "Frontend built successfully"
 
 # TUI Setup
