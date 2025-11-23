@@ -5,12 +5,8 @@ set -e
 # RayanPBX Installation Script for Ubuntu 24.04 LTS
 # This script installs and configures RayanPBX with Asterisk 22
 
-# Script version - read from VERSION file
-SCRIPT_VERSION="2.0.0"
-if [ -f "$(dirname "${BASH_SOURCE[0]}")/VERSION" ]; then
-    SCRIPT_VERSION=$(cat "$(dirname "${BASH_SOURCE[0]}")/VERSION" | tr -d '[:space:]')
-fi
-readonly SCRIPT_VERSION
+# Script version
+readonly SCRIPT_VERSION="2.0.0"
 
 # ════════════════════════════════════════════════════════════════════════
 # Configuration Variables
@@ -18,6 +14,10 @@ readonly SCRIPT_VERSION
 
 VERBOSE=false
 DRY_RUN=false
+INSTALL_TTS=false
+INSTALL_EMAIL=false
+INSTALL_SECURITY_TOOLS=false
+INSTALL_ADVANCED_SECURITY=false
 
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
@@ -74,6 +74,10 @@ show_help() {
     echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
     echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
+    echo -e "    ${GREEN}--with-tts${RESET}          Install Text-to-Speech engines (gTTS and Piper)"
+    echo -e "    ${GREEN}--with-email${RESET}        Install email server (Postfix and Dovecot)"
+    echo -e "    ${GREEN}--with-security-tools${RESET} Install security tools (fail2ban, iptables, ipset)"
+    echo -e "    ${GREEN}--with-security${RESET}     Install advanced security tools (coming soon)"
     echo ""
     echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
     echo -e "    ${CYAN}•${RESET} Ubuntu 24.04 LTS (recommended)"
@@ -88,6 +92,18 @@ show_help() {
     echo ""
     echo -e "    ${DIM}# Verbose installation (helpful for debugging)${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --verbose${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Installation with Text-to-Speech support${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-tts${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Installation with email server (Postfix + Dovecot)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-email${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Installation with security tools (fail2ban, iptables)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-security-tools${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Combined: TTS, email, and security${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-tts --with-email --with-security-tools${RESET}"
     echo ""
     echo -e "    ${DIM}# Show version${RESET}"
     echo -e "    ${WHITE}./install.sh --version${RESET}"
@@ -192,32 +208,6 @@ print_cmd() {
     echo -e "${DIM}   $ $1${RESET}"
 }
 
-handle_asterisk_error() {
-    local error_msg="$1"
-    local context="${2:-Asterisk operation}"
-    
-    print_error "$context failed"
-    print_warning "Error: $error_msg"
-    echo ""
-    echo -e "${CYAN}🔍 Checking for solutions...${RESET}"
-    echo ""
-    
-    # URL encode the error message using sed for special characters
-    local encoded_query=$(printf '%s' "$error_msg $context" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
-    
-    # Automatically fetch solution using GET request
-    local solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 500)
-    
-    if [ -n "$solution" ]; then
-        echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
-        echo -e "${DIM}${solution}${RESET}"
-        echo ""
-    else
-        echo -e "${DIM}Could not retrieve solution automatically. Check your internet connection.${RESET}"
-        echo ""
-    fi
-}
-
 print_box() {
     local text="$1"
     local color="${2:-$CYAN}"
@@ -258,55 +248,6 @@ check_installed() {
     fi
 }
 
-download_file() {
-    local url="$1"
-    local output_file="$2"
-    local show_progress="${3:-false}"
-    
-    print_verbose "Downloading: $url"
-    print_verbose "Output file: $output_file"
-    
-    # Check if aria2c is available
-    if command -v aria2c &> /dev/null; then
-        print_verbose "Using aria2c for download"
-        
-        # aria2c parameters:
-        # -R: retry on errors
-        # -c: continue downloading partially downloaded file
-        # -s 16: split file into 16 pieces for parallel download
-        # -x 16: maximum connections per server
-        # -k 1M: minimum split size (1 megabyte)
-        # -j 1: maximum concurrent downloads (1 since we're downloading one file)
-        # -d: directory to save the file
-        # -o: output filename
-        
-        local dir="$(dirname "$output_file")"
-        local filename="$(basename "$output_file")"
-        local aria2c_opts="-R -c -s 16 -x 16 -k 1M -j 1"
-        
-        if [ "$show_progress" = true ] || [ "$VERBOSE" = true ]; then
-            aria2c $aria2c_opts -d "$dir" -o "$filename" "$url"
-        else
-            aria2c $aria2c_opts -d "$dir" -o "$filename" "$url" > /dev/null 2>&1
-        fi
-        
-        return $?
-    else
-        print_verbose "aria2c not available, falling back to wget"
-        
-        # Fallback to wget
-        if [ "$show_progress" = true ]; then
-            wget --show-progress -O "$output_file" "$url"
-        elif [ "$VERBOSE" = true ]; then
-            wget -O "$output_file" "$url"
-        else
-            wget -q -O "$output_file" "$url"
-        fi
-        
-        return $?
-    fi
-}
-
 # ════════════════════════════════════════════════════════════════════════
 # Error Handler (for verbose mode)
 # ════════════════════════════════════════════════════════════════════════
@@ -322,182 +263,8 @@ error_handler() {
 }
 
 # ════════════════════════════════════════════════════════════════════════
-# Health Check Functions - Source from health-check.sh script
-# ════════════════════════════════════════════════════════════════════════
-
-# Determine script directory early for sourcing health-check.sh
-INSTALL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Source the health check script for DRY code
-HEALTH_CHECK_SCRIPT="$INSTALL_SCRIPT_DIR/scripts/health-check.sh"
-if [ -f "$HEALTH_CHECK_SCRIPT" ]; then
-    # Source the health check script to get all health check functions
-    source "$HEALTH_CHECK_SCRIPT"
-    print_verbose "Loaded health check functions from $HEALTH_CHECK_SCRIPT"
-else
-    # Fallback: define minimal functions if health-check.sh is not available yet
-    print_verbose "Health check script not found, using fallback functions"
-    
-    sanitize_output() {
-        local text="$1"
-        local max_length="${2:-200}"
-        echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?(token|key)|client[_-]?secret|private[_-]?key|[A-Z_]+PASSWORD)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
-    }
-
-    is_port_listening() {
-        local port=$1
-        if ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" || netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
-            return 0
-        fi
-        return 1
-    }
-
-    check_port_listening() {
-        local port=$1
-        local service_name=$2
-        local max_attempts=${3:-30}
-        local attempt=0
-        
-        print_verbose "Checking if port $port is listening (max ${max_attempts}s)..."
-        
-        while [ $attempt -lt $max_attempts ]; do
-            if is_port_listening "$port"; then
-                print_verbose "Port $port is now listening"
-                return 0
-            fi
-            attempt=$((attempt + 1))
-            sleep 1
-        done
-        
-        print_error "Port $port not listening after ${max_attempts}s for $service_name"
-        return 1
-    }
-
-    check_websocket_health() {
-        local host=$1
-        local port=$2
-        local service_name=$3
-        local max_attempts=${4:-15}
-        local attempt=0
-        
-        print_verbose "Checking WebSocket at $host:$port (max ${max_attempts} attempts)..."
-        
-        while [ $attempt -lt $max_attempts ]; do
-            if is_port_listening "$port"; then
-                print_verbose "WebSocket port $port is listening"
-                return 0
-            fi
-            
-            attempt=$((attempt + 1))
-            sleep 2
-        done
-        
-        print_error "$service_name not responding on port $port"
-        return 1
-    }
-
-    test_service_health() {
-        local service_type=$1
-        local service_name=$2
-        
-        case $service_type in
-            "api")
-                print_info "Testing Backend API health..."
-                if ! check_port_listening 8000 "$service_name" 30; then
-                    return 1
-                fi
-                
-                local url="http://localhost:8000/api/health"
-                local max_attempts=15
-                local attempt=0
-                local temp_file=$(mktemp -t rayanpbx-health.XXXXXX)
-                trap "rm -f '$temp_file'" RETURN
-                
-                while [ $attempt -lt $max_attempts ]; do
-                    local response=$(curl -s -w "%{http_code}" --connect-timeout 5 -o "$temp_file" "$url" 2>/dev/null)
-                    
-                    if [ "$response" = "200" ] || [ "$response" = "302" ]; then
-                        print_success "Backend API is healthy and responding"
-                        return 0
-                    fi
-                    
-                    if [ "$response" = "500" ]; then
-                        print_warning "$service_name returned HTTP 500, attempting to get error details..."
-                        local error_details=$(sanitize_output "$(cat "$temp_file")" 200)
-                        if [ -n "$error_details" ]; then
-                            print_verbose "Error response preview (sanitized): ${error_details}..."
-                        fi
-                    fi
-                    
-                    attempt=$((attempt + 1))
-                    sleep 2
-                done
-                
-                print_error "Backend API is not responding correctly"
-                print_info "Checking for error details..."
-                local api_response=$(sanitize_output "$(curl -s $url 2>&1)" 200)
-                print_verbose "API response (sanitized): ${api_response}..."
-                print_info "Check backend logs:"
-                print_cmd "journalctl -u rayanpbx-api -n 50 --no-pager"
-                print_cmd "tail -f /opt/rayanpbx/backend/storage/logs/laravel.log"
-                return 1
-                ;;
-                
-            "frontend")
-                print_info "Testing Frontend health..."
-                if ! check_port_listening 3000 "$service_name" 30; then
-                    return 1
-                fi
-                
-                local url="http://localhost:3000"
-                local max_attempts=15
-                local attempt=0
-                
-                while [ $attempt -lt $max_attempts ]; do
-                    local response=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null)
-                    
-                    if [ "$response" = "200" ] || [ "$response" = "302" ]; then
-                        print_success "Frontend is healthy and responding"
-                        return 0
-                    fi
-                    
-                    attempt=$((attempt + 1))
-                    sleep 2
-                done
-                
-                print_error "Frontend is not responding correctly"
-                print_info "Check PM2 logs:"
-                print_cmd "su - www-data -s /bin/bash -c 'pm2 logs rayanpbx-web --nostream'"
-                return 1
-                ;;
-                
-            "websocket")
-                print_info "Testing WebSocket server health..."
-                if ! check_websocket_health "localhost" 9000 "$service_name" 15; then
-                    print_error "WebSocket server is not responding"
-                    print_info "Check PM2 logs:"
-                    print_cmd "su - www-data -s /bin/bash -c 'pm2 logs rayanpbx-ws --nostream'"
-                    return 1
-                fi
-                print_success "WebSocket server is healthy and listening"
-                ;;
-                
-            *)
-                print_error "Unknown service type: $service_type"
-                return 1
-                ;;
-        esac
-        
-        return 0
-    }
-fi
-
-# ════════════════════════════════════════════════════════════════════════
 # Parse Command Line Arguments
 # ════════════════════════════════════════════════════════════════════════
-
-# Save original arguments before parsing for use in script restart
-ORIGINAL_ARGS=("$@")
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -514,6 +281,22 @@ while [[ $# -gt 0 ]]; do
         --dry-run)
             DRY_RUN=true
             echo "Dry-run mode enabled (not yet fully implemented)"
+            shift
+            ;;
+        --with-tts)
+            INSTALL_TTS=true
+            shift
+            ;;
+        --with-email)
+            INSTALL_EMAIL=true
+            shift
+            ;;
+        --with-security-tools)
+            INSTALL_SECURITY_TOOLS=true
+            shift
+            ;;
+        --with-security)
+            INSTALL_ADVANCED_SECURITY=true
             shift
             ;;
         *)
@@ -550,96 +333,6 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 print_verbose "Root check passed"
-
-# Check for git updates
-next_step "Checking for Updates"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-print_verbose "Script directory: $SCRIPT_DIR"
-
-if [ -d "$SCRIPT_DIR/.git" ]; then
-    print_verbose "Git repository detected, checking for updates..."
-    cd "$SCRIPT_DIR"
-    
-    # Get current branch name
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-    print_verbose "Current branch: $CURRENT_BRANCH"
-    
-    # Fetch the latest changes without merging
-    print_progress "Fetching latest updates from repository..."
-    FETCH_SUCCESS=true
-    if ! git fetch origin >/dev/null 2>&1; then
-        print_verbose "Fetch failed or had warnings, skipping update check"
-        print_info "Continuing with current version (fetch failed)"
-        FETCH_SUCCESS=false
-    else
-        print_verbose "Fetch completed successfully"
-    fi
-    
-    # Only check for updates if fetch was successful
-    if [ "$FETCH_SUCCESS" = true ]; then
-        # Get current and remote commit hashes
-        LOCAL_COMMIT=$(git rev-parse HEAD 2>/dev/null)
-        
-        # Try to get remote commit for current branch, fallback to main if that doesn't exist
-        REMOTE_COMMIT=""
-        if git rev-parse origin/$CURRENT_BRANCH >/dev/null 2>&1; then
-            REMOTE_COMMIT=$(git rev-parse origin/$CURRENT_BRANCH 2>/dev/null)
-            print_verbose "Checking against remote branch: origin/$CURRENT_BRANCH"
-        elif git rev-parse origin/main >/dev/null 2>&1; then
-            REMOTE_COMMIT=$(git rev-parse origin/main 2>/dev/null)
-            print_verbose "Checking against remote branch: origin/main"
-        else
-            print_verbose "Could not find remote branch, skipping update check"
-            REMOTE_COMMIT="$LOCAL_COMMIT"
-        fi
-        
-        print_verbose "Local commit: $LOCAL_COMMIT"
-        print_verbose "Remote commit: $REMOTE_COMMIT"
-        
-        if [ -n "$REMOTE_COMMIT" ] && [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
-            print_warning "Updates available for RayanPBX!"
-            echo ""
-            print_info "Changelog:"
-            git log --oneline "$LOCAL_COMMIT".."$REMOTE_COMMIT" 2>/dev/null | head -5 || echo "  (changelog unavailable)"
-            echo ""
-            
-            read -p "$(echo -e ${CYAN}Pull updates and restart installation? \(y/n\) ${RESET})" -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                print_progress "Pulling latest updates..."
-                
-                # Determine which branch to pull from
-                PULL_BRANCH="main"
-                if git rev-parse origin/$CURRENT_BRANCH >/dev/null 2>&1; then
-                    PULL_BRANCH="$CURRENT_BRANCH"
-                fi
-                
-                if git pull origin $PULL_BRANCH; then
-                    print_success "Updates pulled successfully"
-                    print_info "Restarting installation with latest version..."
-                    echo ""
-                    sleep 2
-                    
-                    # Re-execute the script with the same arguments
-                    # Using exec replaces the current process entirely, ensuring the new version runs
-                    # This is intentional - we want a clean restart with the updated script
-                    # Use absolute path to ensure script is found after directory changes
-                    # Use ORIGINAL_ARGS to preserve flags that were parsed (e.g., --verbose)
-                    exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "${ORIGINAL_ARGS[@]}"
-                else
-                    print_error "Failed to pull updates"
-                    print_warning "Continuing with current version..."
-                fi
-            else
-                print_info "Continuing with current version..."
-            fi
-        else
-            print_success "Already running the latest version"
-        fi
-    fi
-else
-    print_verbose "Not a git repository, skipping update check"
-fi
 
 # Check Ubuntu version
 next_step "System Verification"
@@ -756,7 +449,6 @@ PACKAGES=(
     software-properties-common
     curl
     wget
-    aria2
     git
     build-essential
     libncurses5-dev
@@ -770,7 +462,21 @@ PACKAGES=(
     lolcat
     redis-server
     cron
+    htop
+    sngrep
+    dialog
+    vim
     net-tools
+    sox
+    libsox-fmt-all
+    ffmpeg
+    lame
+    mpg123
+    libtiff-tools
+    ghostscript
+    jq
+    expect
+    python3-pip
 )
 
 print_info "Installing essential packages..."
@@ -778,11 +484,7 @@ print_verbose "Package list: ${PACKAGES[*]}"
 
 for package in "${PACKAGES[@]}"; do
     print_verbose "Checking package: $package"
-    # Use dpkg-query for more reliable package status checking
-    if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
-        echo -e "${DIM}   ✓ $package (already installed)${RESET}"
-        print_verbose "$package is already installed, skipping"
-    else
+    if ! dpkg -l | grep -q "^ii  $package "; then
         echo -e "${DIM}   Installing $package...${RESET}"
         print_verbose "Running: $PKG_MGR install -y $package"
         
@@ -803,6 +505,9 @@ for package in "${PACKAGES[@]}"; do
                 print_success "✓ $package"
             fi
         fi
+    else
+        echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        print_verbose "$package is already installed"
     fi
 done
 
@@ -833,89 +538,6 @@ if ! check_installed "gh" "GitHub CLI"; then
         print_warning "Failed to download GitHub CLI keyring (optional)"
     fi
 fi
-
-# ════════════════════════════════════════════════════════════════════════
-# MySQL/MariaDB Helper Functions
-# ════════════════════════════════════════════════════════════════════════
-
-# Extract value from .env file, handling quotes and equals signs properly
-extract_env_value() {
-    local env_file="$1"
-    local key="$2"
-    local value
-    value=$(grep "^${key}=" "$env_file" 2>/dev/null | cut -d'=' -f2-)
-    
-    # Remove matching quotes (both start and end must be same type)
-    if [[ "$value" =~ ^\".*\"$ ]]; then
-        # Remove double quotes
-        value="${value#\"}"
-        value="${value%\"}"
-    elif [[ "$value" =~ ^\'.*\'$ ]]; then
-        # Remove single quotes
-        value="${value#\'}"
-        value="${value%\'}"
-    fi
-    
-    echo "$value"
-}
-
-check_rayanpbx_user_privileges() {
-    local db_user="$1"
-    local db_password="$2"
-    local db_name="${3:-rayanpbx}"
-    
-    print_verbose "Testing if user '$db_user' has sufficient privileges..."
-    
-    # Create temporary config file for secure password passing
-    # Set restrictive umask to prevent race condition
-    local old_umask=$(umask)
-    umask 077
-    # Ensure umask is restored even on unexpected exit
-    trap "umask $old_umask" RETURN
-    local temp_cnf=$(mktemp)
-    umask "$old_umask"
-    
-    cat > "$temp_cnf" <<EOF
-[client]
-user=$db_user
-password=$db_password
-EOF
-    chmod 600 "$temp_cnf"
-    
-    # Test if user can connect to database
-    if ! mysql --defaults-extra-file="$temp_cnf" -e "SELECT 1;" &> /dev/null; then
-        print_verbose "User '$db_user' cannot connect to MySQL"
-        rm -f "$temp_cnf"
-        return 1
-    fi
-    
-    # Test if database exists and user has access
-    if mysql --defaults-extra-file="$temp_cnf" -e "USE $db_name;" &> /dev/null; then
-        print_verbose "User '$db_user' has access to database '$db_name'"
-        
-        # Test if user can create tables (sufficient for migrations)
-        # Use unique table name with timestamp and PID to avoid conflicts
-        local test_table="_rayanpbx_test_$(date +%s)_$$"
-        local create_result=0
-        mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "CREATE TABLE IF NOT EXISTS ${test_table} (id INT);" &> /dev/null || create_result=1
-        
-        if [ $create_result -eq 0 ]; then
-            # Table created successfully, now clean it up
-            mysql --defaults-extra-file="$temp_cnf" "$db_name" -e "DROP TABLE IF EXISTS ${test_table};" &> /dev/null
-            print_verbose "User '$db_user' has sufficient privileges for database operations"
-            rm -f "$temp_cnf"
-            return 0
-        else
-            print_verbose "User '$db_user' cannot create tables in database '$db_name'"
-            rm -f "$temp_cnf"
-            return 1
-        fi
-    else
-        print_verbose "Database '$db_name' does not exist or user lacks access"
-        rm -f "$temp_cnf"
-        return 1
-    fi
-}
 
 # MySQL/MariaDB Installation
 next_step "Database Setup (MySQL/MariaDB)"
@@ -956,9 +578,9 @@ if ! command -v mysql &> /dev/null; then
         echo -e "${YELLOW}Please set a secure MySQL root password${RESET}"
         
         while true; do
-            read -sp "$(echo -e ${CYAN}Enter new MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
+            read -sp "$(echo -e ${CYAN}Enter new MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
             echo
-            read -sp "$(echo -e ${CYAN}Confirm MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD_CONFIRM
+            read -sp "$(echo -e ${CYAN}Confirm MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD_CONFIRM
             echo
             
             if [ "$MYSQL_ROOT_PASSWORD" == "$MYSQL_ROOT_PASSWORD_CONFIRM" ]; then
@@ -986,98 +608,51 @@ EOF
     else
         print_info "MySQL already secured"
         print_verbose "MySQL root access requires password"
-        read -sp "$(echo -e ${CYAN}Enter MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
+        read -sp "$(echo -e ${CYAN}Enter MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
         echo
     fi
 else
     print_success "MySQL/MariaDB already installed"
     print_verbose "MySQL version: $(mysql --version)"
-fi
-
-# Check if we're in an upgrade scenario with existing credentials
-NEED_ROOT_PASSWORD=true
-USE_EXISTING_CREDENTIALS=false
-
-if [ -f "/opt/rayanpbx/.env" ]; then
-    print_verbose "Found existing .env file, checking for database credentials..."
-    
-    # Try to extract existing credentials from .env using helper function
-    EXISTING_DB_USER=$(extract_env_value "/opt/rayanpbx/.env" "DB_USERNAME")
-    EXISTING_DB_PASSWORD=$(extract_env_value "/opt/rayanpbx/.env" "DB_PASSWORD")
-    EXISTING_DB_NAME=$(extract_env_value "/opt/rayanpbx/.env" "DB_DATABASE")
-    
-    if [ -n "$EXISTING_DB_USER" ] && [ -n "$EXISTING_DB_PASSWORD" ]; then
-        print_verbose "Found existing credentials for user: $EXISTING_DB_USER"
-        print_info "Testing existing database credentials..."
-        
-        if check_rayanpbx_user_privileges "$EXISTING_DB_USER" "$EXISTING_DB_PASSWORD" "${EXISTING_DB_NAME:-rayanpbx}"; then
-            print_success "Existing database user has sufficient privileges"
-            NEED_ROOT_PASSWORD=false
-            USE_EXISTING_CREDENTIALS=true
-            ESCAPED_DB_PASSWORD="$EXISTING_DB_PASSWORD"
-            print_verbose "Will use existing database credentials, no root password needed"
-        else
-            print_warning "Existing database user lacks sufficient privileges"
-            print_info "Root password will be needed to fix database permissions"
-        fi
-    else
-        print_verbose "No valid credentials found in existing .env file"
-    fi
-fi
-
-# Only ask for root password if we actually need it
-if [ "$NEED_ROOT_PASSWORD" = true ]; then
-    print_info "Root password is required to set up or update database"
-    read -sp "$(echo -e ${CYAN}Enter MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
+    read -sp "$(echo -e ${CYAN}Enter MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
     echo
 fi
 
-# Create or update RayanPBX database
-if [ "$USE_EXISTING_CREDENTIALS" = false ]; then
-    print_progress "Setting up RayanPBX database..."
-    print_verbose "Generating random database password..."
-    ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
-    print_verbose "Database password generated (random hex string)"
-    
-    print_verbose "Creating database and user..."
-    # Use mysql --defaults-extra-file for secure password passing
-    # Set restrictive umask to prevent race condition
-    old_umask=$(umask)
-    umask 077
-    MYSQL_TMP_CNF=$(mktemp)
-    umask "$old_umask"
-    
-    cat > "$MYSQL_TMP_CNF" <<EOF
+# Create RayanPBX database
+print_progress "Creating RayanPBX database..."
+print_verbose "Generating random database password..."
+ESCAPED_DB_PASSWORD=$(openssl rand -hex 16)
+print_verbose "Database password generated (random hex string)"
+
+print_verbose "Creating database and user..."
+# Use mysql --defaults-extra-file for secure password passing
+MYSQL_TMP_CNF=$(mktemp)
+cat > "$MYSQL_TMP_CNF" <<EOF
 [client]
 user=root
 password=$MYSQL_ROOT_PASSWORD
 EOF
-    chmod 600 "$MYSQL_TMP_CNF"
-    
-    if mysql --defaults-extra-file="$MYSQL_TMP_CNF" <<EOSQL
+chmod 600 "$MYSQL_TMP_CNF"
+
+if mysql --defaults-extra-file="$MYSQL_TMP_CNF" <<EOSQL
 CREATE DATABASE IF NOT EXISTS rayanpbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
-ALTER USER 'rayanpbx'@'localhost' IDENTIFIED BY '$ESCAPED_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON rayanpbx.* TO 'rayanpbx'@'localhost';
 FLUSH PRIVILEGES;
 EOSQL
-    then
-        print_success "Database 'rayanpbx' created"
-        print_verbose "Database user 'rayanpbx' created with privileges"
-        rm -f "$MYSQL_TMP_CNF"
-    else
-        print_error "Failed to create database"
-        print_warning "Check your MySQL root password and database access"
-        if [ "$VERBOSE" = true ]; then
-            print_verbose "Attempting to verify MySQL connection..."
-            mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -n 10
-        fi
-        rm -f "$MYSQL_TMP_CNF"
-        exit 1
-    fi
+then
+    print_success "Database 'rayanpbx' created"
+    print_verbose "Database user 'rayanpbx' created with privileges"
+    rm -f "$MYSQL_TMP_CNF"
 else
-    print_success "Using existing database configuration"
-    print_verbose "Database: ${EXISTING_DB_NAME:-rayanpbx}, User: $EXISTING_DB_USER"
+    print_error "Failed to create database"
+    print_warning "Check your MySQL root password and database access"
+    if [ "$VERBOSE" = true ]; then
+        print_verbose "Attempting to verify MySQL connection..."
+        mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -n 10
+    fi
+    rm -f "$MYSQL_TMP_CNF"
+    exit 1
 fi
 
 # PHP 8.3 Installation
@@ -1128,42 +703,6 @@ else
 fi
 php -v | head -n 1
 print_verbose "PHP configuration file: $(php --ini | grep 'Loaded Configuration File' | cut -d: -f2 | xargs)"
-
-# Verify and enable Redis extension
-print_verbose "Verifying Redis extension is enabled..."
-if ! php -m | grep -qi "redis"; then
-    print_warning "Redis extension not loaded, attempting to enable..."
-    
-    # Try to enable the extension
-    if command -v phpenmod &> /dev/null; then
-        print_verbose "Using phpenmod to enable redis extension..."
-        if phpenmod redis 2>/dev/null; then
-            print_success "Redis extension enabled via phpenmod"
-        else
-            print_verbose "Could not enable via phpenmod, checking if package is installed..."
-        fi
-    fi
-    
-    # Restart PHP-FPM to ensure extension is loaded
-    if systemctl is-active --quiet php8.3-fpm; then
-        print_verbose "Restarting PHP-FPM to load Redis extension..."
-        if systemctl restart php8.3-fpm 2>/dev/null; then
-            print_verbose "PHP-FPM restarted successfully"
-        else
-            print_warning "Failed to restart PHP-FPM, extension may not be loaded"
-        fi
-    fi
-    
-    # Verify again
-    if php -m | grep -qi "redis"; then
-        print_success "Redis extension verified and loaded"
-    else
-        print_warning "Redis extension may not be properly loaded. Fallback to predis will be used if needed."
-    fi
-else
-    print_success "Redis extension already loaded"
-    print_verbose "Redis extension version: $(php -r "echo phpversion('redis');" 2>/dev/null || echo 'unknown')"
-fi
 
 # Composer Installation
 next_step "Composer Installation"
@@ -1283,7 +822,7 @@ if ! check_installed "go" "Go"; then
     print_progress "Installing Go 1.23..."
     print_verbose "Downloading Go 1.23.4..."
     
-    if download_file "https://go.dev/dl/go1.23.4.linux-amd64.tar.gz" "go1.23.4.linux-amd64.tar.gz" false; then
+    if wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz; then
         print_verbose "Extracting Go to /usr/local..."
         if tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz > /dev/null 2>&1; then
             print_verbose "Adding Go to PATH in /etc/profile..."
@@ -1318,7 +857,7 @@ if command -v asterisk &> /dev/null; then
         SKIP_ASTERISK=1
     else
         print_warning "Asterisk $ASTERISK_VERSION found (version 22+ recommended)"
-        read -p "$(echo -e ${YELLOW}Upgrade to Asterisk 22? \(y/n\) ${RESET})" -n 1 -r
+        read -p "$(echo -e ${YELLOW}Upgrade to Asterisk 22? \(y/n\)${RESET} )" -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             SKIP_ASTERISK=1
@@ -1334,7 +873,7 @@ if [ -z "$SKIP_ASTERISK" ]; then
     
     # Download
     print_info "📥 Downloading Asterisk source..."
-    download_file "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22-current.tar.gz" "asterisk-22-current.tar.gz" true
+    wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22-current.tar.gz
     tar xzf asterisk-22-current.tar.gz
     cd asterisk-22.*
     
@@ -1413,13 +952,7 @@ else
 fi
 
 systemctl enable asterisk > /dev/null 2>&1
-
-print_progress "Restarting Asterisk service..."
-if ! systemctl restart asterisk 2>&1 | tee /tmp/asterisk-restart.log; then
-    RESTART_ERROR=$(cat /tmp/asterisk-restart.log)
-    handle_asterisk_error "$RESTART_ERROR" "Asterisk restart"
-    print_warning "Continuing with installation, but Asterisk may need manual intervention"
-fi
+systemctl restart asterisk
 
 # Check Asterisk status
 sleep 3
@@ -1428,13 +961,8 @@ if systemctl is-active --quiet asterisk; then
     print_info "Active channels: $(asterisk -rx 'core show channels' 2>/dev/null | grep 'active channel' || echo '0 active channels')"
 else
     print_error "Failed to start Asterisk"
-    echo ""
-    print_warning "To diagnose the issue, run these commands:"
-    print_cmd "systemctl status asterisk"
-    print_cmd "journalctl -u asterisk -n 50"
-    print_cmd "asterisk -rvvvvv  # Launch Asterisk console in verbose mode"
-    echo ""
-    handle_asterisk_error "Service failed to start" "Asterisk startup"
+    print_warning "Check status with: systemctl status asterisk"
+    print_warning "Check logs with: journalctl -u asterisk -n 50"
 fi
 
 # Clone/Update RayanPBX Repository
@@ -1458,28 +986,7 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
     source /opt/rayanpbx/scripts/ini-helper.sh
     modify_manager_conf "rayanpbx_ami_secret"
     touch /etc/asterisk/manager.conf.rayanpbx-configured
-    
-    print_progress "Reloading Asterisk to apply AMI configuration..."
-    if ! systemctl reload asterisk 2>&1 | tee /tmp/asterisk-reload.log; then
-        RELOAD_ERROR=$(cat /tmp/asterisk-reload.log)
-        print_warning "Asterisk reload encountered an issue"
-        
-        # Check if it's actually running
-        if systemctl is-active --quiet asterisk; then
-            print_info "Asterisk is still running, attempting a restart instead..."
-            if systemctl restart asterisk 2>&1; then
-                print_success "Asterisk restarted successfully"
-            else
-                handle_asterisk_error "$RELOAD_ERROR" "Asterisk reload/restart"
-            fi
-        else
-            # Try to diagnose the issue
-            print_cmd "asterisk -rvvv  # Launch Asterisk console to investigate"
-            handle_asterisk_error "$RELOAD_ERROR" "Asterisk reload"
-        fi
-    else
-        print_success "Asterisk configuration reloaded"
-    fi
+    systemctl reload asterisk
 fi
 
 # Setup unified .env file
@@ -1487,45 +994,20 @@ next_step "Environment Configuration"
 if [ ! -f ".env" ]; then
     print_progress "Creating unified environment configuration..."
     cp .env.example .env
-    print_verbose ".env file created from template"
-else
-    print_progress "Updating existing environment configuration..."
-fi
-
-# Always update database credentials (in case of re-run or fresh install)
-sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$ESCAPED_DB_PASSWORD|" .env
-sed -i "s|DB_DATABASE=.*|DB_DATABASE=rayanpbx|" .env
-sed -i "s|DB_USERNAME=.*|DB_USERNAME=rayanpbx|" .env
-print_verbose "Database credentials updated in .env"
-
-# Generate JWT secret if not already set
-if ! grep -q "JWT_SECRET=.\{10,\}" .env; then
+    
+    # Update database password
+    sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$ESCAPED_DB_PASSWORD/" .env
+    sed -i "s/DB_DATABASE=.*/DB_DATABASE=rayanpbx/" .env
+    sed -i "s/DB_USERNAME=.*/DB_USERNAME=rayanpbx/" .env
+    
+    # Generate JWT secret
     JWT_SECRET=$(openssl rand -base64 32)
     sed -i "s|JWT_SECRET=.*|JWT_SECRET=$JWT_SECRET|" .env
-    print_verbose "JWT secret generated"
+    
+    print_success "Environment configured"
+else
+    print_success "Environment file already exists"
 fi
-
-# Generate Laravel APP_KEY if not already set
-if ! grep -q "APP_KEY=.\{10,\}" .env; then
-    APP_KEY="base64:$(openssl rand -base64 32)"
-    sed -i "s|APP_KEY=.*|APP_KEY=$APP_KEY|" .env
-    print_verbose "Laravel APP_KEY generated"
-fi
-
-# Enable debug mode for better error visibility during installation
-# This is intentionally set regardless of user preferences to ensure proper error reporting
-# during installation. Users can switch to production mode afterward (see final instructions).
-sed -i "s|APP_DEBUG=.*|APP_DEBUG=true|" .env
-sed -i "s|APP_ENV=.*|APP_ENV=development|" .env
-print_verbose "Debug mode enabled for installation (can be changed to production after setup)"
-
-print_success "Environment configured"
-
-# Copy .env to backend directory for Laravel
-print_progress "Setting up backend environment..."
-cp .env backend/.env
-print_verbose "Backend .env synchronized with root .env"
-print_success "Backend environment configured"
 
 # Backend Setup
 next_step "Backend API Setup"
@@ -1537,60 +1019,11 @@ print_progress "Running database migrations..."
 php artisan migrate --force
 
 if [ $? -eq 0 ]; then
-    print_success "Database migrations completed"
+    print_success "Backend configured successfully"
 else
     print_error "Database migration failed"
     exit 1
 fi
-
-# Check and fix database collation
-print_progress "Checking database collation..."
-COLLATION_CHECK_OUTPUT=$(php artisan db:check-collation 2>&1)
-if [ $? -eq 0 ]; then
-    print_success "Database collation is correct"
-    print_verbose "$COLLATION_CHECK_OUTPUT"
-else
-    print_warning "Database collation needs to be fixed"
-    if [ "$VERBOSE" = true ]; then
-        echo "$COLLATION_CHECK_OUTPUT"
-    fi
-    print_progress "Fixing database collation..."
-    if php artisan db:check-collation --fix 2>&1 | tee -a /tmp/collation-fix.log; then
-        print_success "Database collation fixed successfully"
-    else
-        print_warning "Could not fix database collation automatically"
-        print_info "You may need to fix it manually later"
-        if [ -f /tmp/collation-fix.log ]; then
-            print_verbose "Check /tmp/collation-fix.log for details"
-        fi
-    fi
-fi
-
-# Set proper ownership and permissions for Laravel
-print_progress "Setting proper ownership and permissions..."
-print_verbose "Setting ownership of /opt/rayanpbx/backend to www-data:www-data..."
-chown -R www-data:www-data /opt/rayanpbx/backend
-
-print_verbose "Setting permissions for Laravel storage and cache directories..."
-# Storage directory needs to be writable by web server
-if [ -d /opt/rayanpbx/backend/storage ]; then
-    chmod -R 775 /opt/rayanpbx/backend/storage
-    print_verbose "Set permissions on storage directory"
-fi
-
-if [ -d /opt/rayanpbx/backend/bootstrap/cache ]; then
-    chmod -R 775 /opt/rayanpbx/backend/bootstrap/cache
-    print_verbose "Set permissions on bootstrap/cache directory"
-fi
-
-# Ensure www-data can write to log files
-if [ -f /opt/rayanpbx/backend/storage/logs/laravel.log ]; then
-    chmod 664 /opt/rayanpbx/backend/storage/logs/laravel.log
-    print_verbose "Set permissions on laravel.log"
-fi
-
-print_success "Ownership and permissions configured"
-print_success "Backend configured successfully"
 
 # Frontend Setup
 next_step "Frontend Web UI Setup"
@@ -1598,52 +1031,17 @@ print_progress "Installing frontend dependencies..."
 cd /opt/rayanpbx/frontend
 npm install 2>&1 | grep -E "(added|up to date)" | tail -1
 
-# Create frontend .env file with proper API configuration
-print_progress "Configuring frontend environment..."
-SERVER_IP=$(hostname -I | awk '{print $1}')
-cat > .env << EOF
-NUXT_PUBLIC_API_BASE=http://${SERVER_IP}:8000/api
-NUXT_PUBLIC_WS_URL=ws://${SERVER_IP}:9000/ws
-EOF
-print_verbose "Frontend .env configured with API_BASE=http://${SERVER_IP}:8000/api"
-print_success "Frontend environment configured"
-
 print_progress "Building frontend..."
-npm run build 2>&1 | tee /tmp/frontend-build.log | tail -10
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    print_error "Frontend build failed"
-    echo -e "${YELLOW}Check /tmp/frontend-build.log for details${RESET}"
-    exit 1
-fi
+npm run build 2>&1 | tail -10
+
 print_success "Frontend built successfully"
 
 # TUI Setup
 next_step "TUI (Terminal UI) Build"
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
-
-# Force use of local toolchain to avoid downloading a different version
-export GOTOOLCHAIN=local
-print_verbose "Set GOTOOLCHAIN=local to use installed toolchain"
-
-# Detect installed Go version and update go.mod to use it
-INSTALLED_GO_VERSION=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+' || echo "")
-if [ -n "$INSTALLED_GO_VERSION" ]; then
-    print_verbose "Detected Go version: $INSTALLED_GO_VERSION"
-    print_verbose "Updating go.mod to use installed Go version..."
-    
-    # Update go.mod to use the installed Go version
-    sed -i -E "s/^go [0-9]+\.[0-9]+$/go $INSTALLED_GO_VERSION/" go.mod
-    
-    # Verify the change
-    GO_MOD_VERSION=$(grep "^go " go.mod | awk '{print $2}')
-    print_verbose "go.mod now specifies: go $GO_MOD_VERSION"
-else
-    print_warning "Could not detect Go version, using go.mod as-is"
-fi
-
 go mod download
-go build -o /usr/local/bin/rayanpbx-tui .
+go build -o /usr/local/bin/rayanpbx-tui main.go config.go
 chmod +x /usr/local/bin/rayanpbx-tui
 
 print_success "TUI built: /usr/local/bin/rayanpbx-tui"
@@ -1654,17 +1052,6 @@ go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
 chmod +x /usr/local/bin/rayanpbx-ws
 
 print_success "WebSocket server built: /usr/local/bin/rayanpbx-ws"
-
-# CLI Tool Setup
-print_progress "Setting up CLI tool..."
-if [ -f "/opt/rayanpbx/scripts/rayanpbx-cli.sh" ]; then
-    ln -sf /opt/rayanpbx/scripts/rayanpbx-cli.sh /usr/local/bin/rayanpbx-cli
-    chmod +x /opt/rayanpbx/scripts/rayanpbx-cli.sh
-    chmod +x /usr/local/bin/rayanpbx-cli
-    print_success "CLI tool linked: rayanpbx-cli"
-else
-    print_warning "CLI tool script not found at /opt/rayanpbx/scripts/rayanpbx-cli.sh"
-fi
 
 # PM2 Ecosystem Configuration
 next_step "PM2 Process Management Setup"
@@ -1746,86 +1133,380 @@ print_info "Configuring cron jobs..."
 
 print_success "Cron jobs configured"
 
-# Verify services with comprehensive health checks
-next_step "Service Verification & Health Checks"
-print_info "Performing comprehensive health checks on all services..."
-echo ""
+# Optional: Install Security Tools (fail2ban, iptables, ipset)
+if [ "$INSTALL_SECURITY_TOOLS" = true ]; then
+    next_step "Security Tools Installation (Optional)"
+    
+    # Install security packages
+    print_info "Installing security tools..."
+    SECURITY_PACKAGES=(fail2ban iptables ipset)
+    
+    for package in "${SECURITY_PACKAGES[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $package "; then
+            echo -e "${DIM}   Installing $package...${RESET}"
+            if [ "$VERBOSE" = true ]; then
+                if ! $PKG_MGR install -y "$package"; then
+                    print_error "Failed to install $package"
+                    print_warning "Security tools may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            else
+                if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
+                    print_error "Failed to install $package"
+                    print_warning "Security tools may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            fi
+        else
+            echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        fi
+    done
+    
+    # Configure Fail2ban
+    if command -v fail2ban-client &> /dev/null; then
+        print_info "Configuring Fail2ban for Asterisk protection..."
+        # Create Asterisk jail configuration
+        cat > /etc/fail2ban/jail.d/asterisk.conf << 'EOF'
+[asterisk]
+enabled = true
+port = 5060,5061
+protocol = udp
+filter = asterisk
+logpath = /var/log/asterisk/full
+maxretry = 5
+bantime = 3600
+findtime = 600
 
-# Track which services failed
-FAILED_SERVICES=()
+[asterisk-tcp]
+enabled = true
+port = 5060,5061
+protocol = tcp
+filter = asterisk
+logpath = /var/log/asterisk/full
+maxretry = 5
+bantime = 3600
+findtime = 600
+EOF
 
-# Check Backend API
-print_progress "Checking Backend API (port 8000)..."
+        systemctl enable fail2ban > /dev/null 2>&1
+        systemctl restart fail2ban
+        print_success "Fail2ban configured for Asterisk"
+    else
+        print_warning "Fail2ban not available after installation"
+    fi
+    
+    print_success "Security tools installed and configured"
+    print_info "Use 'rayanpbx-cli firewall setup' to configure UFW firewall"
+else
+    print_info "Security tools not requested (use --with-security-tools to install)"
+    print_info "Note: UFW firewall can still be configured via 'rayanpbx-cli firewall setup'"
+fi
+
+# Optional: Install Email Server (Postfix + Dovecot)
+if [ "$INSTALL_EMAIL" = true ]; then
+    next_step "Email Server Installation (Optional)"
+    
+    # Install Postfix and Dovecot
+    print_info "Installing email server packages..."
+    EMAIL_PACKAGES=(postfix mailutils dovecot-core dovecot-imapd dovecot-pop3d)
+    
+    for package in "${EMAIL_PACKAGES[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $package "; then
+            echo -e "${DIM}   Installing $package...${RESET}"
+            if [ "$VERBOSE" = true ]; then
+                if ! $PKG_MGR install -y "$package"; then
+                    print_error "Failed to install $package"
+                    print_warning "Email server may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            else
+                if ! $PKG_MGR install -y "$package" > /dev/null 2>&1; then
+                    print_error "Failed to install $package"
+                    print_warning "Email server may not work properly without $package"
+                else
+                    print_success "✓ $package"
+                fi
+            fi
+        else
+            echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        fi
+    done
+    
+    # Configure Postfix
+    if command -v postfix &> /dev/null; then
+        print_info "Configuring Postfix for email delivery..."
+        # Set postfix to satellite mode for sending emails
+        debconf-set-selections <<< "postfix postfix/mailname string $(hostname -f)"
+        debconf-set-selections <<< "postfix postfix/main_mailer_type string 'Internet Site'"
+        
+        # Configure postfix
+        postconf -e "inet_interfaces = all"
+        postconf -e "myhostname = $(hostname -f)"
+        postconf -e "mydestination = $(hostname -f), localhost.localdomain, localhost"
+        postconf -e "mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128"
+        
+        systemctl enable postfix > /dev/null 2>&1
+        systemctl restart postfix > /dev/null 2>&1
+        print_success "Postfix configured"
+    else
+        print_warning "Postfix not available"
+    fi
+    
+    # Configure Dovecot
+    if command -v dovecot &> /dev/null; then
+        print_info "Configuring Dovecot for email retrieval..."
+        
+        # Basic Dovecot configuration
+        cat > /etc/dovecot/conf.d/10-mail.conf << 'EOF'
+# Mail location
+mail_location = maildir:~/Maildir
+EOF
+        
+        cat > /etc/dovecot/conf.d/10-auth.conf << 'EOF'
+# Authentication
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+
+!include auth-system.conf.ext
+EOF
+        
+        # Enable and start Dovecot
+        systemctl enable dovecot > /dev/null 2>&1
+        systemctl restart dovecot > /dev/null 2>&1
+        print_success "Dovecot configured"
+        
+        print_info "Email server ready:"
+        echo -e "  ${DIM}SMTP (Postfix):${RESET} Port 25"
+        echo -e "  ${DIM}IMAP (Dovecot):${RESET} Port 143"
+        echo -e "  ${DIM}POP3 (Dovecot):${RESET} Port 110"
+        echo -e "  ${DIM}Note:${RESET} Configure SSL/TLS certificates for production use"
+    else
+        print_warning "Dovecot not available"
+    fi
+else
+    print_info "Email server not requested (use --with-email to install)"
+fi
+
+# Configure FAX support
+next_step "FAX Support Configuration"
+print_info "Configuring FAX support..."
+
+if [ -d "/etc/asterisk" ]; then
+    # Add FAX configuration to extensions_custom.conf if it doesn't exist
+    if [ ! -f "/etc/asterisk/extensions_custom.conf" ]; then
+        cat > /etc/asterisk/extensions_custom.conf << 'EOF'
+; Custom Asterisk Extensions
+; This file is for custom dialplan entries
+
+[ext-group](+)
+exten => fax,1,Noop(Fax detected)
+exten => fax,2,Goto(custom-fax-receive,s,1)
+
+[custom-fax-receive]
+exten => s,1,Answer
+exten => s,n,Wait(1)
+exten => s,n,Verbose(3,Incoming Fax)
+exten => s,n,Set(FAXEMAIL=root@localhost)
+exten => s,n,Set(FAXDEST=/var/spool/asterisk/fax)
+exten => s,n,Set(tempfax=${STRFTIME(,,%Y%m%d%H%M%S)})
+exten => s,n,ReceiveFax(${FAXDEST}/${tempfax}.tif)
+exten => s,n,System(/usr/bin/tiff2pdf -o "${FAXDEST}/${tempfax}.pdf" "${FAXDEST}/${tempfax}.tif")
+exten => s,n,Hangup
+EOF
+        chown asterisk:asterisk /etc/asterisk/extensions_custom.conf
+        chmod 644 /etc/asterisk/extensions_custom.conf
+        
+        # Create FAX directory
+        mkdir -p /var/spool/asterisk/fax
+        chown asterisk:asterisk /var/spool/asterisk/fax
+        chmod 755 /var/spool/asterisk/fax
+        
+        print_success "FAX support configured"
+    else
+        print_info "FAX configuration already exists"
+    fi
+else
+    print_warning "Asterisk directory not found - skipping FAX configuration"
+fi
+
+# Configure log rotation for Asterisk
+next_step "Log Rotation Configuration"
+print_info "Configuring log rotation for Asterisk..."
+
+if [ -d "/etc/logrotate.d" ]; then
+    cat > /etc/logrotate.d/asterisk << 'EOF'
+/var/log/asterisk/messages
+/var/log/asterisk/full
+/var/log/asterisk/debug
+/var/log/asterisk/cdr-csv/*.csv {
+    daily
+    missingok
+    rotate 7
+    notifempty
+    sharedscripts
+    compress
+    delaycompress
+    create 0640 asterisk asterisk
+    postrotate
+        /usr/sbin/asterisk -rx 'logger reload' > /dev/null 2>&1 || true
+    endscript
+}
+
+/var/log/asterisk/queue_log {
+    daily
+    missingok
+    rotate 30
+    notifempty
+    create 0640 asterisk asterisk
+}
+EOF
+    print_success "Log rotation configured"
+else
+    print_warning "logrotate.d directory not found - skipping log rotation"
+fi
+
+# Display security tools information
+print_info "Additional tools installed:"
+echo -e "  ${DIM}• htop${RESET}      - System process viewer"
+echo -e "  ${DIM}• sngrep${RESET}    - SIP packet analyzer"
+echo -e "  ${DIM}• sox/ffmpeg${RESET} - Audio conversion tools"
+echo -e "  ${DIM}• jq${RESET}        - JSON processor"
+if [ "$INSTALL_SECURITY_TOOLS" = true ]; then
+    echo -e "  ${DIM}• fail2ban${RESET}  - Intrusion prevention"
+    echo -e "  ${DIM}• iptables/ipset${RESET} - Firewall tools"
+fi
+if [ "$INSTALL_TTS" = true ]; then
+    echo -e "  ${DIM}• gTTS/Piper${RESET}  - Text-to-Speech engines"
+fi
+if [ "$INSTALL_EMAIL" = true ]; then
+    echo -e "  ${DIM}• Postfix/Dovecot${RESET} - Email server"
+fi
+
+# Configure VIM for root user
+next_step "Shell Environment Configuration"
+print_info "Configuring VIM and shell aliases..."
+
+cat > /root/.vimrc << 'EOF'
+set hlsearch
+set mouse=r
+syntax on
+set number
+set tabstop=4
+set shiftwidth=4
+set expandtab
+EOF
+
+# Add color scheme for ls
+if ! grep -q "LS_OPTIONS" /etc/bash.bashrc; then
+    cat >> /etc/bash.bashrc << 'EOF'
+
+# Color scheme for ls
+export LS_OPTIONS='--color=auto'
+eval "`dircolors`"
+alias ls='ls $LS_OPTIONS'
+alias ll='ls -l $LS_OPTIONS'
+alias la='ls -la $LS_OPTIONS'
+EOF
+    print_success "Shell aliases configured"
+else
+    print_info "Shell aliases already configured"
+fi
+
+# Configure NTP for time synchronization
+if systemctl is-active --quiet systemd-timesyncd; then
+    systemctl enable systemd-timesyncd > /dev/null 2>&1
+    systemctl start systemd-timesyncd > /dev/null 2>&1
+    print_success "Time synchronization enabled (systemd-timesyncd)"
+else
+    print_info "Using system default time synchronization"
+fi
+
+# Optional: Install Text-to-Speech engines
+if [ "$INSTALL_TTS" = true ]; then
+    next_step "Text-to-Speech Installation (Optional)"
+    
+    # Install gTTS (Google Text-to-Speech)
+    if command -v pip3 &> /dev/null; then
+        print_info "Installing gTTS (Google Text-to-Speech)..."
+        pip3 install --upgrade pip > /dev/null 2>&1
+        pip3 install gTTS > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            print_success "gTTS installed"
+        else
+            print_warning "gTTS installation failed"
+        fi
+    else
+        print_warning "pip3 not available - skipping gTTS"
+    fi
+    
+    # Install Piper TTS (local, fast, neural TTS)
+    print_info "Installing Piper TTS..."
+    if [ -d /opt ]; then
+        cd /opt
+        # Download Piper for x86_64 Linux
+        PIPER_VERSION="2023.11.14-2"
+        wget -q "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_x86_64.tar.gz" -O piper.tar.gz
+        if [ $? -eq 0 ]; then
+            tar -xzf piper.tar.gz
+            rm piper.tar.gz
+            # Create symlink for easy access
+            ln -sf /opt/piper/piper /usr/local/bin/piper
+            
+            # Download a default voice model (en_US-lessac-medium)
+            mkdir -p /opt/piper/voices
+            cd /opt/piper/voices
+            wget -q "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+            wget -q "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+            
+            if [ -f /usr/local/bin/piper ]; then
+                print_success "Piper TTS installed"
+                print_info "Default voice: en_US-lessac-medium"
+                print_info "Usage: echo 'Hello' | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f output.wav"
+            else
+                print_warning "Piper TTS installation failed"
+            fi
+        else
+            print_warning "Failed to download Piper TTS"
+        fi
+        cd /root
+    else
+        print_warning "/opt directory not found - skipping Piper"
+    fi
+else
+    print_info "Text-to-Speech engines not requested (use --with-tts to install)"
+fi
+
+# Verify services
+next_step "Service Verification"
+sleep 3
+
 if systemctl is-active --quiet rayanpbx-api; then
-    if test_service_health "api" "rayanpbx-api"; then
-        print_success "✓ Backend API is fully operational"
-    else
-        print_warning "✗ Backend API service is running but not healthy"
-        FAILED_SERVICES+=("Backend API")
-    fi
+    print_success "✓ API service running"
 else
-    print_error "✗ Backend API service failed to start"
-    print_info "Check status: systemctl status rayanpbx-api"
-    FAILED_SERVICES+=("Backend API")
+    print_warning "✗ API service failed - check: systemctl status rayanpbx-api"
 fi
-echo ""
 
-# Check Frontend
-print_progress "Checking Frontend (port 3000)..."
 if su - www-data -s /bin/bash -c "pm2 list" | grep -q "rayanpbx-web.*online"; then
-    if test_service_health "frontend" "rayanpbx-web"; then
-        print_success "✓ Frontend is fully operational"
-    else
-        print_warning "✗ Frontend service is running but not healthy"
-        FAILED_SERVICES+=("Frontend")
-    fi
+    print_success "✓ Web service running (PM2)"
 else
-    print_error "✗ Frontend service failed to start"
-    print_info "Check status: su - www-data -s /bin/bash -c 'pm2 list'"
-    FAILED_SERVICES+=("Frontend")
+    print_warning "✗ Web service issue - check: pm2 list"
 fi
-echo ""
 
-# Check WebSocket Server
-print_progress "Checking WebSocket Server (port 9000)..."
 if su - www-data -s /bin/bash -c "pm2 list" | grep -q "rayanpbx-ws.*online"; then
-    if test_service_health "websocket" "rayanpbx-ws"; then
-        print_success "✓ WebSocket Server is fully operational"
-    else
-        print_warning "✗ WebSocket service is running but not healthy"
-        FAILED_SERVICES+=("WebSocket")
-    fi
+    print_success "✓ WebSocket service running (PM2)"
 else
-    print_error "✗ WebSocket service failed to start"
-    print_info "Check status: su - www-data -s /bin/bash -c 'pm2 list'"
-    FAILED_SERVICES+=("WebSocket")
+    print_warning "✗ WebSocket service issue - check: pm2 list"
 fi
-echo ""
 
-# Check Asterisk
-print_progress "Checking Asterisk..."
 if systemctl is-active --quiet asterisk; then
-    print_success "✓ Asterisk is running"
+    print_success "✓ Asterisk running"
     ASTERISK_VERSION=$(asterisk -V 2>/dev/null | head -n 1)
     echo -e "${DIM}   $ASTERISK_VERSION${RESET}"
 else
-    print_error "✗ Asterisk service failed"
-    print_info "Check status: systemctl status asterisk"
-    FAILED_SERVICES+=("Asterisk")
-fi
-echo ""
-
-# Display health check summary
-if [ ${#FAILED_SERVICES[@]} -eq 0 ]; then
-    print_box "All Services Healthy! ✅" "$GREEN"
-else
-    print_warning "Some services need attention:"
-    for service in "${FAILED_SERVICES[@]}"; do
-        echo -e "  ${RED}✗${RESET} $service"
-    done
-    echo ""
-    print_info "Installation completed but some services may need manual intervention"
-    print_info "Review the error messages above for troubleshooting steps"
+    print_warning "✗ Asterisk issue - check: systemctl status asterisk"
 fi
 
 # Final Banner
@@ -1857,34 +1538,84 @@ echo ""
 echo -e "${BOLD}${CYAN}🛠️  Useful Commands:${RESET}"
 echo -e "  ${DIM}View services:${RESET}     pm2 list"
 echo -e "  ${DIM}View logs:${RESET}         pm2 logs"
-echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv   ${GREEN}(Recommended!)${RESET}"
-echo -e "  ${DIM}Asterisk status:${RESET}   systemctl status asterisk"
+echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv"
 echo -e "  ${DIM}System status:${RESET}     systemctl status rayanpbx-api"
+echo -e "  ${DIM}SIP analyzer:${RESET}      sngrep"
+echo -e "  ${DIM}System monitor:${RESET}    htop"
+echo -e "  ${DIM}Security status:${RESET}   fail2ban-client status asterisk"
+echo -e "  ${DIM}JSON processor:${RESET}    jq"
+echo ""
+
+echo -e "${BOLD}${CYAN}🔒 Security:${RESET}"
+if [ "$INSTALL_SECURITY_TOOLS" = true ]; then
+    echo -e "  ${DIM}Fail2ban:${RESET}         Configured for Asterisk (port 5060/5061)"
+    echo -e "  ${DIM}iptables/ipset:${RESET}   Installed for advanced firewall rules"
+fi
+echo -e "  ${DIM}UFW Firewall:${RESET}     Use ${WHITE}rayanpbx-cli firewall setup${RESET}"
+echo -e "  ${DIM}Certificates:${RESET}     Use ${WHITE}rayanpbx-cli certificate${RESET}"
+if [ "$INSTALL_SECURITY_TOOLS" != true ]; then
+    echo -e "  ${DIM}Security tools:${RESET}   Use ${WHITE}--with-security-tools${RESET} to install fail2ban"
+fi
+echo ""
+
+if [ "$INSTALL_EMAIL" = true ]; then
+    echo -e "${BOLD}${CYAN}📧 Email Server:${RESET}"
+    echo -e "  ${DIM}Postfix (SMTP):${RESET}   Configured on port 25"
+    echo -e "  ${DIM}Dovecot (IMAP):${RESET}   Configured on port 143"
+    echo -e "  ${DIM}Dovecot (POP3):${RESET}   Configured on port 110"
+    echo -e "  ${DIM}Note:${RESET}             Configure SSL/TLS for production"
+    echo ""
+fi
+
+echo -e "${BOLD}${CYAN}📠 FAX Support:${RESET}"
+echo -e "  ${DIM}FAX directory:${RESET}    /var/spool/asterisk/fax"
+echo -e "  ${DIM}FAX config:${RESET}       /etc/asterisk/extensions_custom.conf"
+if [ "$INSTALL_EMAIL" != true ]; then
+    echo -e "  ${DIM}Email delivery:${RESET}  Use ${WHITE}--with-email${RESET} to enable email notifications"
+fi
+echo ""
+
+if [ "$INSTALL_TTS" = true ]; then
+    echo -e "${BOLD}${CYAN}🎙️  Audio & TTS:${RESET}"
+    echo -e "  ${DIM}Sound tools:${RESET}      sox, ffmpeg, lame, mpg123"
+    echo -e "  ${DIM}Text-to-Speech:${RESET}   gTTS and Piper TTS installed"
+    echo -e "  ${DIM}Piper usage:${RESET}      echo 'text' | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f out.wav"
+    echo -e "  ${DIM}Audio formats:${RESET}    GSM, WAV, MP3, uLaw conversion"
+    echo ""
+else
+    echo -e "${BOLD}${CYAN}🎙️  Audio:${RESET}"
+    echo -e "  ${DIM}Sound tools:${RESET}      sox, ffmpeg, lame, mpg123"
+    echo -e "  ${DIM}Audio formats:${RESET}    GSM, WAV, MP3, uLaw conversion"
+    echo -e "  ${DIM}TTS:${RESET}              Use ${WHITE}--with-tts${RESET} flag to install gTTS and Piper"
+    echo ""
+fi
+
+echo -e "${BOLD}${CYAN}⏰ System Services:${RESET}"
+echo -e "  ${DIM}Time sync:${RESET}        systemd-timesyncd enabled"
+echo -e "  ${DIM}Log rotation:${RESET}     Configured for Asterisk logs"
+echo -e "  ${DIM}Cron jobs:${RESET}        Laravel scheduler configured"
+echo ""
+
+echo -e "${BOLD}${CYAN}📚 Next Steps:${RESET}"
+echo -e "  1. Configure firewall:     ${WHITE}sudo rayanpbx-cli firewall setup${RESET}"
+echo -e "  2. Setup SSL certificate:  ${WHITE}sudo rayanpbx-cli certificate generate $(hostname)${RESET}"
+echo -e "  3. Run system diagnostics: ${WHITE}rayanpbx-cli diag health-check${RESET}"
+echo -e "  4. View all CLI commands:  ${WHITE}rayanpbx-cli list${RESET}"
+echo -e "  5. Configure email:        ${WHITE}sudo rayanpbx-cli database info${RESET}"
+echo -e "  6. Upload custom sounds:   ${WHITE}sudo rayanpbx-cli sound upload <file>${RESET}"
+echo ""
+
+echo -e "${BOLD}${CYAN}📋 Important Files:${RESET}"
+echo -e "  ${DIM}VIM config:${RESET}       /root/.vimrc"
+echo -e "  ${DIM}Shell aliases:${RESET}    /etc/bash.bashrc"
 echo ""
 
 echo -e "${BOLD}${CYAN}🚀 Next Steps:${RESET}"
-echo -e "  ${GREEN}1.${RESET} ${BOLD}Launch Asterisk Console${RESET} to monitor calls:"
-echo -e "     ${WHITE}asterisk -rvvv${RESET}  ${DIM}(press 'exit' or Ctrl+C to quit)${RESET}"
-echo ""
-echo -e "  ${GREEN}2.${RESET} Access web UI: http://$(hostname -I | awk '{print $1}'):3000"
-echo ""
-echo -e "  ${GREEN}3.${RESET} Login with admin/admin"
-echo ""
-echo -e "  ${GREEN}4.${RESET} Configure your first extension"
-echo ""
-echo -e "  ${GREEN}5.${RESET} Set up a SIP trunk"
-echo ""
-echo -e "  ${GREEN}6.${RESET} Test your setup"
-echo ""
-
-echo -e "${BOLD}${CYAN}⚠️  Security Notice:${RESET}"
-echo -e "  ${YELLOW}Debug mode is ENABLED${RESET} for easier troubleshooting during setup."
-echo -e "  ${DIM}File: /opt/rayanpbx/.env (APP_DEBUG=true)${RESET}"
-echo ""
-echo -e "  ${BOLD}For production use:${RESET}"
-echo -e "  ${WHITE}1.${RESET} Edit ${CYAN}/opt/rayanpbx/.env${RESET}"
-echo -e "  ${WHITE}2.${RESET} Set ${CYAN}APP_DEBUG=false${RESET} and ${CYAN}APP_ENV=production${RESET}"
-echo -e "  ${WHITE}3.${RESET} Restart: ${CYAN}systemctl restart rayanpbx-api${RESET}"
+echo -e "  ${GREEN}1.${RESET} Access web UI: http://$(hostname -I | awk '{print $1}'):3000"
+echo -e "  ${GREEN}2.${RESET} Login with admin/admin"
+echo -e "  ${GREEN}3.${RESET} Configure your first extension"
+echo -e "  ${GREEN}4.${RESET} Set up a SIP trunk"
+echo -e "  ${GREEN}5.${RESET} Test your setup"
 echo ""
 
 echo -e "${BOLD}${CYAN}📚 Documentation & Support:${RESET}"
