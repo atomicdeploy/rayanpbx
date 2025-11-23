@@ -57,12 +57,48 @@ ensure_ini_section() {
 # Function to backup config file
 backup_config() {
     local file="$1"
-    local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
     
-    if [ -f "$file" ]; then
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    
+    # Calculate checksum of the file to backup
+    local file_checksum
+    if command -v md5sum &> /dev/null; then
+        file_checksum=$(md5sum "$file" | awk '{print $1}')
+    elif command -v shasum &> /dev/null; then
+        file_checksum=$(shasum -a 256 "$file" | awk '{print $1}')
+    else
+        # Fallback: if no checksum tool available, always create backup
+        local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
         cp "$file" "$backup"
         echo "$backup"
+        return 0
     fi
+    
+    # Check if any existing backup has the same checksum
+    local existing_backup
+    for existing_backup in "${file}.backup."*; do
+        if [ -f "$existing_backup" ]; then
+            local backup_checksum
+            if command -v md5sum &> /dev/null; then
+                backup_checksum=$(md5sum "$existing_backup" | awk '{print $1}')
+            else
+                backup_checksum=$(shasum -a 256 "$existing_backup" | awk '{print $1}')
+            fi
+            
+            if [ "$file_checksum" = "$backup_checksum" ]; then
+                # Identical backup already exists, no need to create a new one
+                echo "$existing_backup"
+                return 0
+            fi
+        fi
+    done
+    
+    # No identical backup exists, create a new one
+    local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$file" "$backup"
+    echo "$backup"
 }
 
 # Main function for modifying Asterisk manager.conf

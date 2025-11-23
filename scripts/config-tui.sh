@@ -54,11 +54,50 @@ load_config() {
 
 # Save configuration
 save_config() {
-    local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-    
     if [ -f "$ENV_FILE" ]; then
-        cp "$ENV_FILE" "$backup"
-        echo -e "${DIM}Backup created: $backup${RESET}"
+        # Calculate checksum of the file to backup
+        local file_checksum
+        if command -v md5sum &> /dev/null; then
+            file_checksum=$(md5sum "$ENV_FILE" | awk '{print $1}')
+        elif command -v shasum &> /dev/null; then
+            file_checksum=$(shasum -a 256 "$ENV_FILE" | awk '{print $1}')
+        else
+            # Fallback: if no checksum tool available, always create backup
+            local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+            cp "$ENV_FILE" "$backup"
+            echo -e "${DIM}Backup created: $backup${RESET}"
+            file_checksum=""
+        fi
+        
+        # Check if any existing backup has the same checksum
+        if [ -n "$file_checksum" ]; then
+            local existing_backup
+            local backup_exists=false
+            for existing_backup in "${ENV_FILE}.backup."*; do
+                if [ -f "$existing_backup" ]; then
+                    local backup_checksum
+                    if command -v md5sum &> /dev/null; then
+                        backup_checksum=$(md5sum "$existing_backup" | awk '{print $1}')
+                    else
+                        backup_checksum=$(shasum -a 256 "$existing_backup" | awk '{print $1}')
+                    fi
+                    
+                    if [ "$file_checksum" = "$backup_checksum" ]; then
+                        # Identical backup already exists
+                        echo -e "${DIM}Backup already exists: $existing_backup (identical content)${RESET}"
+                        backup_exists=true
+                        break
+                    fi
+                fi
+            done
+            
+            if [ "$backup_exists" = false ]; then
+                # No identical backup exists, create a new one
+                local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+                cp "$ENV_FILE" "$backup"
+                echo -e "${DIM}Backup created: $backup${RESET}"
+            fi
+        fi
     fi
     
     cat > "$ENV_FILE" << 'HEADER'

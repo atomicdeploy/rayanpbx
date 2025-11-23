@@ -430,8 +430,46 @@ cmd_config_set() {
         exit 4
     fi
     
-    # Backup config file
-    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    # Backup config file only if content will change and no identical backup exists
+    local file_checksum
+    if command -v md5sum &> /dev/null; then
+        file_checksum=$(md5sum "$ENV_FILE" | awk '{print $1}')
+    elif command -v shasum &> /dev/null; then
+        file_checksum=$(shasum -a 256 "$ENV_FILE" | awk '{print $1}')
+    else
+        # Fallback: if no checksum tool available, always create backup
+        cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+        file_checksum=""
+    fi
+    
+    # Check if any existing backup has the same checksum
+    if [ -n "$file_checksum" ]; then
+        local existing_backup
+        local backup_exists=false
+        for existing_backup in "${ENV_FILE}.backup."*; do
+            if [ -f "$existing_backup" ]; then
+                local backup_checksum
+                if command -v md5sum &> /dev/null; then
+                    backup_checksum=$(md5sum "$existing_backup" | awk '{print $1}')
+                else
+                    backup_checksum=$(shasum -a 256 "$existing_backup" | awk '{print $1}')
+                fi
+                
+                if [ "$file_checksum" = "$backup_checksum" ]; then
+                    # Identical backup already exists
+                    print_verbose "Backup already exists: $existing_backup (identical content)"
+                    backup_exists=true
+                    break
+                fi
+            fi
+        done
+        
+        if [ "$backup_exists" = false ]; then
+            # No identical backup exists, create a new one
+            cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+            print_verbose "Backup created: ${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+        fi
+    fi
     
     # Escape special characters in value for sed
     local escaped_value
