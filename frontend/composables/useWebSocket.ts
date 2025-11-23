@@ -45,7 +45,7 @@ export const useWebSocket = () => {
         console.log('✅ WebSocket connected')
       }
 
-      ws.value.onmessage = (event) => {
+      wsInstance.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data)
           
