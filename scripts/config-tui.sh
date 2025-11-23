@@ -3,6 +3,19 @@
 # RayanPBX .env Configuration TUI
 # Interactive configuration tool for .env file
 
+# Version - read from VERSION file
+VERSION="2.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+fi
+
+# Source ini-helper for backup functionality
+if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
+    source "$SCRIPT_DIR/ini-helper.sh"
+fi
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -46,11 +59,13 @@ load_config() {
 
 # Save configuration
 save_config() {
-    local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-    
     if [ -f "$ENV_FILE" ]; then
-        cp "$ENV_FILE" "$backup"
-        echo -e "${DIM}Backup created: $backup${RESET}"
+        # Use backup_config helper from ini-helper.sh
+        local backup
+        backup=$(backup_config "$ENV_FILE")
+        if [ -n "$backup" ]; then
+            echo -e "${DIM}Backup: $backup${RESET}"
+        fi
     fi
     
     cat > "$ENV_FILE" << 'HEADER'
@@ -64,6 +79,11 @@ HEADER
         echo "${key}=${CONFIG[$key]}" >> "$ENV_FILE"
     done
     
+    # Normalize .env file to ensure proper variable ordering
+    if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
+        bash "$SCRIPT_DIR/normalize-env.sh" "$ENV_FILE"
+    fi
+    
     echo -e "${GREEN}✅ Configuration saved to $ENV_FILE${RESET}"
 }
 
@@ -76,7 +96,8 @@ print_banner() {
     echo "║    🔧  RayanPBX Configuration Wizard  🔧     ║"
     echo "║                                              ║"
     echo "╚══════════════════════════════════════════════╝"
-    echo -e "${RESET}\n"
+    echo -e "${RESET}"
+    echo -e "${DIM}Version: ${VERSION}${RESET}\n"
 }
 
 # Input with default
@@ -92,10 +113,10 @@ input_with_default() {
     fi
     
     if [ "$password" == "yes" ]; then
-        read -sp "$(echo -e ${YELLOW}Enter value:${RESET} )" value
+        read -sp "$(echo -e ${YELLOW}Enter value: ${RESET})" value
         echo
     else
-        read -p "$(echo -e ${YELLOW}Enter value:${RESET} )" value
+        read -p "$(echo -e ${YELLOW}Enter value: ${RESET})" value
     fi
     
     if [ -z "$value" ]; then
@@ -116,7 +137,8 @@ ask_yes_no() {
         echo -e "${DIM}Current: $default${RESET}"
     fi
     
-    read -p "$(echo -e ${YELLOW}[y/n]:${RESET} )" answer
+    read -p "$(echo -e ${YELLOW}[y/n]: ${RESET})" -n 1 -r answer
+    echo
     
     if [ -z "$answer" ]; then
         answer="$default"
@@ -221,7 +243,8 @@ configure_jwt() {
         echo -e "${GREEN}✓ JWT secret generated${RESET}"
     else
         echo -e "${GREEN}✓ Using existing JWT secret${RESET}"
-        read -p "$(echo -e ${YELLOW}Generate new JWT secret? [y/N]:${RESET} )" regenerate
+        read -p "$(echo -e ${YELLOW}Generate new JWT secret? [y/N]: ${RESET})" -n 1 -r regenerate
+        echo
         if [[ "$regenerate" =~ ^[Yy]$ ]]; then
             CONFIG[JWT_SECRET]=$(generate_secret)
             echo -e "${GREEN}✓ New JWT secret generated${RESET}"
@@ -602,6 +625,13 @@ non_interactive_mode() {
 
 # Main
 load_config
+
+# Check for version flag
+if [ "$#" -ge 1 ] && [[ "$1" == "--version" || "$1" == "-v" || "$1" == "version" ]]; then
+    echo -e "${CYAN}${BOLD}RayanPBX Configuration TUI${RESET} ${GREEN}v${VERSION}${RESET}"
+    echo -e "${DIM}Interactive configuration tool for .env file${RESET}"
+    exit 0
+fi
 
 if [ "$#" -ge 3 ] && [ "$3" == "--non-interactive" ]; then
     # Non-interactive mode for installer

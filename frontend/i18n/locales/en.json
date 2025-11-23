@@ -17,6 +17,10 @@
     "password": "Password",
     "loginButton": "Sign In",
     "loginError": "Invalid credentials",
+    "backendUnreachable": "Cannot connect to API server. Please check that the backend is running.",
+    "unknownError": "An unknown error occurred. Please try again.",
+    "checkingBackend": "Connecting to backend...",
+    "backendConnected": "Backend connected",
     "usernamePlaceholder": "Enter your Linux username",
     "passwordPlaceholder": "Enter your password",
     "pamInfo": "Uses PAM authentication (Linux user accounts)"

@@ -13,6 +13,17 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Version is the application version - read from VERSION file
+var Version = "2.0.0"
+
+func init() {
+	// Try to load version from VERSION file
+	versionFile := filepath.Join(findRootPath(), "VERSION")
+	if data, err := os.ReadFile(versionFile); err == nil {
+		Version = strings.TrimSpace(string(data))
+	}
+}
+
 // Config holds the application configuration
 type Config struct {
 	DBHost     string
@@ -24,15 +35,37 @@ type Config struct {
 	JWTSecret  string
 }
 
-// LoadConfig loads configuration from root .env file
+// LoadConfig loads configuration from root .env file, then overrides with local .env
 func LoadConfig() (*Config, error) {
 	// Find root .env file
 	rootPath := findRootPath()
-	envPath := filepath.Join(rootPath, ".env")
-
-	// Load .env file
-	if err := godotenv.Load(envPath); err != nil {
-		// Try local .env if root not found
+	rootEnvPath := filepath.Join(rootPath, ".env")
+	
+	// Load root .env first
+	rootLoaded := false
+	if _, err := os.Stat(rootEnvPath); err == nil {
+		if err := godotenv.Load(rootEnvPath); err == nil {
+			rootLoaded = true
+		}
+	}
+	
+	// Then load local .env to override if it exists and is different from root
+	currentDir, _ := os.Getwd()
+	localEnvPath := filepath.Join(currentDir, ".env")
+	
+	// Only load local .env if it's different from root .env
+	if localEnvPath != rootEnvPath {
+		if _, err := os.Stat(localEnvPath); err == nil {
+			// godotenv.Overload will override existing env vars
+			if err := godotenv.Overload(localEnvPath); err != nil {
+				// Log warning but don't fail - root config is already loaded
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load local .env file %s: %v\n", localEnvPath, err)
+			}
+		}
+	}
+	
+	if !rootLoaded {
+		// If no root .env found, try current directory
 		godotenv.Load()
 	}
 
@@ -49,20 +82,35 @@ func LoadConfig() (*Config, error) {
 	return config, nil
 }
 
-// findRootPath finds the root directory of the project
+// findRootPath finds the root directory of the project by looking for .env file
 func findRootPath() string {
 	currentDir, _ := os.Getwd()
-	
+
 	// Look for .env file up to 3 levels up
 	for i := 0; i < 3; i++ {
 		envPath := filepath.Join(currentDir, ".env")
+		versionPath := filepath.Join(currentDir, "VERSION")
+		
+		// Check if this looks like project root (has .env or VERSION file)
 		if _, err := os.Stat(envPath); err == nil {
 			return currentDir
 		}
-		currentDir = filepath.Dir(currentDir)
+		if _, err := os.Stat(versionPath); err == nil {
+			return currentDir
+		}
+		
+		// Go up one level
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			// Reached filesystem root
+			break
+		}
+		currentDir = parentDir
 	}
-	
-	return "."
+
+	// Return current directory if root not found
+	cwd, _ := os.Getwd()
+	return cwd
 }
 
 // getEnv gets environment variable with default value
@@ -99,11 +147,11 @@ func ConnectDB(config *Config) (*sql.DB, error) {
 func PrintBanner() {
 	// Create figlet text
 	myFigure := figure.NewFigure("RayanPBX", "slant", true)
-	
+
 	// Print with gradient colors
 	cyan := color.New(color.FgCyan, color.Bold)
 	magenta := color.New(color.FgMagenta, color.Bold)
-	
+
 	lines := strings.Split(myFigure.String(), "\n")
 	for i, line := range lines {
 		if i%2 == 0 {
@@ -112,10 +160,12 @@ func PrintBanner() {
 			magenta.Println(line)
 		}
 	}
-	
-	// Subtitle
+
+	// Subtitle with version
 	yellow := color.New(color.FgYellow)
-	yellow.Println("    🚀 Modern SIP Server Management Toolkit 🚀")
+	green := color.New(color.FgGreen)
+	yellow.Print("    🚀 Modern SIP Server Management Toolkit 🚀")
+	green.Printf(" v%s\n", Version)
 	fmt.Println()
 }
 
@@ -124,7 +174,16 @@ type Extension struct {
 	ID              int
 	ExtensionNumber string
 	Name            string
+	Secret          string
+	Email           string
 	Enabled         bool
+	Context         string
+	Transport       string
+	CallerID        string
+	MaxContacts     int
+	VoicemailEnabled bool
+	CreatedAt       string
+	UpdatedAt       string
 }
 
 // Trunk represents a SIP trunk
@@ -139,7 +198,10 @@ type Trunk struct {
 
 // GetExtensions fetches extensions from database
 func GetExtensions(db *sql.DB) ([]Extension, error) {
-	query := "SELECT id, extension_number, name, enabled FROM extensions ORDER BY extension_number"
+	query := `SELECT id, extension_number, name, COALESCE(secret, ''), COALESCE(email, ''), 
+	          enabled, COALESCE(context, 'from-internal'), COALESCE(transport, 'transport-udp'), 
+	          COALESCE(caller_id, ''), COALESCE(max_contacts, 1), COALESCE(voicemail_enabled, 0)
+	          FROM extensions ORDER BY extension_number`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -149,7 +211,8 @@ func GetExtensions(db *sql.DB) ([]Extension, error) {
 	var extensions []Extension
 	for rows.Next() {
 		var ext Extension
-		if err := rows.Scan(&ext.ID, &ext.ExtensionNumber, &ext.Name, &ext.Enabled); err != nil {
+		if err := rows.Scan(&ext.ID, &ext.ExtensionNumber, &ext.Name, &ext.Secret, &ext.Email,
+			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled); err != nil {
 			continue
 		}
 		extensions = append(extensions, ext)
@@ -190,28 +253,28 @@ func PrintExtensions(extensions []Extension) {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("\n📱 Extensions:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("%-15s %-25s %-10s\n", "Number", "Name", "Status")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	for _, ext := range extensions {
 		status := "🔴 Disabled"
 		if ext.Enabled {
 			status = "🟢 Enabled"
 		}
-		
+
 		fmt.Printf("%-15s ", ext.ExtensionNumber)
 		fmt.Printf("%-25s ", ext.Name)
-		
+
 		if ext.Enabled {
 			green.Printf("%-10s\n", status)
 		} else {
 			red.Printf("%-10s\n", status)
 		}
 	}
-	
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Total: %d extensions\n\n", len(extensions))
 }
@@ -227,31 +290,31 @@ func PrintTrunks(trunks []Trunk) {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
-	
+
 	cyan.Println("\n🔗 Trunks:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("%-15s %-30s %-10s %-10s\n", "Name", "Host", "Priority", "Status")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	for _, trunk := range trunks {
 		status := "🔴 Disabled"
 		if trunk.Enabled {
 			status = "🟢 Enabled"
 		}
-		
+
 		hostPort := fmt.Sprintf("%s:%d", trunk.Host, trunk.Port)
-		
+
 		fmt.Printf("%-15s ", trunk.Name)
 		fmt.Printf("%-30s ", hostPort)
 		fmt.Printf("%-10d ", trunk.Priority)
-		
+
 		if trunk.Enabled {
 			green.Printf("%-10s\n", status)
 		} else {
 			red.Printf("%-10s\n", status)
 		}
 	}
-	
+
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Total: %d trunks\n\n", len(trunks))
 }
@@ -260,10 +323,10 @@ func PrintTrunks(trunks []Trunk) {
 func PrintSystemStatus(db *sql.DB) {
 	cyan := color.New(color.FgCyan, color.Bold)
 	green := color.New(color.FgGreen)
-	
+
 	cyan.Println("\n📊 System Status:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Database status
 	if err := db.Ping(); err == nil {
 		green.Println("✅ Database: Connected")
@@ -271,14 +334,15 @@ func PrintSystemStatus(db *sql.DB) {
 		red := color.New(color.FgRed)
 		red.Println("❌ Database: Disconnected")
 	}
-	
+
 	// Get counts
 	var extCount, trunkCount int
 	db.QueryRow("SELECT COUNT(*) FROM extensions WHERE enabled = 1").Scan(&extCount)
 	db.QueryRow("SELECT COUNT(*) FROM trunks WHERE enabled = 1").Scan(&trunkCount)
-	
+
 	green.Printf("📱 Active Extensions: %d\n", extCount)
 	green.Printf("🔗 Active Trunks: %d\n", trunkCount)
-	
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 }

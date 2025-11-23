@@ -14,7 +14,7 @@
     "@headlessui/vue": "^1.7.17",
     "@heroicons/vue": "^2.1.1",
     "@nuxtjs/color-mode": "^3.3.2",
-    "@nuxtjs/i18n": "^8.0.0",
+    "@nuxtjs/i18n": "^10.0.0",
     "@pinia/nuxt": "^0.5.1",
     "nuxt": "^3.9.0",
     "pinia": "^2.1.7",
@@ -24,6 +24,7 @@
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.11.1",
     "@types/node": "^20.10.6",
+    "sass": "^1.69.5",
     "typescript": "^5.3.3"
   }
 }

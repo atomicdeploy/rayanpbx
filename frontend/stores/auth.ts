@@ -5,11 +5,13 @@ export const useAuthStore = defineStore('auth', {
     token: null as string | null,
     user: null as any,
     isAuthenticated: false,
+    lastError: null as string | null,
   }),
 
   actions: {
     async login(username: string, password: string) {
       const config = useRuntimeConfig()
+      this.lastError = null
       
       try {
         const response = await $fetch(`${config.public.apiBase}/auth/login`, {
@@ -26,10 +28,34 @@ export const useAuthStore = defineStore('auth', {
           localStorage.setItem('rayanpbx_token', response.token)
         }
 
-        return true
-      } catch (error) {
+        return { success: true }
+      } catch (error: any) {
         console.error('Login error:', error)
-        return false
+        
+        // Check if error has a status code (meaning we got a response from server)
+        if (error.status || error.statusCode) {
+          const status = error.status || error.statusCode
+          
+          // Invalid credentials
+          if (status === 422 || status === 401) {
+            this.lastError = 'invalid_credentials'
+            return { success: false, error: 'invalid_credentials' }
+          }
+          
+          // Other server errors - check if there's a message from backend
+          if (error.data?.message) {
+            this.lastError = error.data.message
+            return { success: false, error: error.data.message }
+          }
+          
+          // Fallback to unknown error
+          this.lastError = 'unknown_error'
+          return { success: false, error: 'unknown_error' }
+        }
+        
+        // No response means network/connection error
+        this.lastError = 'backend_unreachable'
+        return { success: false, error: 'backend_unreachable' }
       }
     },
 
@@ -63,6 +89,27 @@ export const useAuthStore = defineStore('auth', {
           this.token = token
           this.isAuthenticated = true
           // Optionally fetch user details
+        }
+      }
+    },
+
+    async checkBackendHealth() {
+      const config = useRuntimeConfig()
+      
+      try {
+        const response = await $fetch(`${config.public.apiBase}/health`, {
+          method: 'GET',
+        })
+        
+        return { 
+          available: true, 
+          data: response 
+        }
+      } catch (error: any) {
+        console.error('Backend health check failed:', error)
+        return { 
+          available: false, 
+          error: error.message || 'Connection failed' 
         }
       }
     },

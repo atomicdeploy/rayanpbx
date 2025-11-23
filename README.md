@@ -194,7 +194,43 @@ Default login uses your Linux username and password via PAM authentication.
 rayanpbx-tui
 ```
 
-### CLI Commands
+### Artisan Commands
+
+RayanPBX provides comprehensive Laravel Artisan commands for system management:
+
+```bash
+# Check system status
+php artisan rayanpbx:status
+
+# Run health checks
+php artisan rayanpbx:health
+
+# Manage services
+php artisan rayanpbx:service restart asterisk
+
+# Manage extensions
+php artisan rayanpbx:extension list
+php artisan rayanpbx:extension create 1001
+
+# Manage trunks
+php artisan rayanpbx:trunk list
+php artisan rayanpbx:trunk create
+
+# Configuration management
+php artisan rayanpbx:config validate
+php artisan rayanpbx:config reload
+
+# Backup and restore
+php artisan rayanpbx:backup --compress
+php artisan rayanpbx:restore /path/to/backup
+
+# Execute Asterisk CLI commands
+php artisan rayanpbx:asterisk "core show calls"
+```
+
+For complete documentation, see [ARTISAN_COMMANDS.md](ARTISAN_COMMANDS.md).
+
+### Shell Scripts
 
 ```bash
 # Using health check script
@@ -253,11 +289,13 @@ go build -o rayanpbx-tui main.go config.go
 
 ```
 ╭─────────────────────────────────────────────────────╮
-│  📖 User Guide:     /docs/user-guide.md           │
-│  🔧 API Docs:       /docs/api.md                  │
-│  🏗️  Architecture:   /docs/architecture.md         │
-│  🚀 Deployment:     /docs/deployment.md           │
-│  🔐 Security:       /docs/security.md             │
+│  📖 User Guide:          /docs/user-guide.md       │
+│  🔧 API Docs:            /docs/api.md              │
+│  🏗️  Architecture:        /docs/architecture.md     │
+│  🚀 Deployment:          /docs/deployment.md       │
+│  🔐 Security:            /docs/security.md         │
+│  🌐 CORS Configuration:  CORS_CONFIGURATION.md     │
+│  📝 Command Options:     COMMAND_LINE_OPTIONS.md   │
 ╰─────────────────────────────────────────────────────╯
 ```
 

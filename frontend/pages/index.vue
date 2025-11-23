@@ -132,6 +132,10 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({
+  middleware: 'auth'
+})
+
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
 const router = useRouter()
@@ -184,15 +188,31 @@ const fetchStatus = async () => {
 }
 
 onMounted(async () => {
+  // Initialize auth state
   await authStore.checkAuth()
-  if (!authStore.isAuthenticated) {
-    router.push('/login')
-    return
-  }
-
+  
+  // Fetch initial status
   await fetchStatus()
   
-  // Refresh status every 5 seconds
-  setInterval(fetchStatus, 5000)
+  // Connect to WebSocket
+  const ws = useWebSocket()
+  ws.connect()
+  
+  // Listen for status updates
+  ws.on('status_update', (payload) => {
+    console.log('Status update:', payload)
+    if (status.value) {
+      // Update extension and trunk counts
+      if (status.value.extensions && payload.extensions !== undefined) {
+        status.value.extensions.active = payload.extensions
+      }
+      if (status.value.trunks && payload.trunks !== undefined) {
+        status.value.trunks.active = payload.trunks
+      }
+    }
+  })
+  
+  // Fallback: Refresh status every 30 seconds (reduced from 5)
+  setInterval(fetchStatus, 30000)
 })
 </script>

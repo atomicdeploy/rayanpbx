@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
 use App\Http\Controllers\Api\ValidationController;
 use App\Http\Controllers\Api\GrandStreamController;
+use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\PjsipConfigController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -29,6 +31,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/extensions/{id}', [ExtensionController::class, 'update']);
     Route::delete('/extensions/{id}', [ExtensionController::class, 'destroy']);
     Route::post('/extensions/{id}/toggle', [ExtensionController::class, 'toggle']);
+    Route::get('/extensions/{id}/verify', [ExtensionController::class, 'verify']);
+    Route::get('/extensions/asterisk/endpoints', [ExtensionController::class, 'asteriskEndpoints']);
     
     // Trunks
     Route::get('/trunks', [TrunkController::class, 'index']);
@@ -103,13 +107,66 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/assign-extension', [GrandStreamController::class, 'assignExtension']);
     Route::get('/grandstream/models', [GrandStreamController::class, 'getSupportedModels']);
     Route::get('/grandstream/hooks', [GrandStreamController::class, 'getProvisioningHooks']);
+    
+    // AMI Event Monitoring
+    Route::get('/events', [EventController::class, 'index']);
+    Route::get('/events/registrations', [EventController::class, 'registrations']);
+    Route::get('/events/calls', [EventController::class, 'calls']);
+    Route::get('/events/extension/{extension}', [EventController::class, 'extensionStatus']);
+    Route::post('/events/clear', [EventController::class, 'clear']);
+    
+    // PJSIP Global Configuration
+    Route::get('/pjsip/config/global', [PjsipConfigController::class, 'getGlobal']);
+    Route::post('/pjsip/config/external-media', [PjsipConfigController::class, 'updateExternalMedia']);
+    Route::post('/pjsip/config/transport', [PjsipConfigController::class, 'updateTransport']);
 });
 
 // Health check endpoint (public)
+// Usage: curl -s http://localhost:8000/api/health | jq '.'
+// Extract specific fields: curl -s http://localhost:8000/api/health | jq -r '.status, .services.database'
 Route::get('/health', function () {
+    try {
+        // Check database connectivity
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $databaseStatus = 'connected';
+    } catch (\Exception $e) {
+        $databaseStatus = 'disconnected';
+    }
+    
+    // Check Asterisk AMI connectivity
+    try {
+        $socket = fsockopen(
+            config('rayanpbx.asterisk.ami_host', '127.0.0.1'),
+            config('rayanpbx.asterisk.ami_port', 5038),
+            $errno,
+            $errstr,
+            2
+        );
+        
+        if ($socket) {
+            fclose($socket);
+            $asteriskStatus = 'running';
+        } else {
+            $asteriskStatus = 'stopped';
+        }
+    } catch (\Exception $e) {
+        $asteriskStatus = 'unknown';
+    } catch (\ErrorException $e) {
+        // fsockopen can throw ErrorException on connection failure
+        $asteriskStatus = 'stopped';
+    }
+    
     return response()->json([
         'status' => 'healthy',
         'timestamp' => now()->toISOString(),
         'version' => '1.0.0',
+        'services' => [
+            'database' => $databaseStatus,
+            'asterisk' => $asteriskStatus,
+        ],
+        'app' => [
+            'name' => config('app.name', 'RayanPBX'),
+            'env' => config('app.env'),
+        ],
     ]);
 });

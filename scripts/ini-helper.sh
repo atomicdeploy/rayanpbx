@@ -54,15 +54,68 @@ ensure_ini_section() {
     fi
 }
 
+# Helper function to calculate file checksum
+calculate_file_checksum() {
+    local file="$1"
+    
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    
+    if command -v md5sum &> /dev/null; then
+        md5sum "$file" | awk '{print $1}'
+    elif command -v shasum &> /dev/null; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    else
+        # No checksum tool available
+        return 1
+    fi
+}
+
 # Function to backup config file
 backup_config() {
     local file="$1"
-    local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
     
-    if [ -f "$file" ]; then
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    
+    # Calculate checksum of the file to backup
+    local file_checksum
+    if ! file_checksum=$(calculate_file_checksum "$file"); then
+        # Fallback: if no checksum tool available, always create backup
+        local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
         cp "$file" "$backup"
         echo "$backup"
+        return 0
     fi
+    
+    # Check if any existing backup has the same checksum
+    local existing_backup
+    local backup_pattern="${file}.backup.*"
+    
+    # Use nullglob-safe approach: check if pattern expands to actual files
+    shopt -s nullglob
+    local backups=($backup_pattern)
+    shopt -u nullglob
+    
+    for existing_backup in "${backups[@]}"; do
+        if [ -f "$existing_backup" ]; then
+            local backup_checksum
+            if backup_checksum=$(calculate_file_checksum "$existing_backup"); then
+                if [ "$file_checksum" = "$backup_checksum" ]; then
+                    # Identical backup already exists, no need to create a new one
+                    echo "$existing_backup"
+                    return 0
+                fi
+            fi
+        fi
+    done
+    
+    # No identical backup exists, create a new one
+    local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$file" "$backup"
+    echo "$backup"
 }
 
 # Main function for modifying Asterisk manager.conf
@@ -97,7 +150,7 @@ modify_manager_conf() {
 }
 
 # If script is called directly (not sourced)
-if [ "${BASH_SOURCE[0]}" -eq "${0}" ]; then
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     case "$1" in
         modify-manager)
             modify_manager_conf "$2"
