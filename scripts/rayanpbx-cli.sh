@@ -53,7 +53,7 @@ print_warn() {
 }
 
 print_verbose() {
-    if [ "$VERBOSE" = true ]; then
+    if [ "${VERBOSE:-false}" = true ]; then
         echo -e "${DIM}[VERBOSE] $1${RESET}"
     fi
 }
@@ -62,6 +62,49 @@ print_header() {
     echo -e "${MAGENTA}═══════════════════════════════════════${NC}"
     echo -e "${CYAN}  $1${NC}"
     echo -e "${MAGENTA}═══════════════════════════════════════${NC}"
+}
+
+# Banner display function
+print_banner() {
+    # Check if banner display is enabled in .env
+    local use_figlet="${CLI_USE_FIGLET:-true}"
+    local use_lolcat="${CLI_USE_LOLCAT:-false}"
+    
+    if [ "$use_figlet" != "true" ]; then
+        return
+    fi
+    
+    # Try figlet first, then toilet as fallback
+    if command -v figlet &> /dev/null; then
+        # Try slant font first
+        if figlet -f slant "RayanPBX" > /dev/null 2>&1; then
+            if [ "$use_lolcat" = "true" ] && command -v lolcat &> /dev/null; then
+                figlet -f slant "RayanPBX" | lolcat
+            else
+                echo -e "${CYAN}$(figlet -f slant "RayanPBX")${NC}"
+            fi
+        else
+            # Try default font
+            if figlet "RayanPBX" > /dev/null 2>&1; then
+                if [ "$use_lolcat" = "true" ] && command -v lolcat &> /dev/null; then
+                    figlet "RayanPBX" | lolcat
+                else
+                    echo -e "${CYAN}$(figlet "RayanPBX")${NC}"
+                fi
+            fi
+        fi
+    elif command -v toilet &> /dev/null; then
+        # Use toilet as fallback
+        if [ "$use_lolcat" = "true" ] && command -v lolcat &> /dev/null; then
+            toilet -f slant "RayanPBX" | lolcat
+        else
+            echo -e "${CYAN}$(toilet -f slant "RayanPBX")${NC}"
+        fi
+    fi
+    
+    # Subtitle
+    echo -e "${YELLOW}    ${ROCKET} Modern SIP Server Management CLI ${ROCKET}${NC} ${GREEN}v${VERSION}${NC}"
+    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 }
 
 # Configuration
@@ -74,6 +117,7 @@ VERBOSE=false
 if [ -f "$ENV_FILE" ]; then
     # Detect if .env has forward-referenced variables by checking if VITE_WS_URL contains unexpanded variables
     set +u
+    # shellcheck source=/dev/null
     source "$ENV_FILE" 2>/dev/null
     set -u
     
@@ -205,7 +249,7 @@ cmd_trunk_list() {
     response=$(api_call GET "trunks")
     
     if command -v jq &> /dev/null; then
-        echo "$response" | jq -r '.trunks[] | "\(.name)\t\(.host):\(.port)\t\(.enabled)"' | \
+        echo "$response" | jq -r '.[] | "\(.name)\t\(.host):\(.port)\t\(.enabled)"' | \
             while IFS=$'\t' read -r name host enabled; do
                 if [ "$enabled" == "true" ]; then
                     echo -e "  ${GREEN}●${NC} $name - $host"
@@ -294,40 +338,31 @@ cmd_diag_test_extension() {
 cmd_diag_health_check() {
     print_header "🏥 System Health Check"
     
-    # Source the health check script if available
-    HEALTH_CHECK_SCRIPT="$SCRIPT_DIR/health-check.sh"
-    if [ -f "$HEALTH_CHECK_SCRIPT" ]; then
-        # Use the comprehensive health check from the script
-        "$HEALTH_CHECK_SCRIPT" full-check
+    # Check Asterisk
+    echo -n "Asterisk Service: "
+    if systemctl is-active --quiet asterisk; then
+        print_success "Running"
     else
-        # Fallback to basic checks if health-check.sh is not available
-        
-        # Check Asterisk
-        echo -n "Asterisk Service: "
-        if systemctl is-active --quiet asterisk; then
-            print_success "Running"
-        else
-            print_error "Stopped"
-        fi
-        
-        # Check database
-        echo -n "Database: "
-        if mysql -u root -e "USE rayanpbx;" 2>/dev/null; then
-            print_success "Connected"
-        else
-            print_warn "Cannot connect"
-        fi
-        
-        # Check API (use correct health endpoint)
-        echo -n "API Server: "
-        if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000/api/health" | grep -q "200\|302"; then
-            print_success "Running"
-        else
-            print_warn "Not responding"
-        fi
-        
-        print_success "Health check complete"
+        print_error "Stopped"
     fi
+    
+    # Check database
+    echo -n "Database: "
+    if mysql -u root -e "USE rayanpbx;" 2>/dev/null; then
+        print_success "Connected"
+    else
+        print_warn "Cannot connect"
+    fi
+    
+    # Check API
+    echo -n "API Server: "
+    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000" | grep -q "200\|302"; then
+        print_success "Running"
+    else
+        print_warn "Not responding"
+    fi
+    
+    print_success "Health check complete"
 }
 
 # System commands
@@ -353,6 +388,103 @@ cmd_system_update() {
     print_warn "Restart services to apply changes"
 }
 
+# Config commands for .env file manipulation
+cmd_config_get() {
+    local key=$1
+    
+    if [ -z "$key" ]; then
+        print_error "Key parameter required"
+        echo "Usage: rayanpbx-cli config get <KEY>"
+        exit 2
+    fi
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Configuration file not found: $ENV_FILE"
+        exit 4
+    fi
+    
+    # Get value from .env file
+    local value
+    value=$(grep "^${key}=" "$ENV_FILE" | cut -d'=' -f2- | sed 's/^["'\'']\(.*\)["'\'']$/\1/')
+    
+    if [ -z "$value" ]; then
+        print_warn "Key '$key' not found in configuration"
+        exit 1
+    fi
+    
+    echo "$value"
+}
+
+cmd_config_set() {
+    local key=$1
+    local value=$2
+    
+    if [ -z "$key" ] || [ -z "$value" ]; then
+        print_error "Both key and value parameters required"
+        echo "Usage: rayanpbx-cli config set <KEY> <VALUE>"
+        exit 2
+    fi
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Configuration file not found: $ENV_FILE"
+        exit 4
+    fi
+    
+    # Backup config file
+    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Escape special characters in value for sed
+    local escaped_value
+    escaped_value=$(printf '%s\n' "$value" | sed 's:[\/&]:\\&:g')
+    
+    # Check if key exists
+    if grep -q "^${key}=" "$ENV_FILE"; then
+        # Update existing key (using @ as delimiter to avoid conflicts with /)
+        sed -i "s@^${key}=.*@${key}=${escaped_value}@" "$ENV_FILE"
+        print_success "Updated ${key}=${value}"
+    else
+        # Add new key
+        echo "${key}=${value}" >> "$ENV_FILE"
+        print_success "Added ${key}=${value}"
+    fi
+}
+
+cmd_config_list() {
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Configuration file not found: $ENV_FILE"
+        exit 4
+    fi
+    
+    print_header "⚙️  Configuration"
+    
+    # Display non-empty, non-comment lines
+    grep -v "^#" "$ENV_FILE" | grep -v "^$" | while IFS= read -r line; do
+        # Extract key and value (handle multiple equals signs)
+        local key="${line%%=*}"
+        local value="${line#*=}"
+        
+        # Mask sensitive values (more specific patterns)
+        if echo "$key" | grep -qiE "password|secret|private_key|api_key|token"; then
+            echo -e "  ${CYAN}${key}${NC}=${DIM}********${NC}"
+        else
+            echo -e "  ${CYAN}${key}${NC}=${GREEN}${value}${NC}"
+        fi
+    done
+}
+
+# TUI launcher
+cmd_tui() {
+    local tui_path="$RAYANPBX_ROOT/tui/rayanpbx-tui"
+    
+    if [ ! -x "$tui_path" ]; then
+        print_error "TUI binary not found or not executable: $tui_path"
+        print_info "Build it with: cd $RAYANPBX_ROOT/tui && go build"
+        exit 1
+    fi
+    
+    exec "$tui_path" "$@"
+}
+
 # Main command dispatcher
 cmd_version() {
     echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
@@ -360,32 +492,132 @@ cmd_version() {
 }
 
 cmd_help() {
-    # Show help from TUI if available, otherwise show inline help
-    if [ -x "$RAYANPBX_ROOT/tui/rayanpbx-tui" ]; then
-        "$RAYANPBX_ROOT/tui/rayanpbx-tui" --help
+    local command=${1:-}
+    
+    print_banner
+    
+    if [ -z "$command" ]; then
+        # General help
+        echo -e "${CYAN}${BOLD}RayanPBX CLI - Command Reference${NC}"
+        echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+        
+        echo -e "${MAGENTA}${BOLD}USAGE:${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli${NC} ${GREEN}<command>${NC} ${BLUE}[subcommand]${NC} ${DIM}[options]${NC}\n"
+        
+        echo -e "${MAGENTA}${BOLD}COMMANDS:${NC}\n"
+        
+        echo -e "${CYAN}📱 extension${NC} ${DIM}- Extension management${NC}"
+        echo -e "   ${GREEN}list${NC}                              List all extensions"
+        echo -e "   ${GREEN}create${NC} <number> <name> <password>  Create new extension"
+        echo -e "   ${GREEN}status${NC} <number>                    Check extension status"
+        echo ""
+        
+        echo -e "${CYAN}🔗 trunk${NC} ${DIM}- Trunk management${NC}"
+        echo -e "   ${GREEN}list${NC}                              List all trunks"
+        echo -e "   ${GREEN}test${NC} <name>                       Test trunk connectivity"
+        echo ""
+        
+        echo -e "${CYAN}⚙️  asterisk${NC} ${DIM}- Asterisk service management${NC}"
+        echo -e "   ${GREEN}status${NC}                            Check Asterisk status"
+        echo -e "   ${GREEN}restart${NC}                           Restart Asterisk service"
+        echo -e "   ${GREEN}command${NC} <cli_command>             Execute Asterisk CLI command"
+        echo ""
+        
+        echo -e "${CYAN}🔍 diag${NC} ${DIM}- Diagnostics and troubleshooting${NC}"
+        echo -e "   ${GREEN}test-extension${NC} <number>           Test extension registration"
+        echo -e "   ${GREEN}health-check${NC}                      Run system health check"
+        echo ""
+        
+        echo -e "${CYAN}⚙️  config${NC} ${DIM}- Configuration management${NC}"
+        echo -e "   ${GREEN}get${NC} <KEY>                         Get configuration value"
+        echo -e "   ${GREEN}set${NC} <KEY> <VALUE>                 Set configuration value"
+        echo -e "   ${GREEN}list${NC}                              List all configuration"
+        echo ""
+        
+        echo -e "${CYAN}🖥️  system${NC} ${DIM}- System operations${NC}"
+        echo -e "   ${GREEN}update${NC}                            Update RayanPBX from repository"
+        echo ""
+        
+        echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
+        echo -e "   ${GREEN}tui${NC}                               Launch interactive TUI interface"
+        echo ""
+        
+        echo -e "${CYAN}❓ help${NC} ${DIM}- Help and documentation${NC}"
+        echo -e "   ${GREEN}help${NC}                              Show this help message"
+        echo -e "   ${GREEN}help${NC} <command>                    Show detailed help for command"
+        echo -e "   ${GREEN}version${NC}, ${GREEN}--version${NC}, ${GREEN}-v${NC}          Show version information"
+        echo ""
+        
+        echo -e "${MAGENTA}${BOLD}EXAMPLES:${NC}"
+        echo -e "  ${DIM}# List all extensions${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli extension list${NC}\n"
+        echo -e "  ${DIM}# Create a new extension${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli extension create 100 \"John Doe\" secret123${NC}\n"
+        echo -e "  ${DIM}# Get a configuration value${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli config get DB_HOST${NC}\n"
+        echo -e "  ${DIM}# Set a configuration value${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli config set ASTERISK_AMI_PORT 5038${NC}\n"
+        echo -e "  ${DIM}# Launch TUI interface${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli tui${NC}\n"
+        
+        echo -e "${MAGENTA}${BOLD}EXIT CODES:${NC}"
+        echo -e "  ${GREEN}0${NC}  Success"
+        echo -e "  ${YELLOW}1${NC}  General error"
+        echo -e "  ${YELLOW}2${NC}  Invalid arguments"
+        echo -e "  ${YELLOW}3${NC}  Service/connection error"
+        echo -e "  ${YELLOW}4${NC}  Configuration error"
+        echo ""
+        
+        echo -e "${DIM}For detailed command help: ${YELLOW}rayanpbx-cli help <command>${NC}"
+        echo -e "${DIM}Configuration file: ${CYAN}$ENV_FILE${NC}"
+        echo ""
     else
-        echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
-        echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
-        echo ""
-        echo "Commands:"
-        echo "  extension list              - List all extensions"
-        echo "  extension create <num> <name> <password> - Create extension"
-        echo "  extension status <num>      - Show extension status"
-        echo "  trunk list                  - List all trunks"
-        echo "  trunk test <name>           - Test trunk connectivity"
-        echo "  asterisk status             - Check Asterisk service status"
-        echo "  asterisk restart            - Restart Asterisk service"
-        echo "  asterisk command <cmd>      - Execute Asterisk CLI command"
-        echo "  diag test-extension <num>   - Test extension registration"
-        echo "  diag health-check           - Run system health check"
-        echo "  system update               - Update RayanPBX"
-        echo "  version                     - Show version information"
-        echo "  help                        - Show this help message"
-        echo ""
-        echo "Global Options:"
-        echo "  --verbose, -V               - Enable verbose output"
-        echo "  --version, -v               - Show version information"
-        echo "  --help                      - Show this help message"
+        # Command-specific help
+        case "$command" in
+            extension)
+                echo -e "${CYAN}${BOLD}Extension Management${NC}"
+                echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+                echo -e "Manage SIP extensions for your PBX system.\n"
+                echo -e "${YELLOW}rayanpbx-cli extension list${NC}"
+                echo -e "  Lists all configured extensions with their status.\n"
+                echo -e "${YELLOW}rayanpbx-cli extension create <number> <name> <password>${NC}"
+                echo -e "  Creates a new SIP extension."
+                echo -e "  ${DIM}Example: rayanpbx-cli extension create 100 \"John Doe\" secret123${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli extension status <number>${NC}"
+                echo -e "  Checks registration status of an extension."
+                echo -e "  ${DIM}Example: rayanpbx-cli extension status 100${NC}"
+                echo ""
+                ;;
+            config)
+                echo -e "${CYAN}${BOLD}Configuration Management${NC}"
+                echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+                echo -e "Manage RayanPBX configuration stored in .env file.\n"
+                echo -e "${YELLOW}rayanpbx-cli config get <KEY>${NC}"
+                echo -e "  Retrieves the value of a configuration key."
+                echo -e "  ${DIM}Example: rayanpbx-cli config get DB_HOST${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli config set <KEY> <VALUE>${NC}"
+                echo -e "  Sets or updates a configuration key-value pair."
+                echo -e "  ${DIM}Example: rayanpbx-cli config set ASTERISK_AMI_PORT 5038${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli config list${NC}"
+                echo -e "  Lists all configuration key-value pairs."
+                echo -e "  ${DIM}Note: Sensitive values (passwords, secrets) are masked.${NC}"
+                echo ""
+                ;;
+            tui)
+                echo -e "${CYAN}${BOLD}Terminal UI${NC}"
+                echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+                echo -e "Launch the interactive Terminal User Interface.\n"
+                echo -e "${YELLOW}rayanpbx-cli tui${NC}"
+                echo -e "  Starts the beautiful TUI interface with menu-driven navigation."
+                echo -e "  The TUI provides a more user-friendly way to manage your PBX."
+                echo ""
+                ;;
+            *)
+                print_warn "No detailed help available for: $command"
+                echo "Run 'rayanpbx-cli help' for general help"
+                exit 2
+                ;;
+        esac
     fi
 }
 
@@ -398,78 +630,88 @@ main() {
                 print_verbose "Verbose mode enabled"
                 shift
                 ;;
+            --version|-v)
+                print_banner
+                cmd_version
+                exit 0
+                ;;
             --help)
                 cmd_help
                 exit 0
                 ;;
-            --version|-v)
-                cmd_version
-                exit 0
-                ;;
-            -*)
-                print_error "Unknown option: $1"
-                echo "Run 'rayanpbx-cli --help' for usage information"
-                exit 2
-                ;;
             *)
-                # Not a flag, stop parsing
                 break
                 ;;
         esac
     done
     
+    # Show banner if not suppressed
     if [ $# -eq 0 ]; then
+        print_banner
         # Display colorful usage message with VT-100 styling
-        echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
         echo -e "${CYAN}${BOLD}Usage:${NC} ${YELLOW}${BOLD}rayanpbx-cli${NC} ${GREEN}${UNDERLINE}<command>${NC} ${BLUE}[options]${NC}"
-        echo -e "${CYAN}Run '${YELLOW}${BOLD}rayanpbx-cli help${NC}${CYAN}' for more information${NC}"
+        echo -e "${CYAN}Run '${YELLOW}${BOLD}rayanpbx-cli help${NC}${CYAN}' for complete command reference${NC}"
         exit 2
     fi
     
     case "$1" in
         version)
+            print_banner
             cmd_version
             ;;
         help)
-            cmd_help
+            cmd_help "${2:-}"
             ;;
         extension)
-            case "$2" in
+            case "${2:-}" in
                 list) cmd_extension_list ;;
                 create) cmd_extension_create "$3" "$4" "$5" ;;
                 status) cmd_extension_status "$3" ;;
-                *) echo "Unknown extension command: $2"; exit 2 ;;
+                *) echo "Unknown extension command: ${2:-}"; exit 2 ;;
             esac
             ;;
         trunk)
-            case "$2" in
+            case "${2:-}" in
                 list) cmd_trunk_list ;;
                 test) cmd_trunk_test "$3" ;;
-                *) echo "Unknown trunk command: $2"; exit 2 ;;
+                *) echo "Unknown trunk command: ${2:-}"; exit 2 ;;
             esac
             ;;
         asterisk)
-            case "$2" in
+            case "${2:-}" in
                 status) cmd_asterisk_status ;;
                 restart) cmd_asterisk_restart ;;
                 command) cmd_asterisk_command "$3" ;;
-                *) echo "Unknown asterisk command: $2"; exit 2 ;;
+                *) echo "Unknown asterisk command: ${2:-}"; exit 2 ;;
             esac
             ;;
         diag)
-            case "$2" in
+            case "${2:-}" in
                 test-extension) cmd_diag_test_extension "$3" ;;
                 health-check) cmd_diag_health_check ;;
-                *) echo "Unknown diag command: $2"; exit 2 ;;
+                *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
+            esac
+            ;;
+        config)
+            case "${2:-}" in
+                get) cmd_config_get "$3" ;;
+                set) cmd_config_set "$3" "$4" ;;
+                list) cmd_config_list ;;
+                *) echo "Unknown config command: ${2:-}"; exit 2 ;;
             esac
             ;;
         system)
-            case "$2" in
+            case "${2:-}" in
                 update) cmd_system_update ;;
-                *) echo "Unknown system command: $2"; exit 2 ;;
+                *) echo "Unknown system command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        tui)
+            shift
+            cmd_tui "$@"
+            ;;
         *)
+            print_banner
             echo "Unknown command: $1"
             echo "Run 'rayanpbx-cli help' for usage information"
             exit 2
