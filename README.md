@@ -97,6 +97,8 @@
 - **Figlet** - ASCII art generation
 
 ### DevOps
+- **Apache2** - Web server for Laravel and frontend proxy
+- **PHP-FPM** - FastCGI Process Manager
 - **PM2** - Process manager for Node.js
 - **systemd** - Linux service management
 - **GitHub Actions** - CI/CD pipeline
@@ -179,12 +181,16 @@ Non-interactive configuration:
 ### Web Interface
 
 ```
-╭────────────────────────────────────────────────────╮
-│  🌐 Web UI: http://your-server-ip:3000           │
-│  📡 API:    http://your-server-ip:8000/api       │
-│  🔌 WebSocket: ws://your-server-ip:9000/ws       │
-╰────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────╮
+│  🌐 Web UI (Apache2): http://your-server-ip:8080         │
+│  📡 API (Apache2):    http://your-server-ip/api          │
+│  🔌 WebSocket:        ws://your-server-ip:9000/ws        │
+╰────────────────────────────────────────────────────────────╯
 ```
+
+The installer configures Apache2 to serve both the Laravel backend and proxy the Nuxt frontend:
+- **Backend (Laravel)**: Served directly by Apache2 on port 80 via PHP-FPM
+- **Frontend (Nuxt)**: Proxied by Apache2 on port 8080 to the PM2-managed Node.js process
 
 Default login uses your Linux username and password via PAM authentication.
 
@@ -210,17 +216,25 @@ rayanpbx-tui
 ### Service Management
 
 ```bash
-# Check services
-systemctl status rayanpbx-api
+# Check Apache2 and services
+systemctl status apache2
+systemctl status rayanpbx-queue
 systemctl status asterisk
 
-# View PM2 services
+# Apache2 management
+sudo systemctl restart apache2
+sudo apache2ctl configtest
+
+# View PM2 services (frontend and websocket)
 pm2 list
 pm2 logs
 
 # View logs
-journalctl -u rayanpbx-api -f
+journalctl -u apache2 -f
+journalctl -u rayanpbx-queue -f
 journalctl -u asterisk -f
+tail -f /var/log/apache2/rayanpbx-backend-error.log
+tail -f /var/log/apache2/rayanpbx-frontend-error.log
 ```
 
 ## 🔧 Development
