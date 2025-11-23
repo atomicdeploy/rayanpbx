@@ -496,6 +496,9 @@ fi
 # Parse Command Line Arguments
 # ════════════════════════════════════════════════════════════════════════
 
+# Save original arguments before parsing for use in script restart
+ORIGINAL_ARGS=("$@")
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help)
@@ -621,7 +624,8 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
                     # Using exec replaces the current process entirely, ensuring the new version runs
                     # This is intentional - we want a clean restart with the updated script
                     # Use absolute path to ensure script is found after directory changes
-                    exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "$@"
+                    # Use ORIGINAL_ARGS to preserve flags that were parsed (e.g., --verbose)
+                    exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "${ORIGINAL_ARGS[@]}"
                 else
                     print_error "Failed to pull updates"
                     print_warning "Continuing with current version..."
