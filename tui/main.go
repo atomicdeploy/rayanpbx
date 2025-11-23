@@ -835,7 +835,11 @@ func (m *model) setMode(env string, debug bool) {
 			lines := string(content)
 			lines = replaceEnvValue(lines, "APP_ENV", env)
 			lines = replaceEnvValue(lines, "APP_DEBUG", fmt.Sprintf("%v", debug))
-			os.WriteFile(backendEnvFile, []byte(lines), 0644)
+			err = os.WriteFile(backendEnvFile, []byte(lines), 0644)
+			if err != nil {
+				m.errorMsg = fmt.Sprintf("Failed to write backend .env: %v", err)
+				return
+			}
 		}
 	}
 

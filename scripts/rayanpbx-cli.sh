@@ -447,8 +447,8 @@ cmd_system_toggle_debug() {
         exit 1
     fi
     
-    # Get current debug value
-    local current_debug=$(grep "^APP_DEBUG=" "$ENV_FILE" | cut -d'=' -f2)
+    # Get current debug value (default to false if not found)
+    local current_debug=$(grep "^APP_DEBUG=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "false")
     
     # Toggle it
     local new_debug

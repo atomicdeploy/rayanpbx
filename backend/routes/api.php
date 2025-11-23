@@ -160,7 +160,7 @@ Route::get('/health', function () {
         'app' => [
             'name' => config('app.name', 'RayanPBX'),
             'env' => config('app.env'),
-            'debug' => config('app.debug') ? 'enabled' : 'disabled',
+            'debug' => (bool) config('app.debug'),
         ],
         'cors' => $corsConfig,
     ]);
