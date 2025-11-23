@@ -371,7 +371,8 @@ check_http_health() {
     print_verbose "Checking HTTP health at $url (max ${max_attempts} attempts)..."
     
     # Set up trap for cleanup in case of unexpected exit
-    local temp_file=$(mktemp)
+    # Use mktemp with proper secure temp directory
+    local temp_file=$(mktemp -t rayanpbx-health.XXXXXX)
     trap "rm -f '$temp_file'" RETURN
     
     while [ $attempt -lt $max_attempts ]; do
