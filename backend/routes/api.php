@@ -107,9 +107,48 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
 // Health check endpoint (public)
 Route::get('/health', function () {
+    try {
+        // Check database connectivity
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $databaseStatus = 'connected';
+    } catch (\Exception $e) {
+        $databaseStatus = 'disconnected';
+    }
+    
+    // Check Asterisk AMI connectivity
+    try {
+        $socket = fsockopen(
+            config('rayanpbx.asterisk.ami_host', '127.0.0.1'),
+            config('rayanpbx.asterisk.ami_port', 5038),
+            $errno,
+            $errstr,
+            2
+        );
+        
+        if ($socket) {
+            fclose($socket);
+            $asteriskStatus = 'running';
+        } else {
+            $asteriskStatus = 'stopped';
+        }
+    } catch (\Exception $e) {
+        $asteriskStatus = 'unknown';
+    } catch (\ErrorException $e) {
+        // fsockopen can throw ErrorException on connection failure
+        $asteriskStatus = 'stopped';
+    }
+    
     return response()->json([
         'status' => 'healthy',
         'timestamp' => now()->toISOString(),
         'version' => '1.0.0',
+        'services' => [
+            'database' => $databaseStatus,
+            'asterisk' => $asteriskStatus,
+        ],
+        'app' => [
+            'name' => config('app.name', 'RayanPBX'),
+            'env' => config('app.env'),
+        ],
     ]);
 });
