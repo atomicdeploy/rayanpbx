@@ -14,6 +14,11 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
+# VT-100 Styles
+BOLD='\033[1m'
+UNDERLINE='\033[4m'
+RESET='\033[0m'
+
 # Emojis
 CHECK="✅"
 CROSS="❌"
@@ -293,10 +298,9 @@ cmd_system_update() {
 # Main command dispatcher
 main() {
     if [ $# -eq 0 ]; then
-        # VT-100 escape codes for styling
-        # Bold: \033[1m, Underline: \033[4m, Reset: \033[0m
-        echo -e "${CYAN}\033[1mUsage:\033[0m ${YELLOW}\033[1mrayanpbx-cli\033[0m ${GREEN}\033[4m<command>\033[0m ${BLUE}[options]${NC}"
-        echo -e "${CYAN}Run '${YELLOW}\033[1mrayanpbx-cli help\033[0m${CYAN}' for more information${NC}"
+        # Display colorful usage message with VT-100 styling
+        echo -e "${CYAN}${BOLD}Usage:${RESET} ${YELLOW}${BOLD}rayanpbx-cli${RESET} ${GREEN}${UNDERLINE}<command>${RESET} ${BLUE}[options]${NC}"
+        echo -e "${CYAN}Run '${YELLOW}${BOLD}rayanpbx-cli help${RESET}${CYAN}' for more information${NC}"
         exit 2
     fi
     
