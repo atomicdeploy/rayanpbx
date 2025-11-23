@@ -129,10 +129,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 				}
 			case 2:
-				m.currentScreen = statusScreen
+				m.currentScreen = asteriskScreen
 			case 3:
-				m.currentScreen = logsScreen
+				m.currentScreen = diagnosticsScreen
 			case 4:
+				m.currentScreen = statusScreen
+			case 5:
+				m.currentScreen = logsScreen
+			case 6:
+				m.currentScreen = usageScreen
+			case 7:
 				return m, tea.Quit
 			}
 
@@ -170,10 +176,16 @@ func (m model) View() string {
 		s += m.renderExtensions()
 	case trunksScreen:
 		s += m.renderTrunks()
+	case asteriskScreen:
+		s += m.renderAsterisk()
+	case diagnosticsScreen:
+		s += m.renderDiagnostics()
 	case statusScreen:
 		s += m.renderStatus()
 	case logsScreen:
 		s += m.renderLogs()
+	case usageScreen:
+		s += m.renderUsage()
 	}
 
 	// Footer with emojis
@@ -300,6 +312,75 @@ func (m model) renderLogs() string {
 	content += "  " + successStyle.Render("[INFO]") + " TUI interface started\n\n"
 	content += helpStyle.Render("📡 Live logs coming from Asterisk and API")
 
+	return menuStyle.Render(content)
+}
+
+func (m model) renderAsterisk() string {
+	content := infoStyle.Render("⚙️  Asterisk Management") + "\n\n"
+	
+	am := NewAsteriskManager()
+	
+	// Show service status
+	status, _ := am.GetServiceStatus()
+	statusText := "🔴 Stopped"
+	if status == "running" {
+		statusText = "🟢 Running"
+	}
+	content += fmt.Sprintf("Service Status: %s\n\n", statusText)
+	
+	content += "Available Actions:\n"
+	content += "  • Start/Stop/Restart Service\n"
+	content += "  • Reload PJSIP Configuration\n"
+	content += "  • Reload Dialplan\n"
+	content += "  • Execute CLI Commands\n"
+	content += "  • View Endpoints\n"
+	content += "  • View Active Channels\n\n"
+	
+	content += helpStyle.Render("💡 Use rayanpbx-cli for direct Asterisk management")
+	
+	return menuStyle.Render(content)
+}
+
+func (m model) renderDiagnostics() string {
+	content := infoStyle.Render("🔍 Diagnostics & Debugging") + "\n\n"
+	
+	content += "Diagnostic Tools:\n"
+	content += "  🔍 SIP Debugging\n"
+	content += "  📡 Network Diagnostics\n"
+	content += "  📞 Call Flow Testing\n"
+	content += "  🔗 Extension Registration Tests\n"
+	content += "  🌐 Trunk Connectivity Tests\n"
+	content += "  📊 Traffic Analysis\n"
+	content += "  🏥 System Health Check\n\n"
+	
+	content += helpStyle.Render("💡 Use rayanpbx-cli diag for diagnostic commands")
+	
+	return menuStyle.Render(content)
+}
+
+func (m model) renderUsage() string {
+	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
+	
+	content += "RayanPBX CLI Commands:\n\n"
+	content += successStyle.Render("Extensions:") + "\n"
+	content += "  rayanpbx-cli extension list\n"
+	content += "  rayanpbx-cli extension create <num> <name> <pass>\n"
+	content += "  rayanpbx-cli extension status <num>\n\n"
+	
+	content += successStyle.Render("Trunks:") + "\n"
+	content += "  rayanpbx-cli trunk list\n"
+	content += "  rayanpbx-cli trunk test <name>\n\n"
+	
+	content += successStyle.Render("Asterisk:") + "\n"
+	content += "  rayanpbx-cli asterisk status\n"
+	content += "  rayanpbx-cli asterisk restart\n\n"
+	
+	content += successStyle.Render("System:") + "\n"
+	content += "  rayanpbx-cli system update\n"
+	content += "  rayanpbx-cli diag health-check\n\n"
+	
+	content += helpStyle.Render("📚 Full documentation: /opt/rayanpbx/README.md")
+	
 	return menuStyle.Render(content)
 }
 
