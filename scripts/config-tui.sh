@@ -92,10 +92,10 @@ input_with_default() {
     fi
     
     if [ "$password" == "yes" ]; then
-        read -sp "$(echo -e ${YELLOW}Enter value:${RESET} )" value
+        read -sp "$(echo -e ${YELLOW}Enter value: ${RESET})" value
         echo
     else
-        read -p "$(echo -e ${YELLOW}Enter value:${RESET} )" value
+        read -p "$(echo -e ${YELLOW}Enter value: ${RESET})" value
     fi
     
     if [ -z "$value" ]; then
@@ -116,7 +116,8 @@ ask_yes_no() {
         echo -e "${DIM}Current: $default${RESET}"
     fi
     
-    read -p "$(echo -e ${YELLOW}[y/n]:${RESET} )" answer
+    read -p "$(echo -e ${YELLOW}[y/n]: ${RESET})" -n 1 -r answer
+    echo
     
     if [ -z "$answer" ]; then
         answer="$default"
@@ -221,7 +222,8 @@ configure_jwt() {
         echo -e "${GREEN}✓ JWT secret generated${RESET}"
     else
         echo -e "${GREEN}✓ Using existing JWT secret${RESET}"
-        read -p "$(echo -e ${YELLOW}Generate new JWT secret? [y/N]:${RESET} )" regenerate
+        read -p "$(echo -e ${YELLOW}Generate new JWT secret? [y/N]: ${RESET})" -n 1 -r regenerate
+        echo
         if [[ "$regenerate" =~ ^[Yy]$ ]]; then
             CONFIG[JWT_SECRET]=$(generate_secret)
             echo -e "${GREEN}✓ New JWT secret generated${RESET}"
