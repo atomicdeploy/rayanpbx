@@ -283,7 +283,7 @@ const deleteExtension = async (ext: any) => {
 
   try {
     await api.deleteExtension(ext.id)
-    await fetchExtensions()
+    // WebSocket will trigger removal via event
   } catch (error) {
     console.error('Error deleting extension:', error)
   }
@@ -299,7 +299,7 @@ const saveExtension = async () => {
     }
     showModal.value = false
     resetForm()
-    await fetchExtensions()
+    // WebSocket will trigger refresh via event
   } catch (error) {
     console.error('Error saving extension:', error)
   }
@@ -326,6 +326,27 @@ onMounted(async () => {
     return
   }
   await fetchExtensions()
+  
+  // Connect to WebSocket
+  const ws = useWebSocket()
+  ws.connect()
+  
+  // Listen for extension events
+  ws.on('extension.created', async (payload) => {
+    console.log('Extension created:', payload)
+    await fetchExtensions()
+  })
+  
+  ws.on('extension.updated', async (payload) => {
+    console.log('Extension updated:', payload)
+    await fetchExtensions()
+  })
+  
+  ws.on('extension.deleted', (payload) => {
+    console.log('Extension deleted:', payload)
+    // Remove from local list
+    extensions.value = extensions.value.filter(e => e.id !== payload.id)
+  })
   
   // Auto-refresh live status every 10 seconds
   setInterval(enrichWithLiveStatus, 10000)

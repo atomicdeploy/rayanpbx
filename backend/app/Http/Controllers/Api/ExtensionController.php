@@ -5,15 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Extension;
 use App\Adapters\AsteriskAdapter;
+use App\Services\EventBroadcastService;
 use Illuminate\Http\Request;
 
 class ExtensionController extends Controller
 {
     private $asterisk;
+    private $broadcaster;
     
-    public function __construct(AsteriskAdapter $asterisk)
+    public function __construct(AsteriskAdapter $asterisk, EventBroadcastService $broadcaster)
     {
         $this->asterisk = $asterisk;
+        $this->broadcaster = $broadcaster;
     }
     
     /**
@@ -92,6 +95,9 @@ class ExtensionController extends Controller
         // Verify endpoint was created in Asterisk
         $verified = $this->asterisk->verifyEndpointExists($extension->extension_number);
         
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionCreated($extension->toArray());
+        
         return response()->json([
             'message' => 'Extension created successfully',
             'extension' => $extension,
@@ -143,6 +149,9 @@ class ExtensionController extends Controller
         $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
         $this->asterisk->reload();
         
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionUpdated($extension->toArray());
+        
         return response()->json([
             'message' => 'Extension updated successfully',
             'extension' => $extension
@@ -164,6 +173,9 @@ class ExtensionController extends Controller
         
         // Reload Asterisk
         $this->asterisk->reload();
+        
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionDeleted($id, $extensionNumber);
         
         return response()->json([
             'message' => 'Extension deleted successfully'
@@ -189,6 +201,9 @@ class ExtensionController extends Controller
         $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
         
         $this->asterisk->reload();
+        
+        // Broadcast event
+        $this->broadcaster->broadcastExtensionUpdated($extension->toArray());
         
         return response()->json([
             'message' => 'Extension status updated',
