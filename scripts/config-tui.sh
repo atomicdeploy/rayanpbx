@@ -330,15 +330,15 @@ read_menu_option() {
     # Helper function to display selection with reversed background
     display_selection() {
         local value="$1"
-        echo -ne "\r${YELLOW}Select option: ${REVERSE} $value ${REVERSE_OFF}${RESET}"
+        echo -ne "\r${YELLOW}Select option: ${REVERSE} $value ${REVERSE_OFF}${RESET}" >&2
     }
     
     # Helper function to submit selection
     submit_selection() {
         local value="$1"
         display_selection "$value"
-        echo  # Move to next line
-        echo "$value"
+        echo >&2  # Move to next line on stderr
+        echo "$value"  # Output value to stdout for capture
     }
     
     while true; do
@@ -348,6 +348,11 @@ read_menu_option() {
         
         # Read single character without echo
         IFS= read -rsn1 char
+        # Check if read failed (EOF reached)
+        if [ $? -ne 0 ]; then
+            echo >&2  # Move to next line on stderr
+            return 1  # Signal EOF/error
+        fi
         
         # Handle escape sequences (arrow keys)
         if [ "$char" = $'\x1b' ]; then
@@ -469,6 +474,13 @@ main_menu() {
         
         # Use enhanced menu selection with validation
         choice=$(read_menu_option)
+        local read_status=$?
+        
+        # If read failed (EOF), exit gracefully
+        if [ $read_status -ne 0 ]; then
+            echo -e "\n${YELLOW}Input ended, exiting...${RESET}" >&2
+            exit 0
+        fi
         
         case "$choice" in
             1) configure_application ;;
