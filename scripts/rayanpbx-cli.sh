@@ -435,48 +435,11 @@ cmd_config_set() {
         exit 4
     fi
     
-    # Backup config file using helper if available, otherwise fallback to inline logic
-    if command -v backup_config &> /dev/null; then
-        local backup
-        backup=$(backup_config "$ENV_FILE")
-        if [ -n "$backup" ]; then
-            print_verbose "Backup: $backup"
-        fi
-    else
-        # Fallback: inline backup with deduplication
-        if command -v calculate_file_checksum &> /dev/null; then
-            local file_checksum
-            if file_checksum=$(calculate_file_checksum "$ENV_FILE" 2>/dev/null); then
-                local existing_backup
-                local backup_exists=false
-                local backup_pattern="${ENV_FILE}.backup.*"
-                
-                shopt -s nullglob
-                local backups=($backup_pattern)
-                shopt -u nullglob
-                
-                for existing_backup in "${backups[@]}"; do
-                    if [ -f "$existing_backup" ]; then
-                        local backup_checksum
-                        if backup_checksum=$(calculate_file_checksum "$existing_backup" 2>/dev/null); then
-                            if [ "$file_checksum" = "$backup_checksum" ]; then
-                                print_verbose "Backup already exists: $existing_backup (identical content)"
-                                backup_exists=true
-                                break
-                            fi
-                        fi
-                    fi
-                done
-                
-                if [ "$backup_exists" = false ]; then
-                    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-                    print_verbose "Backup created: ${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-                fi
-            fi
-        else
-            # No checksum helper available, always backup
-            cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-        fi
+    # Backup config file using helper from ini-helper.sh
+    local backup
+    backup=$(backup_config "$ENV_FILE")
+    if [ -n "$backup" ]; then
+        print_verbose "Backup: $backup"
     fi
     
     # Escape special characters in value for sed
