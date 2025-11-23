@@ -232,6 +232,9 @@ jobs:
     name: Test Installation Script
     runs-on: ubuntu-24.04
     
+    permissions:
+      contents: read
+    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
