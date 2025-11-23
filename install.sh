@@ -321,6 +321,14 @@ error_handler() {
 # Health Check Functions
 # ════════════════════════════════════════════════════════════════════════
 
+is_port_listening() {
+    local port=$1
+    if netstat -tuln 2>/dev/null | grep -q ":${port} " || ss -tuln 2>/dev/null | grep -q ":${port} "; then
+        return 0
+    fi
+    return 1
+}
+
 check_port_listening() {
     local port=$1
     local service_name=$2
@@ -330,7 +338,7 @@ check_port_listening() {
     print_verbose "Checking if port $port is listening (max ${max_attempts}s)..."
     
     while [ $attempt -lt $max_attempts ]; do
-        if netstat -tuln 2>/dev/null | grep -q ":${port} " || ss -tuln 2>/dev/null | grep -q ":${port} "; then
+        if is_port_listening "$port"; then
             print_verbose "Port $port is now listening"
             return 0
         fi
@@ -359,12 +367,13 @@ check_http_health() {
             return 0
         fi
         
-        # For debugging, show actual errors
+        # For debugging, show actual errors (sanitized to prevent sensitive data exposure)
         if [ "$response" = "500" ]; then
             print_warning "$service_name returned HTTP 500, attempting to get error details..."
-            local error_details=$(curl -s --connect-timeout 2 "$url" 2>/dev/null | head -c 500)
+            # Limit to 200 chars consistently and sanitize potential sensitive data
+            local error_details=$(curl -s --connect-timeout 2 "$url" 2>/dev/null | head -c 200 | tr -d '\000-\037')
             if [ -n "$error_details" ]; then
-                print_verbose "Error response preview: ${error_details:0:200}..."
+                print_verbose "Error response preview (sanitized): ${error_details}..."
             fi
         fi
         
@@ -374,7 +383,6 @@ check_http_health() {
     
     print_error "$service_name health check failed at $url"
     print_info "Service may be starting slowly or encountered an error"
-    print_info "Check logs with: journalctl -u $service_name -n 50"
     return 1
 }
 
@@ -388,8 +396,8 @@ check_websocket_health() {
     print_verbose "Checking WebSocket at $host:$port (max ${max_attempts} attempts)..."
     
     while [ $attempt -lt $max_attempts ]; do
-        # Check if port is listening
-        if netstat -tuln 2>/dev/null | grep -q ":${port} " || ss -tuln 2>/dev/null | grep -q ":${port} "; then
+        # Check if port is listening using utility function
+        if is_port_listening "$port"; then
             print_verbose "WebSocket port $port is listening"
             return 0
         fi
@@ -417,9 +425,9 @@ test_service_health() {
                 print_error "Backend API is not responding correctly"
                 print_info "Checking for error details..."
                 
-                # Try to get more details about the error
-                local api_response=$(curl -s http://localhost:8000/api/health 2>&1)
-                print_verbose "API response: ${api_response:0:500}"
+                # Try to get more details about the error (sanitized, limited to 200 chars)
+                local api_response=$(curl -s http://localhost:8000/api/health 2>&1 | head -c 200 | tr -d '\000-\037')
+                print_verbose "API response (sanitized): ${api_response}..."
                 
                 print_info "Check backend logs:"
                 print_cmd "journalctl -u rayanpbx-api -n 50 --no-pager"
