@@ -164,6 +164,8 @@ func (c *Client) writePump() {
 }
 
 func serveWs(hub *Hub, jwtSecret string) http.HandlerFunc {
+	red := color.New(color.FgRed)
+	
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract JWT token from query params, cookie, or header
 		tokenString := r.URL.Query().Get("token")
@@ -236,8 +238,12 @@ func serveWs(hub *Hub, jwtSecret string) http.HandlerFunc {
 			},
 			Timestamp: time.Now(),
 		}
-		msgJSON, _ := json.Marshal(welcomeMsg)
-		client.send <- msgJSON
+		msgJSON, err := json.Marshal(welcomeMsg)
+		if err != nil {
+			red.Printf("⚠️  Failed to marshal welcome message: %v\n", err)
+		} else {
+			client.send <- msgJSON
+		}
 
 		go client.writePump()
 		go client.readPump(hub)
@@ -247,6 +253,7 @@ func serveWs(hub *Hub, jwtSecret string) http.HandlerFunc {
 // MonitorDatabase monitors database for changes and broadcasts events
 func monitorDatabase(hub *Hub, db *sql.DB) {
 	cyan := color.New(color.FgCyan)
+	red := color.New(color.FgRed)
 	cyan.Println("📊 Starting database monitor...")
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -269,8 +276,12 @@ func monitorDatabase(hub *Hub, db *sql.DB) {
 				},
 				Timestamp: time.Now(),
 			}
-			msgJSON, _ := json.Marshal(msg)
-			hub.broadcast <- msgJSON
+			msgJSON, err := json.Marshal(msg)
+			if err != nil {
+				red.Printf("⚠️  Failed to marshal status update: %v\n", err)
+			} else {
+				hub.broadcast <- msgJSON
+			}
 
 			lastExtCount = extCount
 			lastTrunkCount = trunkCount
@@ -319,28 +330,31 @@ func monitorRedis(hub *Hub, redisHost, redisPort, redisPassword string) {
 	for msg := range ch {
 		// Forward Redis message to WebSocket clients
 		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(msg.Payload), &payload); err == nil {
-			// Type-safe check for event type
-			eventType, ok := payload["type"].(string)
-			if !ok {
-				red.Println("⚠️  Received event without valid type field")
-				continue
-			}
-			
-			wsMsg := Message{
-				Type:      eventType,
-				Payload:   payload,
-				Timestamp: time.Now(),
-			}
-			msgJSON, err := json.Marshal(wsMsg)
-			if err != nil {
-				red.Printf("⚠️  Failed to marshal WebSocket message: %v\n", err)
-				continue
-			}
-			hub.broadcast <- msgJSON
-			
-			green.Printf("📤 Broadcast event: %s\n", eventType)
+		if err := json.Unmarshal([]byte(msg.Payload), &payload); err != nil {
+			red.Printf("⚠️  Failed to unmarshal Redis message: %v\n", err)
+			continue
 		}
+		
+		// Type-safe check for event type
+		eventType, ok := payload["type"].(string)
+		if !ok {
+			red.Println("⚠️  Received event without valid type field")
+			continue
+		}
+			
+		wsMsg := Message{
+			Type:      eventType,
+			Payload:   payload,
+			Timestamp: time.Now(),
+		}
+		msgJSON, err := json.Marshal(wsMsg)
+		if err != nil {
+			red.Printf("⚠️  Failed to marshal WebSocket message: %v\n", err)
+			continue
+		}
+		hub.broadcast <- msgJSON
+		
+		green.Printf("📤 Broadcast event: %s\n", eventType)
 	}
 }
 
