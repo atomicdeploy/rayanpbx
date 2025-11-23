@@ -92,10 +92,10 @@ input_with_default() {
     fi
     
     if [ "$password" == "yes" ]; then
-        read -sp "$(echo -e ${YELLOW}Enter value:${RESET} )" value
+        read -sp "$(echo -e ${YELLOW}Enter value: ${RESET})" value
         echo
     else
-        read -p "$(echo -e ${YELLOW}Enter value:${RESET} )" value
+        read -p "$(echo -e ${YELLOW}Enter value: ${RESET})" value
     fi
     
     if [ -z "$value" ]; then

@@ -527,9 +527,9 @@ if ! command -v mysql &> /dev/null; then
         echo -e "${YELLOW}Please set a secure MySQL root password${RESET}"
         
         while true; do
-            read -sp "$(echo -e ${CYAN}Enter new MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
+            read -sp "$(echo -e ${CYAN}Enter new MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
             echo
-            read -sp "$(echo -e ${CYAN}Confirm MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD_CONFIRM
+            read -sp "$(echo -e ${CYAN}Confirm MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD_CONFIRM
             echo
             
             if [ "$MYSQL_ROOT_PASSWORD" == "$MYSQL_ROOT_PASSWORD_CONFIRM" ]; then
@@ -557,13 +557,13 @@ EOF
     else
         print_info "MySQL already secured"
         print_verbose "MySQL root access requires password"
-        read -sp "$(echo -e ${CYAN}Enter MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
+        read -sp "$(echo -e ${CYAN}Enter MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
         echo
     fi
 else
     print_success "MySQL/MariaDB already installed"
     print_verbose "MySQL version: $(mysql --version)"
-    read -sp "$(echo -e ${CYAN}Enter MySQL root password:${RESET} )" MYSQL_ROOT_PASSWORD
+    read -sp "$(echo -e ${CYAN}Enter MySQL root password: ${RESET})" MYSQL_ROOT_PASSWORD
     echo
 fi
 
