@@ -16,7 +16,10 @@
     "username": "Username",
     "password": "Password",
     "loginButton": "Sign In",
-    "loginError": "Invalid credentials"
+    "loginError": "Invalid credentials",
+    "usernamePlaceholder": "Enter your Linux username",
+    "passwordPlaceholder": "Enter your password",
+    "pamInfo": "Uses PAM authentication (Linux user accounts)"
   },
   "dashboard": {
     "title": "Dashboard",

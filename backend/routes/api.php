@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\HelpController;
 use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
 use App\Http\Controllers\Api\ValidationController;
+use App\Http\Controllers\Api\GrandStreamController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -92,6 +93,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/validate/routing', [ValidationController::class, 'testRouting']);
     Route::get('/validate/hooks/registration', [ValidationController::class, 'getRegistrationHooks']);
     Route::get('/validate/hooks/grandstream', [ValidationController::class, 'getGrandstreamHooks']);
+    
+    // GrandStream Phone Provisioning
+    Route::get('/grandstream/devices', [GrandStreamController::class, 'listDevices']);
+    Route::post('/grandstream/scan', [GrandStreamController::class, 'scanNetwork']);
+    Route::get('/grandstream/provision/{mac}', [GrandStreamController::class, 'getProvisioningConfig'])->name('grandstream.provision');
+    Route::post('/grandstream/configure/{mac}', [GrandStreamController::class, 'configurePhone']);
+    Route::get('/grandstream/status/{mac}', [GrandStreamController::class, 'getPhoneStatus']);
+    Route::post('/grandstream/assign-extension', [GrandStreamController::class, 'assignExtension']);
+    Route::get('/grandstream/models', [GrandStreamController::class, 'getSupportedModels']);
+    Route::get('/grandstream/hooks', [GrandStreamController::class, 'getProvisioningHooks']);
 });
 
 // Health check endpoint (public)
