@@ -54,6 +54,24 @@ ensure_ini_section() {
     fi
 }
 
+# Helper function to calculate file checksum
+calculate_file_checksum() {
+    local file="$1"
+    
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    
+    if command -v md5sum &> /dev/null; then
+        md5sum "$file" | awk '{print $1}'
+    elif command -v shasum &> /dev/null; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    else
+        # No checksum tool available
+        return 1
+    fi
+}
+
 # Function to backup config file
 backup_config() {
     local file="$1"
@@ -64,11 +82,7 @@ backup_config() {
     
     # Calculate checksum of the file to backup
     local file_checksum
-    if command -v md5sum &> /dev/null; then
-        file_checksum=$(md5sum "$file" | awk '{print $1}')
-    elif command -v shasum &> /dev/null; then
-        file_checksum=$(shasum -a 256 "$file" | awk '{print $1}')
-    else
+    if ! file_checksum=$(calculate_file_checksum "$file"); then
         # Fallback: if no checksum tool available, always create backup
         local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
         cp "$file" "$backup"
@@ -78,19 +92,22 @@ backup_config() {
     
     # Check if any existing backup has the same checksum
     local existing_backup
-    for existing_backup in "${file}.backup."*; do
+    local backup_pattern="${file}.backup.*"
+    
+    # Use nullglob-safe approach: check if pattern expands to actual files
+    shopt -s nullglob
+    local backups=($backup_pattern)
+    shopt -u nullglob
+    
+    for existing_backup in "${backups[@]}"; do
         if [ -f "$existing_backup" ]; then
             local backup_checksum
-            if command -v md5sum &> /dev/null; then
-                backup_checksum=$(md5sum "$existing_backup" | awk '{print $1}')
-            else
-                backup_checksum=$(shasum -a 256 "$existing_backup" | awk '{print $1}')
-            fi
-            
-            if [ "$file_checksum" = "$backup_checksum" ]; then
-                # Identical backup already exists, no need to create a new one
-                echo "$existing_backup"
-                return 0
+            if backup_checksum=$(calculate_file_checksum "$existing_backup"); then
+                if [ "$file_checksum" = "$backup_checksum" ]; then
+                    # Identical backup already exists, no need to create a new one
+                    echo "$existing_backup"
+                    return 0
+                fi
             fi
         fi
     done

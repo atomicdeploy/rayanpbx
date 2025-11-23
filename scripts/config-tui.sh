@@ -11,6 +11,11 @@ if [ -f "$VERSION_FILE" ]; then
     VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 fi
 
+# Source ini-helper for backup functionality
+if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
+    source "$SCRIPT_DIR/ini-helper.sh"
+fi
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -55,44 +60,48 @@ load_config() {
 # Save configuration
 save_config() {
     if [ -f "$ENV_FILE" ]; then
-        # Calculate checksum of the file to backup
-        local file_checksum
-        if command -v md5sum &> /dev/null; then
-            file_checksum=$(md5sum "$ENV_FILE" | awk '{print $1}')
-        elif command -v shasum &> /dev/null; then
-            file_checksum=$(shasum -a 256 "$ENV_FILE" | awk '{print $1}')
+        # Use backup_config helper if available
+        if command -v backup_config &> /dev/null; then
+            local backup
+            backup=$(backup_config "$ENV_FILE")
+            if [ -n "$backup" ]; then
+                echo -e "${DIM}Backup: $backup${RESET}"
+            fi
         else
-            # Fallback: if no checksum tool available, always create backup
-            local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-            cp "$ENV_FILE" "$backup"
-            echo -e "${DIM}Backup created: $backup${RESET}"
-            file_checksum=""
-        fi
-        
-        # Check if any existing backup has the same checksum
-        if [ -n "$file_checksum" ]; then
-            local existing_backup
-            local backup_exists=false
-            for existing_backup in "${ENV_FILE}.backup."*; do
-                if [ -f "$existing_backup" ]; then
-                    local backup_checksum
-                    if command -v md5sum &> /dev/null; then
-                        backup_checksum=$(md5sum "$existing_backup" | awk '{print $1}')
-                    else
-                        backup_checksum=$(shasum -a 256 "$existing_backup" | awk '{print $1}')
+            # Fallback: inline backup logic with deduplication
+            local file_checksum
+            if file_checksum=$(calculate_file_checksum "$ENV_FILE" 2>/dev/null); then
+                # Check if any existing backup has the same checksum
+                local existing_backup
+                local backup_exists=false
+                local backup_pattern="${ENV_FILE}.backup.*"
+                
+                shopt -s nullglob
+                local backups=($backup_pattern)
+                shopt -u nullglob
+                
+                for existing_backup in "${backups[@]}"; do
+                    if [ -f "$existing_backup" ]; then
+                        local backup_checksum
+                        if backup_checksum=$(calculate_file_checksum "$existing_backup" 2>/dev/null); then
+                            if [ "$file_checksum" = "$backup_checksum" ]; then
+                                # Identical backup already exists
+                                echo -e "${DIM}Backup already exists: $existing_backup (identical content)${RESET}"
+                                backup_exists=true
+                                break
+                            fi
+                        fi
                     fi
-                    
-                    if [ "$file_checksum" = "$backup_checksum" ]; then
-                        # Identical backup already exists
-                        echo -e "${DIM}Backup already exists: $existing_backup (identical content)${RESET}"
-                        backup_exists=true
-                        break
-                    fi
+                done
+                
+                if [ "$backup_exists" = false ]; then
+                    # No identical backup exists, create a new one
+                    local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+                    cp "$ENV_FILE" "$backup"
+                    echo -e "${DIM}Backup created: $backup${RESET}"
                 fi
-            done
-            
-            if [ "$backup_exists" = false ]; then
-                # No identical backup exists, create a new one
+            else
+                # No checksum tool available, always backup
                 local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
                 cp "$ENV_FILE" "$backup"
                 echo -e "${DIM}Backup created: $backup${RESET}"

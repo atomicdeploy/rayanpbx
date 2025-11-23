@@ -13,6 +13,11 @@ if [ -f "$VERSION_FILE" ]; then
     VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 fi
 
+# Source ini-helper for backup functionality
+if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
+    source "$SCRIPT_DIR/ini-helper.sh"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -430,44 +435,47 @@ cmd_config_set() {
         exit 4
     fi
     
-    # Backup config file only if content will change and no identical backup exists
-    local file_checksum
-    if command -v md5sum &> /dev/null; then
-        file_checksum=$(md5sum "$ENV_FILE" | awk '{print $1}')
-    elif command -v shasum &> /dev/null; then
-        file_checksum=$(shasum -a 256 "$ENV_FILE" | awk '{print $1}')
+    # Backup config file using helper if available, otherwise fallback to inline logic
+    if command -v backup_config &> /dev/null; then
+        local backup
+        backup=$(backup_config "$ENV_FILE")
+        if [ -n "$backup" ]; then
+            print_verbose "Backup: $backup"
+        fi
     else
-        # Fallback: if no checksum tool available, always create backup
-        cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-        file_checksum=""
-    fi
-    
-    # Check if any existing backup has the same checksum
-    if [ -n "$file_checksum" ]; then
-        local existing_backup
-        local backup_exists=false
-        for existing_backup in "${ENV_FILE}.backup."*; do
-            if [ -f "$existing_backup" ]; then
-                local backup_checksum
-                if command -v md5sum &> /dev/null; then
-                    backup_checksum=$(md5sum "$existing_backup" | awk '{print $1}')
-                else
-                    backup_checksum=$(shasum -a 256 "$existing_backup" | awk '{print $1}')
-                fi
+        # Fallback: inline backup with deduplication
+        if command -v calculate_file_checksum &> /dev/null; then
+            local file_checksum
+            if file_checksum=$(calculate_file_checksum "$ENV_FILE" 2>/dev/null); then
+                local existing_backup
+                local backup_exists=false
+                local backup_pattern="${ENV_FILE}.backup.*"
                 
-                if [ "$file_checksum" = "$backup_checksum" ]; then
-                    # Identical backup already exists
-                    print_verbose "Backup already exists: $existing_backup (identical content)"
-                    backup_exists=true
-                    break
+                shopt -s nullglob
+                local backups=($backup_pattern)
+                shopt -u nullglob
+                
+                for existing_backup in "${backups[@]}"; do
+                    if [ -f "$existing_backup" ]; then
+                        local backup_checksum
+                        if backup_checksum=$(calculate_file_checksum "$existing_backup" 2>/dev/null); then
+                            if [ "$file_checksum" = "$backup_checksum" ]; then
+                                print_verbose "Backup already exists: $existing_backup (identical content)"
+                                backup_exists=true
+                                break
+                            fi
+                        fi
+                    fi
+                done
+                
+                if [ "$backup_exists" = false ]; then
+                    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+                    print_verbose "Backup created: ${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
                 fi
             fi
-        done
-        
-        if [ "$backup_exists" = false ]; then
-            # No identical backup exists, create a new one
+        else
+            # No checksum helper available, always backup
             cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-            print_verbose "Backup created: ${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
         fi
     fi
     
