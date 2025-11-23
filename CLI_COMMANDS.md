@@ -224,6 +224,102 @@ rayanpbx-cli log view api
 rayanpbx-cli log view asterisk
 ```
 
+### Firewall Management
+
+Manage firewall rules and security (similar to FreePBX firewall commands).
+
+```bash
+# Show firewall status
+rayanpbx-cli firewall status
+
+# Enable/disable firewall
+rayanpbx-cli firewall enable
+rayanpbx-cli firewall disable
+
+# Trust an IP or network
+rayanpbx-cli firewall trust 192.168.1.0/24
+rayanpbx-cli firewall trust 10.0.0.5
+
+# Remove from trusted zone
+rayanpbx-cli firewall untrust 10.0.0.5
+
+# List all firewall rules
+rayanpbx-cli firewall list
+
+# Setup default PBX firewall rules
+rayanpbx-cli firewall setup
+
+# Add custom rules
+rayanpbx-cli firewall add allow 8080/tcp
+rayanpbx-cli firewall add deny 23/tcp
+
+# Delete a rule by number
+rayanpbx-cli firewall delete 5
+
+# Reset firewall to defaults
+rayanpbx-cli firewall reset
+```
+
+### Sound Management
+
+Manage Asterisk sound files and prompts.
+
+```bash
+# List installed sound packs
+rayanpbx-cli sound list
+
+# List custom sound files
+rayanpbx-cli sound list-custom
+
+# Upload a custom sound file
+rayanpbx-cli sound upload /tmp/greeting.wav
+rayanpbx-cli sound upload /tmp/music.mp3 welcome-music
+
+# Play a sound file (for testing)
+rayanpbx-cli sound play custom/greeting.wav
+
+# Convert sound to Asterisk formats (GSM, uLaw)
+rayanpbx-cli sound convert /tmp/music.mp3
+
+# Delete a custom sound
+rayanpbx-cli sound delete greeting.wav
+
+# Show sound file information
+rayanpbx-cli sound info custom/greeting.wav
+```
+
+### Certificate Management
+
+Manage SSL/TLS certificates for secure communications.
+
+```bash
+# List all certificates
+rayanpbx-cli certificate list
+# or short form
+rayanpbx-cli cert list
+
+# Generate self-signed certificate
+rayanpbx-cli certificate generate pbx.example.com 365
+
+# Get Let's Encrypt certificate
+rayanpbx-cli certificate letsencrypt pbx.example.com admin@example.com
+
+# Renew Let's Encrypt certificates
+rayanpbx-cli certificate renew
+
+# Show certificate information
+rayanpbx-cli certificate info /etc/asterisk/keys/pbx.crt
+
+# Verify certificate validity
+rayanpbx-cli certificate verify /etc/asterisk/keys/pbx.crt /etc/asterisk/keys/pbx.key
+
+# Setup automatic renewal
+rayanpbx-cli certificate setup-renewal
+
+# Import external certificate
+rayanpbx-cli certificate import /path/to/cert.crt /path/to/key.key myserver
+```
+
 ## Feature Parity
 
 ### FreePBX fwconsole Features Implemented
@@ -238,6 +334,12 @@ rayanpbx-cli log view asterisk
 ✅ **Backup & Restore**
 - `backup create`, `list` - Backup management
 - `database backup`, `restore` - Database backup/restore
+
+✅ **Firewall Management**
+- `firewall enable`, `disable`, `start`, `stop`, `restart` - Firewall control
+- `firewall trust`, `untrust` - Manage trusted hosts
+- `firewall list`, `add`, `delete` - Manage firewall rules
+- `firewall setup`, `reset` - Configure default rules
 
 ✅ **Database Utilities**
 - `database mysql` - MySQL console access
@@ -262,6 +364,14 @@ rayanpbx-cli log view asterisk
 ✅ **Logs**
 - `log view` - View various logs
 
+✅ **Certificate Management**
+- `certificate list`, `generate`, `letsencrypt`, `renew` - SSL/TLS management
+- `certificate info`, `verify`, `import` - Certificate operations
+
+✅ **Sound Management**
+- `sound list`, `list-custom` - List sound packs
+- `sound upload`, `convert`, `play` - Manage sound files
+
 ### IncrediblePBX Features Implemented
 
 ✅ **System Information**
@@ -273,6 +383,16 @@ rayanpbx-cli log view asterisk
 ✅ **Database Management**
 - MySQL console access
 - Database backup and restore
+
+✅ **Security Features**
+- Firewall management with UFW
+- Default PBX port configuration
+- Trusted IP management
+
+✅ **SSL/TLS**
+- Certificate generation and management
+- Let's Encrypt integration
+- Automatic renewal setup
 
 ### IssabelPBX Features Implemented
 
@@ -295,6 +415,11 @@ rayanpbx-cli log view asterisk
 - Channel monitoring
 - Call monitoring
 
+✅ **Sound Management**
+- Upload and manage custom sounds
+- Convert audio formats
+- Sound file testing
+
 ## Command Shortcuts
 
 Some commands have short aliases:
@@ -302,6 +427,7 @@ Some commands have short aliases:
 - `db` → `database`
 - `pjsip` → `endpoint`
 - `dialplan` → `context`
+- `cert` → `certificate`
 
 ## Exit Codes
 
@@ -403,13 +529,13 @@ The CLI reads configuration from:
 
 Planned features for future releases:
 
-- **Firewall Management** - Port knocker and firewall rules
-- **Certificate Management** - SSL/TLS certificate operations
-- **Sound Management** - Upload and manage sound files
-- **User Management** - Web UI user administration
+- **User Management** - Web UI user administration via CLI
 - **Notifications** - System notification management
 - **Queue Management** - Call queue operations
 - **IVR Management** - Interactive voice response configuration
+- **CDR Reports** - Call detail record analysis
+- **Voicemail Management** - Voicemail operations
+- **Conference Management** - Conference room operations
 
 ## Support
 

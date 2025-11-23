@@ -722,6 +722,72 @@ cmd_log_view() {
     esac
 }
 
+# Log commands
+cmd_log_view() {
+    local log_type=${1:-full}
+    
+    print_header "📄 Viewing Log: $log_type"
+    
+    case "$log_type" in
+        full)
+            tail -f /var/log/asterisk/full
+            ;;
+        messages)
+            tail -f /var/log/asterisk/messages
+            ;;
+        api)
+            sudo journalctl -u rayanpbx-api -f
+            ;;
+        asterisk)
+            sudo journalctl -u asterisk -f
+            ;;
+        *)
+            print_error "Unknown log type: $log_type"
+            echo "Available: full, messages, api, asterisk"
+            exit 1
+            ;;
+    esac
+}
+
+# Firewall commands
+cmd_firewall() {
+    local subcmd=$1
+    shift
+    
+    if [ -x "$RAYANPBX_ROOT/scripts/firewall-manager.sh" ]; then
+        sudo "$RAYANPBX_ROOT/scripts/firewall-manager.sh" "$subcmd" "$@"
+    else
+        print_error "Firewall manager not found"
+        exit 1
+    fi
+}
+
+# Sound commands
+cmd_sound() {
+    local subcmd=$1
+    shift
+    
+    if [ -x "$RAYANPBX_ROOT/scripts/sound-manager.sh" ]; then
+        sudo "$RAYANPBX_ROOT/scripts/sound-manager.sh" "$subcmd" "$@"
+    else
+        print_error "Sound manager not found"
+        exit 1
+    fi
+}
+
+# Certificate commands
+cmd_certificate() {
+    local subcmd=$1
+    shift
+    
+    if [ -x "$RAYANPBX_ROOT/scripts/cert-manager.sh" ]; then
+        sudo "$RAYANPBX_ROOT/scripts/cert-manager.sh" "$subcmd" "$@"
+    else
+        print_error "Certificate manager not found"
+        exit 1
+    fi
+}
+
 # Main command dispatcher
 main() {
     if [ $# -eq 0 ]; then
@@ -820,6 +886,15 @@ main() {
         log)
             cmd_log_view "$2"
             ;;
+        firewall)
+            cmd_firewall "$2" "${@:3}"
+            ;;
+        sound)
+            cmd_sound "$2" "${@:3}"
+            ;;
+        certificate|cert)
+            cmd_certificate "$2" "${@:3}"
+            ;;
         list)
             # Show available commands
             print_header "📋 Available Commands"
@@ -883,6 +958,29 @@ main() {
             echo
             echo -e "${CYAN}Logs:${NC}"
             echo "  log view [TYPE]                   - View logs (full/messages/api/asterisk)"
+            echo
+            echo -e "${CYAN}Firewall:${NC}"
+            echo "  firewall status                   - Show firewall status"
+            echo "  firewall enable                   - Enable firewall"
+            echo "  firewall disable                  - Disable firewall"
+            echo "  firewall trust HOST               - Add host to trusted zone"
+            echo "  firewall untrust HOST             - Remove host from trusted zone"
+            echo "  firewall list                     - List firewall rules"
+            echo "  firewall setup                    - Setup default PBX rules"
+            echo
+            echo -e "${CYAN}Sound Management:${NC}"
+            echo "  sound list                        - List installed sound packs"
+            echo "  sound list-custom                 - List custom sounds"
+            echo "  sound upload FILE [NAME]          - Upload custom sound"
+            echo "  sound play FILE                   - Play sound file"
+            echo "  sound convert FILE                - Convert to Asterisk formats"
+            echo
+            echo -e "${CYAN}Certificate Management:${NC}"
+            echo "  certificate list                  - List all certificates"
+            echo "  certificate generate DOMAIN       - Generate self-signed cert"
+            echo "  certificate letsencrypt DOMAIN    - Get Let's Encrypt cert"
+            echo "  certificate renew                 - Renew certificates"
+            echo "  certificate info FILE             - Show certificate info"
             echo
             echo -e "${CYAN}Help:${NC}"
             echo "  list                              - Show this command list"
