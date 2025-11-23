@@ -18,7 +18,7 @@ var Version = "2.0.0"
 
 func init() {
 	// Try to load version from VERSION file
-	versionFile := findRootPath() + "/VERSION"
+	versionFile := filepath.Join(findRootPath(), "VERSION")
 	if data, err := os.ReadFile(versionFile); err == nil {
 		Version = strings.TrimSpace(string(data))
 	}

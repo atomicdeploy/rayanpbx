@@ -403,7 +403,7 @@ func main() {
 
 		cyan.Print("RayanPBX TUI ")
 		green.Printf("v%s\n\n", Version)
-		
+
 		yellow.Println("Modern SIP Server Management Terminal UI")
 		fmt.Println()
 		fmt.Println("USAGE:")
