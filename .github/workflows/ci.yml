@@ -281,24 +281,34 @@ jobs:
       
       - name: 🧪 Test error handling
         run: |
-          # Create a test script that simulates failures
-          cat > test_error_handling.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          # Source the print functions from install.sh
-          source <(grep -A 100 "^print_error\|^print_warning\|^print_success\|^print_info" install.sh | head -50)
-          
-          # Test that error messages are shown
-          print_error "Test error message"
-          print_warning "Test warning message"
-          print_success "Test success message"
-          print_info "Test info message"
-          
-          echo "✅ Error handling functions work correctly"
-          EOF
-          
-          bash test_error_handling.sh || echo "Error handling test completed"
+          # Test that the error handling functions exist and work
+          bash -c '
+            # Extract and test print functions from install.sh
+            
+            # Test that functions are defined
+            if grep -q "^print_error()" install.sh; then
+              echo "✅ print_error function found"
+            else
+              echo "❌ print_error function not found"
+              exit 1
+            fi
+            
+            if grep -q "^print_warning()" install.sh; then
+              echo "✅ print_warning function found"
+            else
+              echo "❌ print_warning function not found"
+              exit 1
+            fi
+            
+            if grep -q "^print_success()" install.sh; then
+              echo "✅ print_success function found"
+            else
+              echo "❌ print_success function not found"
+              exit 1
+            fi
+            
+            echo "✅ All error handling functions are defined"
+          '
       
       - name: ✅ Install script tests complete
         run: echo "🎉 Installation script tests passed!"

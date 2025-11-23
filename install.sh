@@ -192,7 +192,8 @@ if ! $PKG_MGR update > /dev/null 2>&1; then
     print_error "Failed to update package lists"
     print_warning "This may cause issues with package installation"
     print_warning "Check your internet connection and /etc/apt/sources.list"
-    read -p "$(echo -e ${YELLOW}Continue anyway? \(y/n\)${RESET} )" -n 1 -r
+    echo -e "${YELLOW}Continue anyway? (y/n)${RESET}"
+    read -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
@@ -400,6 +401,8 @@ npm -v
 print_info "Installing PM2 process manager..."
 if ! command -v pm2 &> /dev/null; then
     if npm install -g pm2 > /dev/null 2>&1; then
+        # pm2 startup may fail if www-data user doesn't exist yet or if systemd is not available
+        # This is not critical as we can configure it manually later
         pm2 startup systemd -u www-data --hp /var/www > /dev/null 2>&1 || true
         print_success "PM2 installed"
     else
