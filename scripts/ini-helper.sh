@@ -97,7 +97,7 @@ modify_manager_conf() {
 }
 
 # If script is called directly (not sourced)
-if [ "${BASH_SOURCE[0]}" -eq "${0}" ]; then
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     case "$1" in
         modify-manager)
             modify_manager_conf "$2"

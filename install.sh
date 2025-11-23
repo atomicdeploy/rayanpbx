@@ -188,6 +188,32 @@ print_cmd() {
     echo -e "${DIM}   $ $1${RESET}"
 }
 
+handle_asterisk_error() {
+    local error_msg="$1"
+    local context="${2:-Asterisk operation}"
+    
+    print_error "$context failed"
+    print_warning "Error: $error_msg"
+    echo ""
+    echo -e "${CYAN}🔍 Checking for solutions...${RESET}"
+    echo ""
+    
+    # URL encode the error message using sed for special characters
+    local encoded_query=$(printf '%s' "$error_msg $context" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
+    
+    # Automatically fetch solution using GET request
+    local solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 500)
+    
+    if [ -n "$solution" ]; then
+        echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
+        echo -e "${DIM}${solution}${RESET}"
+        echo ""
+    else
+        echo -e "${DIM}Could not retrieve solution automatically. Check your internet connection.${RESET}"
+        echo ""
+    fi
+}
+
 print_box() {
     local text="$1"
     local color="${2:-$CYAN}"
@@ -951,7 +977,13 @@ else
 fi
 
 systemctl enable asterisk > /dev/null 2>&1
-systemctl restart asterisk
+
+print_progress "Restarting Asterisk service..."
+if ! systemctl restart asterisk 2>&1 | tee /tmp/asterisk-restart.log; then
+    RESTART_ERROR=$(cat /tmp/asterisk-restart.log)
+    handle_asterisk_error "$RESTART_ERROR" "Asterisk restart"
+    print_warning "Continuing with installation, but Asterisk may need manual intervention"
+fi
 
 # Check Asterisk status
 sleep 3
@@ -960,8 +992,13 @@ if systemctl is-active --quiet asterisk; then
     print_info "Active channels: $(asterisk -rx 'core show channels' 2>/dev/null | grep 'active channel' || echo '0 active channels')"
 else
     print_error "Failed to start Asterisk"
-    print_warning "Check status with: systemctl status asterisk"
-    print_warning "Check logs with: journalctl -u asterisk -n 50"
+    echo ""
+    print_warning "To diagnose the issue, run these commands:"
+    print_cmd "systemctl status asterisk"
+    print_cmd "journalctl -u asterisk -n 50"
+    print_cmd "asterisk -rvvvvv  # Launch Asterisk console in verbose mode"
+    echo ""
+    handle_asterisk_error "Service failed to start" "Asterisk startup"
 fi
 
 # Clone/Update RayanPBX Repository
@@ -985,7 +1022,28 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
     source /opt/rayanpbx/scripts/ini-helper.sh
     modify_manager_conf "rayanpbx_ami_secret"
     touch /etc/asterisk/manager.conf.rayanpbx-configured
-    systemctl reload asterisk
+    
+    print_progress "Reloading Asterisk to apply AMI configuration..."
+    if ! systemctl reload asterisk 2>&1 | tee /tmp/asterisk-reload.log; then
+        RELOAD_ERROR=$(cat /tmp/asterisk-reload.log)
+        print_warning "Asterisk reload encountered an issue"
+        
+        # Check if it's actually running
+        if systemctl is-active --quiet asterisk; then
+            print_info "Asterisk is still running, attempting a restart instead..."
+            if systemctl restart asterisk 2>&1; then
+                print_success "Asterisk restarted successfully"
+            else
+                handle_asterisk_error "$RELOAD_ERROR" "Asterisk reload/restart"
+            fi
+        else
+            # Try to diagnose the issue
+            print_cmd "asterisk -rvvv  # Launch Asterisk console to investigate"
+            handle_asterisk_error "$RELOAD_ERROR" "Asterisk reload"
+        fi
+    else
+        print_success "Asterisk configuration reloaded"
+    fi
 fi
 
 # Setup unified .env file
@@ -1191,16 +1249,24 @@ echo ""
 echo -e "${BOLD}${CYAN}🛠️  Useful Commands:${RESET}"
 echo -e "  ${DIM}View services:${RESET}     pm2 list"
 echo -e "  ${DIM}View logs:${RESET}         pm2 logs"
-echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv"
+echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv   ${GREEN}(Recommended!)${RESET}"
+echo -e "  ${DIM}Asterisk status:${RESET}   systemctl status asterisk"
 echo -e "  ${DIM}System status:${RESET}     systemctl status rayanpbx-api"
 echo ""
 
 echo -e "${BOLD}${CYAN}🚀 Next Steps:${RESET}"
-echo -e "  ${GREEN}1.${RESET} Access web UI: http://$(hostname -I | awk '{print $1}'):3000"
-echo -e "  ${GREEN}2.${RESET} Login with admin/admin"
-echo -e "  ${GREEN}3.${RESET} Configure your first extension"
-echo -e "  ${GREEN}4.${RESET} Set up a SIP trunk"
-echo -e "  ${GREEN}5.${RESET} Test your setup"
+echo -e "  ${GREEN}1.${RESET} ${BOLD}Launch Asterisk Console${RESET} to monitor calls:"
+echo -e "     ${WHITE}asterisk -rvvv${RESET}  ${DIM}(press 'exit' or Ctrl+C to quit)${RESET}"
+echo ""
+echo -e "  ${GREEN}2.${RESET} Access web UI: http://$(hostname -I | awk '{print $1}'):3000"
+echo ""
+echo -e "  ${GREEN}3.${RESET} Login with admin/admin"
+echo ""
+echo -e "  ${GREEN}4.${RESET} Configure your first extension"
+echo ""
+echo -e "  ${GREEN}5.${RESET} Set up a SIP trunk"
+echo ""
+echo -e "  ${GREEN}6.${RESET} Test your setup"
 echo ""
 
 echo -e "${BOLD}${CYAN}📚 Documentation & Support:${RESET}"
