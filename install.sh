@@ -1632,24 +1632,15 @@ next_step "TUI (Terminal UI) Build"
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
 
-# Force use of local toolchain to avoid downloading a different version
+# Use local toolchain without modifying go.mod
+# go.mod is set to minimum supported version (1.22)
 export GOTOOLCHAIN=local
-print_verbose "Set GOTOOLCHAIN=local to use installed toolchain"
+print_verbose "Set GOTOOLCHAIN=local to use installed Go toolchain"
 
-# Detect installed Go version and update go.mod to use it
 INSTALLED_GO_VERSION=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+' || echo "")
 if [ -n "$INSTALLED_GO_VERSION" ]; then
     print_verbose "Detected Go version: $INSTALLED_GO_VERSION"
-    print_verbose "Updating go.mod to use installed Go version..."
-    
-    # Update go.mod to use the installed Go version
-    sed -i -E "s/^go [0-9]+\.[0-9]+$/go $INSTALLED_GO_VERSION/" go.mod
-    
-    # Verify the change
-    GO_MOD_VERSION=$(grep "^go " go.mod | awk '{print $2}')
-    print_verbose "go.mod now specifies: go $GO_MOD_VERSION"
-else
-    print_warning "Could not detect Go version, using go.mod as-is"
+    print_verbose "Building with installed Go toolchain (go.mod requires 1.22+)"
 fi
 
 go mod download
