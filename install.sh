@@ -303,7 +303,7 @@ next_step "System Verification"
 print_verbose "Checking Ubuntu version..."
 print_verbose "Reading OS release information..."
 if [ "$VERBOSE" = true ]; then
-    head -5 /etc/os-release
+    head -n 5 /etc/os-release
 fi
 
 if ! grep -q "24.04" /etc/os-release; then
@@ -348,11 +348,11 @@ if ! command -v nala &> /dev/null; then
         # Don't exit, just use apt-get instead
     else
         print_success "nala installed"
-        print_verbose "nala version: $(nala --version 2>&1 | head -1 || echo 'unable to determine')"
+        print_verbose "nala version: $(nala --version 2>&1 | head -n 1 || echo 'unable to determine')"
     fi
 else
     print_success "nala already installed"
-    print_verbose "nala version: $(nala --version 2>&1 | head -1 || echo 'unable to determine')"
+    print_verbose "nala version: $(nala --version 2>&1 | head -n 1 || echo 'unable to determine')"
 fi
 
 # System update
@@ -481,7 +481,7 @@ if ! check_installed "gh" "GitHub CLI"; then
             fi
         else
             print_success "GitHub CLI installed"
-            print_verbose "GitHub CLI version: $(gh --version | head -1)"
+            print_verbose "GitHub CLI version: $(gh --version | head -n 1)"
         fi
     else
         print_warning "Failed to download GitHub CLI keyring (optional)"
@@ -517,7 +517,7 @@ if ! command -v mysql &> /dev/null; then
     
     print_verbose "Checking MariaDB service status..."
     if [ "$VERBOSE" = true ]; then
-        systemctl status mariadb --no-pager | head -10
+        systemctl status mariadb --no-pager | head -n 10
     fi
     
     # Check if MySQL is already secured
@@ -598,7 +598,7 @@ else
     print_warning "Check your MySQL root password and database access"
     if [ "$VERBOSE" = true ]; then
         print_verbose "Attempting to verify MySQL connection..."
-        mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -10
+        mysql --defaults-extra-file="$MYSQL_TMP_CNF" -e "SHOW DATABASES;" 2>&1 | head -n 10
     fi
     rm -f "$MYSQL_TMP_CNF"
     exit 1
@@ -650,7 +650,7 @@ if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
 else
     print_success "PHP 8.3 already installed"
 fi
-php -v | head -1
+php -v | head -n 1
 print_verbose "PHP configuration file: $(php --ini | grep 'Loaded Configuration File' | cut -d: -f2 | xargs)"
 
 # Composer Installation
@@ -682,7 +682,7 @@ if ! check_installed "composer" "Composer"; then
         fi
     fi
 fi
-composer --version | head -1
+composer --version | head -n 1
 print_verbose "Composer location: $(which composer)"
 
 # Node.js 24 Installation
@@ -799,7 +799,7 @@ next_step "Asterisk 22 Installation"
 SKIP_ASTERISK=""
 
 if command -v asterisk &> /dev/null; then
-    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | grep -oP '\d+' | head -1)
+    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | grep -oP '\d+' | head -n 1)
     if [ "$ASTERISK_VERSION" -ge 22 ]; then
         print_success "Asterisk $ASTERISK_VERSION already installed"
         asterisk -V
@@ -1106,7 +1106,7 @@ fi
 
 if systemctl is-active --quiet asterisk; then
     print_success "✓ Asterisk running"
-    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | head -1)
+    ASTERISK_VERSION=$(asterisk -V 2>/dev/null | head -n 1)
     echo -e "${DIM}   $ASTERISK_VERSION${RESET}"
 else
     print_warning "✗ Asterisk issue - check: systemctl status asterisk"
