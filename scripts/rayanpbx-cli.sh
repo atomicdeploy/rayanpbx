@@ -254,31 +254,40 @@ cmd_diag_test_extension() {
 cmd_diag_health_check() {
     print_header "🏥 System Health Check"
     
-    # Check Asterisk
-    echo -n "Asterisk Service: "
-    if systemctl is-active --quiet asterisk; then
-        print_success "Running"
+    # Source the health check script if available
+    HEALTH_CHECK_SCRIPT="$SCRIPT_DIR/health-check.sh"
+    if [ -f "$HEALTH_CHECK_SCRIPT" ]; then
+        # Use the comprehensive health check from the script
+        "$HEALTH_CHECK_SCRIPT" full-check
     else
-        print_error "Stopped"
+        # Fallback to basic checks if health-check.sh is not available
+        
+        # Check Asterisk
+        echo -n "Asterisk Service: "
+        if systemctl is-active --quiet asterisk; then
+            print_success "Running"
+        else
+            print_error "Stopped"
+        fi
+        
+        # Check database
+        echo -n "Database: "
+        if mysql -u root -e "USE rayanpbx;" 2>/dev/null; then
+            print_success "Connected"
+        else
+            print_warn "Cannot connect"
+        fi
+        
+        # Check API (use correct health endpoint)
+        echo -n "API Server: "
+        if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000/api/health" | grep -q "200\|302"; then
+            print_success "Running"
+        else
+            print_warn "Not responding"
+        fi
+        
+        print_success "Health check complete"
     fi
-    
-    # Check database
-    echo -n "Database: "
-    if mysql -u root -e "USE rayanpbx;" 2>/dev/null; then
-        print_success "Connected"
-    else
-        print_warn "Cannot connect"
-    fi
-    
-    # Check API
-    echo -n "API Server: "
-    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000" | grep -q "200\|302"; then
-        print_success "Running"
-    else
-        print_warn "Not responding"
-    fi
-    
-    print_success "Health check complete"
 }
 
 # System commands

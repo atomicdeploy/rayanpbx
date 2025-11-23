@@ -322,176 +322,172 @@ error_handler() {
 }
 
 # ════════════════════════════════════════════════════════════════════════
-# Health Check Functions
+# Health Check Functions - Source from health-check.sh script
 # ════════════════════════════════════════════════════════════════════════
 
-sanitize_output() {
-    local text="$1"
-    local max_length="${2:-200}"
-    # Remove control chars and redact common sensitive patterns
-    # Limit output length for security (balance between debugging and data exposure)
-    # Patterns: password, token, secret, key, api_key, access_token, auth_token, client_secret, private_key, env vars
-    echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?(token|key)|client[_-]?secret|private[_-]?key|[A-Z_]+PASSWORD)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
-}
-
-is_port_listening() {
-    local port=$1
-    # Check both ss (modern) and netstat (legacy) with consistent patterns
-    # Match port followed by space or end-of-line to avoid matching partial port numbers
-    # netstat fallback for older systems that might not have ss
-    if ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" || netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
-        return 0
-    fi
-    return 1
-}
-
-check_port_listening() {
-    local port=$1
-    local service_name=$2
-    local max_attempts=${3:-30}
-    local attempt=0
+# Source the health check script for DRY code
+HEALTH_CHECK_SCRIPT="$SCRIPT_DIR/scripts/health-check.sh"
+if [ -f "$HEALTH_CHECK_SCRIPT" ]; then
+    # Source the health check script to get all health check functions
+    source "$HEALTH_CHECK_SCRIPT"
+    print_verbose "Loaded health check functions from $HEALTH_CHECK_SCRIPT"
+else
+    # Fallback: define minimal functions if health-check.sh is not available yet
+    print_verbose "Health check script not found, using fallback functions"
     
-    print_verbose "Checking if port $port is listening (max ${max_attempts}s)..."
-    
-    while [ $attempt -lt $max_attempts ]; do
-        if is_port_listening "$port"; then
-            print_verbose "Port $port is now listening"
+    sanitize_output() {
+        local text="$1"
+        local max_length="${2:-200}"
+        echo "$text" | head -c "$max_length" | tr -d '\000-\037' | sed -E 's/(password|token|secret|key|api[_-]?key|access[_-]?token|auth[_-]?(token|key)|client[_-]?secret|private[_-]?key|[A-Z_]+PASSWORD)[[:space:]]*[:=][[:space:]]*[^[:space:]&]*/\1=***REDACTED***/gi'
+    }
+
+    is_port_listening() {
+        local port=$1
+        if ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" || netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
             return 0
         fi
-        attempt=$((attempt + 1))
-        sleep 1
-    done
-    
-    print_error "Port $port not listening after ${max_attempts}s for $service_name"
-    return 1
-}
+        return 1
+    }
 
-check_http_health() {
-    local url=$1
-    local service_name=$2
-    local max_attempts=${3:-15}
-    local attempt=0
-    
-    print_verbose "Checking HTTP health at $url (max ${max_attempts} attempts)..."
-    
-    # Set up trap for cleanup in case of unexpected exit
-    # Use mktemp with proper secure temp directory
-    local temp_file=$(mktemp -t rayanpbx-health.XXXXXX)
-    trap "rm -f '$temp_file'" RETURN
-    
-    while [ $attempt -lt $max_attempts ]; do
-        # Capture both response body and status in single request (5 second timeout)
-        local response=$(curl -s -w "%{http_code}" --connect-timeout 5 -o "$temp_file" "$url" 2>/dev/null)
+    check_port_listening() {
+        local port=$1
+        local service_name=$2
+        local max_attempts=${3:-30}
+        local attempt=0
         
-        # Success codes: 200 (OK), 302 (redirect - common for web apps)
-        if [ "$response" = "200" ] || [ "$response" = "302" ]; then
-            print_verbose "$service_name responded with HTTP $response"
-            return 0
-        fi
+        print_verbose "Checking if port $port is listening (max ${max_attempts}s)..."
         
-        # For debugging HTTP 500 errors, show sanitized error details
-        if [ "$response" = "500" ]; then
-            print_warning "$service_name returned HTTP 500, attempting to get error details..."
-            local error_details=$(sanitize_output "$(cat "$temp_file")" 200)
-            if [ -n "$error_details" ]; then
-                print_verbose "Error response preview (sanitized): ${error_details}..."
+        while [ $attempt -lt $max_attempts ]; do
+            if is_port_listening "$port"; then
+                print_verbose "Port $port is now listening"
+                return 0
             fi
-        fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
         
-        attempt=$((attempt + 1))
-        sleep 2
-    done
-    
-    print_error "$service_name health check failed at $url"
-    print_info "Service may be starting slowly or encountered an error"
-    return 1
-}
+        print_error "Port $port not listening after ${max_attempts}s for $service_name"
+        return 1
+    }
 
-check_websocket_health() {
-    local host=$1
-    local port=$2
-    local service_name=$3
-    local max_attempts=${4:-15}
-    local attempt=0
-    
-    print_verbose "Checking WebSocket at $host:$port (max ${max_attempts} attempts)..."
-    
-    while [ $attempt -lt $max_attempts ]; do
-        # Check if port is listening using utility function
-        if is_port_listening "$port"; then
-            print_verbose "WebSocket port $port is listening"
-            return 0
-        fi
+    check_websocket_health() {
+        local host=$1
+        local port=$2
+        local service_name=$3
+        local max_attempts=${4:-15}
+        local attempt=0
         
-        attempt=$((attempt + 1))
-        sleep 2
-    done
-    
-    print_error "$service_name not responding on port $port"
-    return 1
-}
-
-test_service_health() {
-    local service_type=$1
-    local service_name=$2
-    
-    case $service_type in
-        "api")
-            print_info "Testing Backend API health..."
-            if ! check_port_listening 8000 "$service_name" 30; then
-                return 1
+        print_verbose "Checking WebSocket at $host:$port (max ${max_attempts} attempts)..."
+        
+        while [ $attempt -lt $max_attempts ]; do
+            if is_port_listening "$port"; then
+                print_verbose "WebSocket port $port is listening"
+                return 0
             fi
             
-            if ! check_http_health "http://localhost:8000/api/health" "$service_name" 15; then
+            attempt=$((attempt + 1))
+            sleep 2
+        done
+        
+        print_error "$service_name not responding on port $port"
+        return 1
+    }
+
+    test_service_health() {
+        local service_type=$1
+        local service_name=$2
+        
+        case $service_type in
+            "api")
+                print_info "Testing Backend API health..."
+                if ! check_port_listening 8000 "$service_name" 30; then
+                    return 1
+                fi
+                
+                local url="http://localhost:8000/api/health"
+                local max_attempts=15
+                local attempt=0
+                local temp_file=$(mktemp -t rayanpbx-health.XXXXXX)
+                trap "rm -f '$temp_file'" RETURN
+                
+                while [ $attempt -lt $max_attempts ]; do
+                    local response=$(curl -s -w "%{http_code}" --connect-timeout 5 -o "$temp_file" "$url" 2>/dev/null)
+                    
+                    if [ "$response" = "200" ] || [ "$response" = "302" ]; then
+                        print_success "Backend API is healthy and responding"
+                        return 0
+                    fi
+                    
+                    if [ "$response" = "500" ]; then
+                        print_warning "$service_name returned HTTP 500, attempting to get error details..."
+                        local error_details=$(sanitize_output "$(cat "$temp_file")" 200)
+                        if [ -n "$error_details" ]; then
+                            print_verbose "Error response preview (sanitized): ${error_details}..."
+                        fi
+                    fi
+                    
+                    attempt=$((attempt + 1))
+                    sleep 2
+                done
+                
                 print_error "Backend API is not responding correctly"
                 print_info "Checking for error details..."
-                
-                # Try to get more details using our sanitization function
                 local api_response=$(sanitize_output "$(curl -s http://localhost:8000/api/health 2>&1)" 200)
                 print_verbose "API response (sanitized): ${api_response}..."
-                
                 print_info "Check backend logs:"
                 print_cmd "journalctl -u rayanpbx-api -n 50 --no-pager"
                 print_cmd "tail -f /opt/rayanpbx/backend/storage/logs/laravel.log"
                 return 1
-            fi
-            print_success "Backend API is healthy and responding"
-            ;;
-            
-        "frontend")
-            print_info "Testing Frontend health..."
-            if ! check_port_listening 3000 "$service_name" 30; then
-                return 1
-            fi
-            
-            if ! check_http_health "http://localhost:3000" "$service_name" 15; then
+                ;;
+                
+            "frontend")
+                print_info "Testing Frontend health..."
+                if ! check_port_listening 3000 "$service_name" 30; then
+                    return 1
+                fi
+                
+                local url="http://localhost:3000"
+                local max_attempts=15
+                local attempt=0
+                
+                while [ $attempt -lt $max_attempts ]; do
+                    local response=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null)
+                    
+                    if [ "$response" = "200" ] || [ "$response" = "302" ]; then
+                        print_success "Frontend is healthy and responding"
+                        return 0
+                    fi
+                    
+                    attempt=$((attempt + 1))
+                    sleep 2
+                done
+                
                 print_error "Frontend is not responding correctly"
                 print_info "Check PM2 logs:"
                 print_cmd "su - www-data -s /bin/bash -c 'pm2 logs rayanpbx-web --nostream'"
                 return 1
-            fi
-            print_success "Frontend is healthy and responding"
-            ;;
-            
-        "websocket")
-            print_info "Testing WebSocket server health..."
-            if ! check_websocket_health "localhost" 9000 "$service_name" 15; then
-                print_error "WebSocket server is not responding"
-                print_info "Check PM2 logs:"
-                print_cmd "su - www-data -s /bin/bash -c 'pm2 logs rayanpbx-ws --nostream'"
+                ;;
+                
+            "websocket")
+                print_info "Testing WebSocket server health..."
+                if ! check_websocket_health "localhost" 9000 "$service_name" 15; then
+                    print_error "WebSocket server is not responding"
+                    print_info "Check PM2 logs:"
+                    print_cmd "su - www-data -s /bin/bash -c 'pm2 logs rayanpbx-ws --nostream'"
+                    return 1
+                fi
+                print_success "WebSocket server is healthy and listening"
+                ;;
+                
+            *)
+                print_error "Unknown service type: $service_type"
                 return 1
-            fi
-            print_success "WebSocket server is healthy and listening"
-            ;;
-            
-        *)
-            print_error "Unknown service type: $service_type"
-            return 1
-            ;;
-    esac
-    
-    return 0
-}
+                ;;
+        esac
+        
+        return 0
+    }
+fi
 
 # ════════════════════════════════════════════════════════════════════════
 # Parse Command Line Arguments
