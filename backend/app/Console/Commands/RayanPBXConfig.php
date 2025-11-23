@@ -10,11 +10,13 @@ use Exception;
 class RayanPBXConfig extends Command
 {
     protected SystemctlService $systemctl;
+    protected ConfigValidatorService $validator;
 
-    public function __construct(SystemctlService $systemctl)
+    public function __construct(SystemctlService $systemctl, ConfigValidatorService $validator)
     {
         parent::__construct();
         $this->systemctl = $systemctl;
+        $this->validator = $validator;
     }
     /**
      * The name and signature of the console command.
@@ -68,8 +70,6 @@ class RayanPBXConfig extends Command
     {
         $this->info('Validating RayanPBX configuration...');
         $this->newLine();
-
-        $validator = new ConfigValidatorService();
 
         try {
             // Validate Asterisk configuration

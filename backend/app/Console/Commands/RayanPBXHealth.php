@@ -10,6 +10,14 @@ use Exception;
 
 class RayanPBXHealth extends Command
 {
+    protected SystemctlService $systemctl;
+
+    public function __construct(SystemctlService $systemctl)
+    {
+        parent::__construct();
+        $this->systemctl = $systemctl;
+    }
+
     /**
      * The name and signature of the console command.
      *
@@ -104,7 +112,6 @@ class RayanPBXHealth extends Command
             $this->comment('Checking services...');
         }
 
-        $systemctl = new SystemctlService();
         $services = ['asterisk', 'rayanpbx-api', 'mysql', 'redis-server'];
         $serviceNames = ['Asterisk', 'RayanPBX API', 'MySQL', 'Redis'];
         $results = [];
@@ -112,7 +119,7 @@ class RayanPBXHealth extends Command
 
         foreach ($services as $index => $service) {
             try {
-                $running = $systemctl->isRunning($service);
+                $running = $this->systemctl->isRunning($service);
                 $results[$service] = [
                     'running' => $running,
                     'name' => $serviceNames[$index],
@@ -195,11 +202,9 @@ class RayanPBXHealth extends Command
             $this->comment('Checking Asterisk...');
         }
 
-        $systemctl = new SystemctlService();
-
         try {
-            $version = $systemctl->execAsteriskCLI('core show version');
-            $calls = $systemctl->execAsteriskCLI('core show calls');
+            $version = $this->systemctl->execAsteriskCLI('core show version');
+            $calls = $this->systemctl->execAsteriskCLI('core show calls');
             
             $versionMatch = preg_match('/Asterisk\s+([\d.]+)/', $version, $versionMatches);
             $callsMatch = preg_match('/(\d+)\s+active call/', $calls, $callMatches);
@@ -242,6 +247,18 @@ class RayanPBXHealth extends Command
 
         $diskTotal = disk_total_space('/');
         $diskFree = disk_free_space('/');
+        
+        if ($diskTotal === false || $diskFree === false) {
+            if (!$this->option('json')) {
+                $this->error('  ✗ Unable to check disk space');
+                $this->newLine();
+            }
+            return [
+                'passed' => false,
+                'error' => 'Unable to check disk space',
+            ];
+        }
+        
         $diskUsed = $diskTotal - $diskFree;
         $diskUsedPercent = ($diskUsed / $diskTotal) * 100;
 
@@ -278,7 +295,20 @@ class RayanPBXHealth extends Command
             $this->comment('Checking memory...');
         }
 
-        $meminfo = file_get_contents('/proc/meminfo');
+        $meminfoFile = '/proc/meminfo';
+        
+        if (!file_exists($meminfoFile)) {
+            if (!$this->option('json')) {
+                $this->warn('  ⚠ Memory information not available (non-Linux system)');
+                $this->newLine();
+            }
+            return [
+                'passed' => true,
+                'error' => 'Memory information not available on this system',
+            ];
+        }
+
+        $meminfo = file_get_contents($meminfoFile);
         preg_match('/MemTotal:\s+(\d+)/', $meminfo, $totalMatch);
         preg_match('/MemAvailable:\s+(\d+)/', $meminfo, $availMatch);
 
@@ -334,7 +364,8 @@ class RayanPBXHealth extends Command
                 continue;
             }
             
-            $command = "ss -tuln | grep -E ':" . escapeshellarg($port) . "([[:space:]]|\$)' 2>/dev/null";
+            // Since port is validated as numeric, we can safely use it directly
+            $command = "ss -tuln | grep -E ':{$port}([[:space:]]|\$)' 2>/dev/null";
             exec($command, $output, $returnCode);
             $listening = !empty($output);
 
