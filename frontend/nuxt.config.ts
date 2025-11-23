@@ -8,6 +8,10 @@ export default defineNuxtConfig({
     '@nuxtjs/i18n',
   ],
 
+  css: [
+    '~/assets/css/main.scss',
+  ],
+
   colorMode: {
     preference: 'dark',
     fallback: 'dark',
@@ -35,13 +39,10 @@ export default defineNuxtConfig({
     strategy: 'no_prefix',
   },
 
-  css: [
-    '~/assets/css/main.css',
-  ],
-
   runtimeConfig: {
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8000/api',
+      wsUrl: process.env.NUXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws',
     },
   },
 
