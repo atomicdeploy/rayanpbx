@@ -163,6 +163,70 @@ func (am *AsteriskManager) ShowDialplan() (string, error) {
 	return am.ExecuteCLICommand("dialplan show")
 }
 
+// VerifyEndpoint checks if an endpoint exists in Asterisk
+func (am *AsteriskManager) VerifyEndpoint(endpoint string) (bool, string, error) {
+	output, err := am.ExecuteCLICommand(fmt.Sprintf("pjsip show endpoint %s", endpoint))
+	if err != nil {
+		return false, "", err
+	}
+	
+	// Check if endpoint was found
+	if strings.Contains(output, "Unable to find object") || 
+	   strings.Contains(output, "No objects found") {
+		return false, output, nil
+	}
+	
+	return true, output, nil
+}
+
+// GetEndpointStatus gets the registration status of an endpoint
+func (am *AsteriskManager) GetEndpointStatus(endpoint string) (string, error) {
+	exists, output, err := am.VerifyEndpoint(endpoint)
+	if err != nil {
+		return "error", err
+	}
+	
+	if !exists {
+		return "not_found", nil
+	}
+	
+	// Parse the output to determine registration status
+	if strings.Contains(output, "Unavailable") {
+		return "offline", nil
+	} else if strings.Contains(output, "Avail") || strings.Contains(output, "Online") {
+		return "registered", nil
+	}
+	
+	return "unknown", nil
+}
+
+// ListAllEndpoints gets all PJSIP endpoints
+func (am *AsteriskManager) ListAllEndpoints() ([]string, error) {
+	output, err := am.ExecuteCLICommand("pjsip show endpoints")
+	if err != nil {
+		return nil, err
+	}
+	
+	endpoints := []string{}
+	lines := strings.Split(output, "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip header and empty lines
+		if line == "" || (strings.Contains(line, "Endpoint:") && strings.Contains(line, "State")) {
+			continue
+		}
+		
+		// Extract endpoint name (first column)
+		parts := strings.Fields(line)
+		if len(parts) > 0 {
+			endpoints = append(endpoints, parts[0])
+		}
+	}
+	
+	return endpoints, nil
+}
+
 // ValidateConfiguration validates Asterisk configuration
 func (am *AsteriskManager) ValidateConfiguration() error {
 	cyan := color.New(color.FgCyan)
