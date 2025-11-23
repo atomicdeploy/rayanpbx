@@ -228,6 +228,55 @@ check_installed() {
     fi
 }
 
+download_file() {
+    local url="$1"
+    local output_file="$2"
+    local show_progress="${3:-false}"
+    
+    print_verbose "Downloading: $url"
+    print_verbose "Output file: $output_file"
+    
+    # Check if aria2c is available
+    if command -v aria2c &> /dev/null; then
+        print_verbose "Using aria2c for download"
+        
+        # aria2c parameters:
+        # -R: retry on errors
+        # -c: continue downloading partially downloaded file
+        # -s 16: split file into 16 pieces for parallel download
+        # -x 16: maximum connections per server
+        # -k 1M: minimum split size (1 megabyte)
+        # -j 1: maximum concurrent downloads (1 since we're downloading one file)
+        # -d: directory to save the file
+        # -o: output filename
+        
+        local dir="$(dirname "$output_file")"
+        local filename="$(basename "$output_file")"
+        local aria2c_opts="-R -c -s 16 -x 16 -k 1M -j 1"
+        
+        if [ "$show_progress" = true ] || [ "$VERBOSE" = true ]; then
+            aria2c $aria2c_opts -d "$dir" -o "$filename" "$url"
+        else
+            aria2c $aria2c_opts -d "$dir" -o "$filename" "$url" > /dev/null 2>&1
+        fi
+        
+        return $?
+    else
+        print_verbose "aria2c not available, falling back to wget"
+        
+        # Fallback to wget
+        if [ "$show_progress" = true ]; then
+            wget --show-progress -O "$output_file" "$url"
+        elif [ "$VERBOSE" = true ]; then
+            wget -O "$output_file" "$url"
+        else
+            wget -q -O "$output_file" "$url"
+        fi
+        
+        return $?
+    fi
+}
+
 # ════════════════════════════════════════════════════════════════════════
 # Error Handler (for verbose mode)
 # ════════════════════════════════════════════════════════════════════════
@@ -413,6 +462,7 @@ PACKAGES=(
     software-properties-common
     curl
     wget
+    aria2
     git
     build-essential
     libncurses5-dev
@@ -771,7 +821,7 @@ if ! check_installed "go" "Go"; then
     print_progress "Installing Go 1.23..."
     print_verbose "Downloading Go 1.23.4..."
     
-    if wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz; then
+    if download_file "https://go.dev/dl/go1.23.4.linux-amd64.tar.gz" "go1.23.4.linux-amd64.tar.gz" false; then
         print_verbose "Extracting Go to /usr/local..."
         if tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz > /dev/null 2>&1; then
             print_verbose "Adding Go to PATH in /etc/profile..."
@@ -822,7 +872,7 @@ if [ -z "$SKIP_ASTERISK" ]; then
     
     # Download
     print_info "📥 Downloading Asterisk source..."
-    wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22-current.tar.gz
+    download_file "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22-current.tar.gz" "asterisk-22-current.tar.gz" true
     tar xzf asterisk-22-current.tar.gz
     cd asterisk-22.*
     
