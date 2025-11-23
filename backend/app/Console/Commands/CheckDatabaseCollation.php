@@ -31,9 +31,12 @@ class CheckDatabaseCollation extends Command
         $this->info("Checking collation for database: {$databaseName}");
         
         // Get current database collation
-        $result = DB::select("SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME 
-                              FROM INFORMATION_SCHEMA.SCHEMATA 
-                              WHERE SCHEMA_NAME = ?", [$databaseName]);
+        $result = DB::select(
+            "SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME 
+             FROM INFORMATION_SCHEMA.SCHEMATA 
+             WHERE SCHEMA_NAME = ?",
+            [$databaseName]
+        );
         
         if (empty($result)) {
             $this->error("Could not retrieve database collation information.");
@@ -62,7 +65,22 @@ class CheckDatabaseCollation extends Command
             $this->info("Attempting to fix database collation...");
             
             try {
-                DB::statement("ALTER DATABASE `{$databaseName}` CHARACTER SET {$expectedCharset} COLLATE {$expectedCollation}");
+                // Validate database name to prevent SQL injection
+                // Database names in MySQL can only contain alphanumeric characters, underscores, and dollar signs
+                if (!preg_match('/^[a-zA-Z0-9_$]+$/', $databaseName)) {
+                    $this->error("Invalid database name format: {$databaseName}");
+                    return 1;
+                }
+                
+                // Use backticks to escape the database name
+                $sql = sprintf(
+                    "ALTER DATABASE `%s` CHARACTER SET %s COLLATE %s",
+                    $databaseName,
+                    $expectedCharset,
+                    $expectedCollation
+                );
+                
+                DB::statement($sql);
                 $this->info("✓ Database collation updated successfully!");
                 return 0;
             } catch (\Exception $e) {
