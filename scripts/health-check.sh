@@ -11,13 +11,25 @@ if [ -f "$VERSION_FILE" ]; then
     VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 fi
 
-# Colors
-readonly GREEN='\033[0;32m'
-readonly RED='\033[0;31m'
-readonly YELLOW='\033[1;33m'
-readonly CYAN='\033[0;36m'
-readonly BOLD='\033[1m'
-readonly RESET='\033[0m'
+# Colors - only define if not already set (allows sourcing from install.sh)
+if [ -z "${GREEN+x}" ]; then
+    readonly GREEN='\033[0;32m'
+fi
+if [ -z "${RED+x}" ]; then
+    readonly RED='\033[0;31m'
+fi
+if [ -z "${YELLOW+x}" ]; then
+    readonly YELLOW='\033[1;33m'
+fi
+if [ -z "${CYAN+x}" ]; then
+    readonly CYAN='\033[0;36m'
+fi
+if [ -z "${BOLD+x}" ]; then
+    readonly BOLD='\033[1m'
+fi
+if [ -z "${RESET+x}" ]; then
+    readonly RESET='\033[0m'
+fi
 
 print_success() {
     echo -e "${GREEN}✅ $1${RESET}"
