@@ -11,6 +11,11 @@ if [ -f "$VERSION_FILE" ]; then
     VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 fi
 
+# Source ini-helper for backup functionality
+if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
+    source "$SCRIPT_DIR/ini-helper.sh"
+fi
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -54,11 +59,13 @@ load_config() {
 
 # Save configuration
 save_config() {
-    local backup="${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-    
     if [ -f "$ENV_FILE" ]; then
-        cp "$ENV_FILE" "$backup"
-        echo -e "${DIM}Backup created: $backup${RESET}"
+        # Use backup_config helper from ini-helper.sh
+        local backup
+        backup=$(backup_config "$ENV_FILE")
+        if [ -n "$backup" ]; then
+            echo -e "${DIM}Backup: $backup${RESET}"
+        fi
     fi
     
     cat > "$ENV_FILE" << 'HEADER'
