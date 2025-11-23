@@ -89,6 +89,7 @@ const (
 	extensionsScreen
 	trunksScreen
 	asteriskScreen
+	asteriskMenuScreen
 	diagnosticsScreen
 	statusScreen
 	logsScreen
@@ -141,6 +142,11 @@ type model struct {
 	// Extension/Trunk selection
 	selectedExtensionIdx int
 	selectedTrunkIdx     int
+	
+	// Asterisk management
+	asteriskManager *AsteriskManager
+	asteriskMenu    []string
+	asteriskOutput  string
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -172,9 +178,23 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		cursor:             0,
 		db:                 db,
 		config:             config,
+		asteriskManager:    asteriskManager,
 		diagnosticsManager: diagnosticsManager,
 		configManager:      configManager,
 		verbose:            verbose,
+		asteriskMenu: []string{
+			"🟢 Start Asterisk Service",
+			"🔴 Stop Asterisk Service",
+			"🔄 Restart Asterisk Service",
+			"📊 Show Service Status",
+			"🔧 Reload PJSIP Configuration",
+			"📞 Reload Dialplan",
+			"🔁 Reload All Modules",
+			"👥 Show PJSIP Endpoints",
+			"📡 Show Active Channels",
+			"📋 Show Registrations",
+			"🔙 Back to Main Menu",
+		},
 		diagnosticsMenu: []string{
 			"🏥 Run System Health Check",
 			"💻 Show System Information",
@@ -216,6 +236,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor > 0 {
 					m.cursor--
 				}
+			} else if m.currentScreen == asteriskMenuScreen {
+				// Navigate asterisk menu
+				if m.cursor > 0 {
+					m.cursor--
+				}
 			} else if m.currentScreen == systemSettingsScreen {
 				if m.cursor > 0 {
 					m.cursor--
@@ -238,6 +263,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == diagnosticsMenuScreen {
 				// Navigate diagnostics menu
 				if m.cursor < len(m.diagnosticsMenu)-1 {
+					m.cursor++
+				}
+			} else if m.currentScreen == asteriskMenuScreen {
+				// Navigate asterisk menu
+				if m.cursor < len(m.asteriskMenu)-1 {
 					m.cursor++
 				}
 			} else if m.currentScreen == systemSettingsScreen {
@@ -304,7 +334,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
 				case 2:
-					m.currentScreen = asteriskScreen
+					m.currentScreen = asteriskMenuScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.asteriskOutput = ""
 				case 3:
 					m.currentScreen = diagnosticsMenuScreen
 					m.cursor = 0
@@ -333,6 +367,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == diagnosticsMenuScreen {
 				// Handle diagnostics menu selection
 				m.handleDiagnosticsMenuSelection()
+			} else if m.currentScreen == asteriskMenuScreen {
+				// Handle asterisk menu selection
+				m.handleAsteriskMenuSelection()
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
 				m.handleSystemSettingsAction()
@@ -352,6 +389,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
+				} else if m.currentScreen == asteriskMenuScreen {
+					m.currentScreen = mainMenu
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.asteriskOutput = ""
 				} else if m.currentScreen == deleteExtensionScreen {
 					m.currentScreen = extensionsScreen
 					m.errorMsg = ""
@@ -398,6 +441,8 @@ func (m model) View() string {
 		s += m.renderTrunks()
 	case asteriskScreen:
 		s += m.renderAsterisk()
+	case asteriskMenuScreen:
+		s += m.renderAsteriskMenu()
 	case diagnosticsScreen:
 		s += m.renderDiagnostics()
 	case diagnosticsMenuScreen:
@@ -442,6 +487,8 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
 	} else if m.currentScreen == diagnosticsMenuScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back to Main Menu • q: Quit")
+	} else if m.currentScreen == asteriskMenuScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute • ESC: Back to Main Menu • q: Quit")
 	} else if m.isDiagnosticsInputScreen() {
 		if m.inputMode {
 			s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
@@ -601,6 +648,40 @@ func (m model) renderAsterisk() string {
 	content += "  • View Active Channels\n\n"
 
 	content += helpStyle.Render("💡 Use rayanpbx-cli for direct Asterisk management")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderAsteriskMenu() string {
+	content := infoStyle.Render("⚙️  Asterisk Management Menu") + "\n\n"
+
+	// Show service status at the top
+	status, _ := m.asteriskManager.GetServiceStatus()
+	statusText := "🔴 Stopped"
+	if status == "running" {
+		statusText = "🟢 Running"
+	}
+	content += fmt.Sprintf("Current Status: %s\n\n", statusText)
+
+	// Display asterisk output if any
+	if m.asteriskOutput != "" {
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+		content += m.asteriskOutput + "\n"
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+	}
+
+	content += "Select an operation:\n\n"
+
+	for i, item := range m.asteriskMenu {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		} else {
+			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
 
 	return menuStyle.Render(content)
 }
@@ -1316,6 +1397,82 @@ func (m *model) handleDiagnosticsMenuSelection() {
 		m.inputValues = []string{"", DefaultSIPPort}
 		m.inputCursor = 0
 	case 8: // Back to Main Menu
+		m.currentScreen = mainMenu
+		m.cursor = 0
+	}
+}
+
+// handleAsteriskMenuSelection handles asterisk menu selection
+func (m *model) handleAsteriskMenuSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	m.asteriskOutput = ""
+
+	switch m.cursor {
+	case 0: // Start Asterisk Service
+		if err := m.asteriskManager.StartService(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to start service: %v", err)
+		} else {
+			m.successMsg = "Asterisk service started successfully"
+		}
+	case 1: // Stop Asterisk Service
+		if err := m.asteriskManager.StopService(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to stop service: %v", err)
+		} else {
+			m.successMsg = "Asterisk service stopped successfully"
+		}
+	case 2: // Restart Asterisk Service
+		if err := m.asteriskManager.RestartService(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to restart service: %v", err)
+		} else {
+			m.successMsg = "Asterisk service restarted successfully"
+		}
+	case 3: // Show Service Status
+		m.asteriskManager.PrintServiceStatus()
+		m.successMsg = "Service status displayed"
+	case 4: // Reload PJSIP Configuration
+		if err := m.asteriskManager.ReloadPJSIP(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
+		} else {
+			m.successMsg = "PJSIP configuration reloaded successfully"
+		}
+	case 5: // Reload Dialplan
+		if err := m.asteriskManager.ReloadDialplan(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reload dialplan: %v", err)
+		} else {
+			m.successMsg = "Dialplan reloaded successfully"
+		}
+	case 6: // Reload All Modules
+		if err := m.asteriskManager.ReloadAll(); err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reload modules: %v", err)
+		} else {
+			m.successMsg = "All modules reloaded successfully"
+		}
+	case 7: // Show PJSIP Endpoints
+		output, err := m.asteriskManager.ShowEndpoints()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to show endpoints: %v", err)
+		} else {
+			m.asteriskOutput = output
+			m.successMsg = "PJSIP endpoints retrieved"
+		}
+	case 8: // Show Active Channels
+		output, err := m.asteriskManager.ShowChannels()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to show channels: %v", err)
+		} else {
+			m.asteriskOutput = output
+			m.successMsg = "Active channels retrieved"
+		}
+	case 9: // Show Registrations
+		output, err := m.asteriskManager.ShowPeers()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to show registrations: %v", err)
+		} else {
+			m.asteriskOutput = output
+			m.successMsg = "Registrations retrieved"
+		}
+	case 10: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
 	}
