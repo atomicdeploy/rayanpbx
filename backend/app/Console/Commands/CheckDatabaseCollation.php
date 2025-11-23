@@ -84,7 +84,9 @@ class CheckDatabaseCollation extends Command
                     return 1;
                 }
                 
-                // Use backticks to escape the database name
+                // Note: Parameter binding is not supported for DDL statements like ALTER DATABASE
+                // Therefore we use validation + backtick escaping as the standard MySQL approach
+                // The database name is validated above to only allow safe characters
                 $sql = sprintf(
                     "ALTER DATABASE `%s` CHARACTER SET %s COLLATE %s",
                     $databaseName,

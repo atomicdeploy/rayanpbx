@@ -422,7 +422,7 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
             print_warning "Updates available for RayanPBX!"
             echo ""
             print_info "Changelog:"
-            git log --oneline "$LOCAL_COMMIT"..."$REMOTE_COMMIT" 2>/dev/null | head -5 || echo "  (changelog unavailable)"
+            git log --oneline "$LOCAL_COMMIT".."$REMOTE_COMMIT" 2>/dev/null | head -5 || echo "  (changelog unavailable)"
             echo ""
             
             read -p "$(echo -e ${CYAN}Pull updates and restart installation? \(y/n\) ${RESET})" -n 1 -r
@@ -443,6 +443,8 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
                     sleep 2
                     
                     # Re-execute the script with the same arguments
+                    # Using exec replaces the current process entirely, ensuring the new version runs
+                    # This is intentional - we want a clean restart with the updated script
                     exec "$0" "$@"
                 else
                     print_error "Failed to pull updates"
