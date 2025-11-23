@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 
 export interface WebSocketMessage {
   type: string
@@ -6,8 +6,11 @@ export interface WebSocketMessage {
   timestamp: string
 }
 
-const ws = ref<WebSocket | null>(null)
+// Singleton WebSocket instance and state
+let wsInstance: WebSocket | null = null
 const listeners = new Map<string, Set<(payload: any) => void>>()
+
+// Reconnection state (shared across all uses of the composable)
 let reconnectAttempts = 0
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 const MAX_RECONNECT_ATTEMPTS = 10
@@ -19,7 +22,8 @@ export const useWebSocket = () => {
   const wsStore = useWebSocketStore()
 
   const connect = () => {
-    if (ws.value?.readyState === WebSocket.OPEN) {
+    // Return early if already connected
+    if (wsInstance?.readyState === WebSocket.OPEN) {
       return
     }
 
@@ -31,9 +35,9 @@ export const useWebSocket = () => {
 
     try {
       const wsUrl = `${config.public.wsUrl}?token=${token}`
-      ws.value = new WebSocket(wsUrl)
+      wsInstance = new WebSocket(wsUrl)
 
-      ws.value.onopen = () => {
+      wsInstance.onopen = () => {
         wsStore.setConnected(true)
         wsStore.setReconnecting(false)
         wsStore.setError(null)
@@ -61,12 +65,12 @@ export const useWebSocket = () => {
         }
       }
 
-      ws.value.onerror = (error) => {
+      wsInstance.onerror = (error) => {
         console.error('WebSocket error:', error)
         wsStore.setError('WebSocket connection error')
       }
 
-      ws.value.onclose = () => {
+      wsInstance.onclose = () => {
         wsStore.setConnected(false)
         console.log('👋 WebSocket disconnected')
         
@@ -100,9 +104,9 @@ export const useWebSocket = () => {
       reconnectTimer = null
     }
     
-    if (ws.value) {
-      ws.value.close()
-      ws.value = null
+    if (wsInstance) {
+      wsInstance.close()
+      wsInstance = null
     }
     
     wsStore.setConnected(false)
@@ -110,13 +114,13 @@ export const useWebSocket = () => {
   }
 
   const send = (type: string, payload: any) => {
-    if (ws.value?.readyState === WebSocket.OPEN) {
+    if (wsInstance?.readyState === WebSocket.OPEN) {
       const message: WebSocketMessage = {
         type,
         payload,
         timestamp: new Date().toISOString(),
       }
-      ws.value.send(JSON.stringify(message))
+      wsInstance.send(JSON.stringify(message))
     } else {
       console.warn('WebSocket is not connected, cannot send message')
     }

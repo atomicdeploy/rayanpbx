@@ -332,7 +332,11 @@ func monitorRedis(hub *Hub, redisHost, redisPort, redisPassword string) {
 				Payload:   payload,
 				Timestamp: time.Now(),
 			}
-			msgJSON, _ := json.Marshal(wsMsg)
+			msgJSON, err := json.Marshal(wsMsg)
+			if err != nil {
+				red.Printf("⚠️  Failed to marshal WebSocket message: %v\n", err)
+				continue
+			}
 			hub.broadcast <- msgJSON
 			
 			green.Printf("📤 Broadcast event: %s\n", eventType)
