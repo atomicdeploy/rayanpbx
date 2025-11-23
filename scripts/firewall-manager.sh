@@ -200,7 +200,10 @@ firewall_reset() {
     print_warn "This will reset all firewall rules!"
     read -p "Are you sure? (yes/no): " confirm
     
-    if [ "$confirm" != "yes" ]; then
+    # Convert to lowercase for comparison
+    confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
+    
+    if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
         print_info "Reset cancelled"
         exit 0
     fi

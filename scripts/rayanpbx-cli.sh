@@ -448,23 +448,6 @@ cmd_system_chown() {
     fi
 }
 
-cmd_system_chown() {
-    print_header "🔒 Fixing Permissions"
-    
-    print_info "Setting correct ownership for RayanPBX files..."
-    
-    if [ -d "$RAYANPBX_ROOT" ]; then
-        sudo chown -R www-data:www-data "$RAYANPBX_ROOT/backend/storage"
-        sudo chown -R www-data:www-data "$RAYANPBX_ROOT/backend/bootstrap/cache"
-        sudo chmod -R 775 "$RAYANPBX_ROOT/backend/storage"
-        sudo chmod -R 775 "$RAYANPBX_ROOT/backend/bootstrap/cache"
-        print_success "Permissions fixed"
-    else
-        print_error "RayanPBX directory not found"
-        exit 1
-    fi
-}
-
 # Database commands
 cmd_database_mysql() {
     print_header "🗄️  MySQL Console"
@@ -547,7 +530,10 @@ cmd_database_restore() {
         print_warn "This will overwrite the current database!"
         read -p "Are you sure? (yes/no): " confirm
         
-        if [ "$confirm" != "yes" ]; then
+        # Convert to lowercase for comparison
+        confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
+        
+        if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
             print_info "Restore cancelled"
             exit 0
         fi
@@ -693,33 +679,6 @@ cmd_context_show() {
         print_header "📋 Context: $context"
         sudo asterisk -rx "dialplan show $context"
     fi
-}
-
-# Log commands
-cmd_log_view() {
-    local log_type=${1:-full}
-    
-    print_header "📄 Viewing Log: $log_type"
-    
-    case "$log_type" in
-        full)
-            tail -f /var/log/asterisk/full
-            ;;
-        messages)
-            tail -f /var/log/asterisk/messages
-            ;;
-        api)
-            sudo journalctl -u rayanpbx-api -f
-            ;;
-        asterisk)
-            sudo journalctl -u asterisk -f
-            ;;
-        *)
-            print_error "Unknown log type: $log_type"
-            echo "Available: full, messages, api, asterisk"
-            exit 1
-            ;;
-    esac
 }
 
 # Log commands

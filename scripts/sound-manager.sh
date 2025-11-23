@@ -93,20 +93,18 @@ sound_upload() {
     cp "$source_file" "$dest_path"
     
     # Convert to appropriate formats if it's a wav file
-    if [[ "$source_file" == *.wav ]]; then
+    if [[ "$source_file" == *.wav ]] && command -v sox &> /dev/null; then
         print_info "Converting to Asterisk formats..."
         
         # Convert to gsm
-        if command -v sox &> /dev/null; then
-            sox "$dest_path" -r 8000 -c 1 "${dest_path%.wav}.gsm"
-            print_success "Converted to GSM format"
-        fi
+        sox "$dest_path" -r 8000 -c 1 "${dest_path%.wav}.gsm"
+        print_success "Converted to GSM format"
         
         # Convert to ulaw
-        if command -v sox &> /dev/null; then
-            sox "$dest_path" -r 8000 -c 1 -e u-law "${dest_path%.wav}.ulaw"
-            print_success "Converted to uLaw format"
-        fi
+        sox "$dest_path" -r 8000 -c 1 -e u-law "${dest_path%.wav}.ulaw"
+        print_success "Converted to uLaw format"
+    elif [[ "$source_file" == *.wav ]]; then
+        print_warn "sox not installed. Install with: apt-get install sox libsox-fmt-all"
     fi
     
     # Set permissions
@@ -189,7 +187,7 @@ sound_convert() {
         exit 1
     fi
     
-    print_info "Converting $source_file to Asterisk formats..."
+    print_info "Converting \"$source_file\" to Asterisk formats..."
     
     local base_name="${source_file%.*}"
     

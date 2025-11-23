@@ -234,7 +234,7 @@ cert_verify() {
         cert_modulus=$(openssl x509 -noout -modulus -in "$cert_file" | md5sum)
         key_modulus=$(openssl rsa -noout -modulus -in "$key_file" 2>/dev/null | md5sum)
         
-        if [ "$cert_modulus" == "$key_modulus" ]; then
+        if [ "$cert_modulus" = "$key_modulus" ]; then
             print_success "Certificate and key match"
         else
             print_error "Certificate and key do not match!"
