@@ -250,13 +250,14 @@ download_file() {
         # -d: directory to save the file
         # -o: output filename
         
-        local dir=$(dirname "$output_file")
-        local filename=$(basename "$output_file")
+        local dir="$(dirname "$output_file")"
+        local filename="$(basename "$output_file")"
+        local aria2c_opts="-R -c -s 16 -x 16 -k 1M -j 1"
         
         if [ "$show_progress" = true ] || [ "$VERBOSE" = true ]; then
-            aria2c -R -c -s 16 -x 16 -k 1M -j 1 -d "$dir" -o "$filename" "$url"
+            aria2c $aria2c_opts -d "$dir" -o "$filename" "$url"
         else
-            aria2c -R -c -s 16 -x 16 -k 1M -j 1 -d "$dir" -o "$filename" "$url" > /dev/null 2>&1
+            aria2c $aria2c_opts -d "$dir" -o "$filename" "$url" > /dev/null 2>&1
         fi
         
         return $?
@@ -265,7 +266,7 @@ download_file() {
         
         # Fallback to wget
         if [ "$show_progress" = true ]; then
-            wget -q --show-progress -O "$output_file" "$url"
+            wget --show-progress -O "$output_file" "$url"
         elif [ "$VERBOSE" = true ]; then
             wget -O "$output_file" "$url"
         else
