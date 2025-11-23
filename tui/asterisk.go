@@ -213,7 +213,7 @@ func (am *AsteriskManager) ListAllEndpoints() ([]string, error) {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		// Skip header and empty lines
-		if line == "" || strings.Contains(line, "Endpoint:") && strings.Contains(line, "State") {
+		if line == "" || (strings.Contains(line, "Endpoint:") && strings.Contains(line, "State")) {
 			continue
 		}
 		

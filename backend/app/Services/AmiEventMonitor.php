@@ -150,7 +150,7 @@ class AmiEventMonitor
     private function triggerCallbacks($eventType, $eventData)
     {
         if (isset($this->eventCallbacks[$eventType])) {
-            foreach ($this->eventCallbacks[$eventType][] as $callback) {
+            foreach ($this->eventCallbacks[$eventType] as $callback) {
                 call_user_func($callback, $eventData);
             }
         }

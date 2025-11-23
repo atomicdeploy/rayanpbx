@@ -202,7 +202,7 @@ class PjsipConfigController extends Controller
             }
             
             if ($inGlobal) {
-                if (empty($trimmedLine) || $trimmedLine[0] === '[') {
+                if (empty($trimmedLine) || (strlen($trimmedLine) > 0 && $trimmedLine[0] === '[')) {
                     // End of global section, add our settings if not already there
                     if (!$globalProcessed) {
                         if (isset($settings['external_media_address']) && !empty($settings['external_media_address'])) {
@@ -248,7 +248,8 @@ class PjsipConfigController extends Controller
             // Insert after any comments at the beginning
             $insertPos = 0;
             foreach ($result as $i => $line) {
-                if (trim($line) === '' || trim($line)[0] === ';') {
+                $trimmed = trim($line);
+                if ($trimmed === '' || (strlen($trimmed) > 0 && $trimmed[0] === ';')) {
                     $insertPos = $i + 1;
                 } else {
                     break;
