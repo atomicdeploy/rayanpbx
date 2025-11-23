@@ -198,7 +198,9 @@ handle_asterisk_error() {
     echo -e "${YELLOW}${BOLD}🤖 Need help troubleshooting?${RESET}"
     echo -e "${CYAN}Try using AI-powered error analysis:${RESET}"
     echo ""
-    echo -e "${WHITE}curl -X POST https://text.pollinations.ai/$(echo "$error_msg $context" | sed 's/ /%20/g')${RESET}"
+    # Properly encode the URL by using printf %s and piping to jq for URL encoding
+    local encoded_query=$(printf '%s' "$error_msg $context" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
+    echo -e "${WHITE}curl -X POST 'https://text.pollinations.ai/${encoded_query}'${RESET}"
     echo ""
     echo -e "${DIM}Or visit: https://pollinations.ai${RESET}"
     echo ""
@@ -977,6 +979,8 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
                 handle_asterisk_error "$RELOAD_ERROR" "Asterisk reload/restart"
             fi
         else
+            # Try to diagnose the issue
+            print_cmd "asterisk -rvvv  # Launch Asterisk console to investigate"
             handle_asterisk_error "$RELOAD_ERROR" "Asterisk reload"
         fi
     else

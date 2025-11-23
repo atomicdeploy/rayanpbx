@@ -16,6 +16,10 @@ TEST_COUNT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 print_test() {
     ((TEST_COUNT++))
     echo -e "${CYAN}[TEST $TEST_COUNT]${RESET} $1"
@@ -45,7 +49,7 @@ print_header() {
 test_ini_helper_syntax() {
     print_test "Checking ini-helper.sh syntax"
     
-    if bash -n /home/runner/work/rayanpbx/rayanpbx/scripts/ini-helper.sh 2>&1; then
+    if bash -n "$REPO_ROOT/scripts/ini-helper.sh" 2>&1; then
         print_pass "ini-helper.sh has valid syntax"
         return 0
     else
@@ -56,13 +60,14 @@ test_ini_helper_syntax() {
 
 # Test 2: Check that line 100 uses string comparison
 test_ini_helper_comparison() {
-    print_test "Verifying line 100 uses string comparison (=) not integer comparison (-eq)"
+    print_test "Verifying BASH_SOURCE check uses string comparison (=) not integer comparison (-eq)"
     
-    if grep -n 'BASH_SOURCE.*=.*"${0}"' /home/runner/work/rayanpbx/rayanpbx/scripts/ini-helper.sh | grep -q "100:"; then
-        print_pass "Line 100 correctly uses string comparison (=)"
+    # Check for the correct pattern without depending on line number
+    if grep 'BASH_SOURCE.*=.*"${0}"' "$REPO_ROOT/scripts/ini-helper.sh" | grep -v -q '\-eq'; then
+        print_pass "BASH_SOURCE check correctly uses string comparison (=)"
         return 0
     else
-        print_fail "Line 100 does not use correct string comparison"
+        print_fail "BASH_SOURCE check does not use correct string comparison"
         return 1
     fi
 }
@@ -71,7 +76,7 @@ test_ini_helper_comparison() {
 test_ini_helper_source() {
     print_test "Sourcing ini-helper.sh script"
     
-    if bash -c 'source /home/runner/work/rayanpbx/rayanpbx/scripts/ini-helper.sh && echo "Success"' > /dev/null 2>&1; then
+    if bash -c "source '$REPO_ROOT/scripts/ini-helper.sh' && echo 'Success'" > /dev/null 2>&1; then
         print_pass "ini-helper.sh can be sourced without errors"
         return 0
     else
@@ -84,7 +89,7 @@ test_ini_helper_source() {
 test_ini_helper_direct() {
     print_test "Running ini-helper.sh directly (should show usage)"
     
-    OUTPUT=$(/home/runner/work/rayanpbx/rayanpbx/scripts/ini-helper.sh 2>&1)
+    OUTPUT=$("$REPO_ROOT/scripts/ini-helper.sh" 2>&1)
     
     if echo "$OUTPUT" | grep -q "Usage:"; then
         print_pass "ini-helper.sh runs directly and shows usage"
@@ -99,7 +104,7 @@ test_ini_helper_direct() {
 test_install_syntax() {
     print_test "Checking install.sh syntax"
     
-    if bash -n /home/runner/work/rayanpbx/rayanpbx/install.sh 2>&1; then
+    if bash -n "$REPO_ROOT/install.sh" 2>&1; then
         print_pass "install.sh has valid syntax"
         return 0
     else
@@ -112,7 +117,7 @@ test_install_syntax() {
 test_handle_asterisk_error_exists() {
     print_test "Checking if handle_asterisk_error function exists in install.sh"
     
-    if grep -q "handle_asterisk_error()" /home/runner/work/rayanpbx/rayanpbx/install.sh; then
+    if grep -q "handle_asterisk_error()" "$REPO_ROOT/install.sh"; then
         print_pass "handle_asterisk_error function exists"
         return 0
     else
@@ -125,7 +130,7 @@ test_handle_asterisk_error_exists() {
 test_pollinations_integration() {
     print_test "Checking pollinations.ai integration in error handling"
     
-    if grep -q "pollinations.ai" /home/runner/work/rayanpbx/rayanpbx/install.sh; then
+    if grep -q "pollinations.ai" "$REPO_ROOT/install.sh"; then
         print_pass "pollinations.ai integration found"
         return 0
     else
@@ -138,7 +143,7 @@ test_pollinations_integration() {
 test_asterisk_console_guidance() {
     print_test "Checking Asterisk console guidance in final output"
     
-    if grep -q "asterisk -rvvv" /home/runner/work/rayanpbx/rayanpbx/install.sh; then
+    if grep -q "asterisk -rvvv" "$REPO_ROOT/install.sh"; then
         print_pass "Asterisk console command (asterisk -rvvv) found in guidance"
         return 0
     else
@@ -151,7 +156,7 @@ test_asterisk_console_guidance() {
 test_asterisk_restart_handling() {
     print_test "Checking enhanced error handling for Asterisk restart"
     
-    if grep -A 5 "systemctl restart asterisk" /home/runner/work/rayanpbx/rayanpbx/install.sh | grep -q "handle_asterisk_error"; then
+    if grep -A 5 "systemctl restart asterisk" "$REPO_ROOT/install.sh" | grep -q "handle_asterisk_error"; then
         print_pass "Enhanced error handling for Asterisk restart found"
         return 0
     else
@@ -164,7 +169,7 @@ test_asterisk_restart_handling() {
 test_asterisk_reload_handling() {
     print_test "Checking enhanced error handling for Asterisk reload"
     
-    if grep -A 10 "systemctl reload asterisk" /home/runner/work/rayanpbx/rayanpbx/install.sh | grep -q "handle_asterisk_error"; then
+    if grep -A 10 "systemctl reload asterisk" "$REPO_ROOT/install.sh" | grep -q "handle_asterisk_error"; then
         print_pass "Enhanced error handling for Asterisk reload found"
         return 0
     else
