@@ -15,7 +15,7 @@ class RayanPBXHealth extends Command
      *
      * @var string
      */
-    protected $signature = 'rayanpbx:health {--json : Output as JSON} {--verbose : Show detailed information}';
+    protected $signature = 'rayanpbx:health {--json : Output as JSON} {--detailed : Show detailed information}';
 
     /**
      * The console command description.

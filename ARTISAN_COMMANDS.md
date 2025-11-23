@@ -32,8 +32,8 @@ php artisan rayanpbx:health
 # Output as JSON
 php artisan rayanpbx:health --json
 
-# Verbose output
-php artisan rayanpbx:health --verbose
+# Detailed output
+php artisan rayanpbx:health --detailed
 ```
 
 Checks:
