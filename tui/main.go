@@ -504,6 +504,7 @@ func getUsageCommands() []UsageCommand {
 }
 
 // executeCommand shows a message about executing the command
+// TODO: Implement actual command execution using exec.Command for better user experience
 func (m *model) executeCommand(command string) {
 	// For now, just show that the command would be executed
 	// In a real implementation, this could use exec.Command to run it
@@ -602,7 +603,8 @@ func (m model) renderCreateExtension() string {
 		if value == "" {
 			value = helpStyle.Render("<enter value>")
 		} else if field == "Password" {
-			// Use fixed mask to not reveal password length
+			// Use fixed mask to not reveal password length (security best practice)
+			// This prevents potential attackers from guessing password complexity
 			value = "********"
 		}
 
@@ -651,6 +653,7 @@ func (m *model) createExtension() {
 	// Note: Default context is 'from-internal' (standard internal dial context)
 	// Note: Default transport is 'transport-udp' (standard UDP transport)
 	// Note: Extensions are enabled by default
+	// TODO: Consider extracting these defaults as constants for better maintainability
 	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, created_at, updated_at)
 			  VALUES (?, ?, ?, 'from-internal', 'transport-udp', 1, NOW(), NOW())`
 
@@ -683,6 +686,7 @@ func (m *model) createTrunk() {
 	// Insert into database with default configuration values
 	// Note: Trunks are enabled by default (enabled=1)
 	// This is the standard behavior for newly created trunks
+	// TODO: Consider extracting these defaults as constants for better maintainability
 	query := `INSERT INTO trunks (name, host, port, priority, enabled, created_at, updated_at)
 			  VALUES (?, ?, ?, ?, 1, NOW(), NOW())`
 
