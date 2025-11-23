@@ -320,15 +320,22 @@ func monitorRedis(hub *Hub, redisHost, redisPort, redisPassword string) {
 		// Forward Redis message to WebSocket clients
 		var payload map[string]interface{}
 		if err := json.Unmarshal([]byte(msg.Payload), &payload); err == nil {
+			// Type-safe check for event type
+			eventType, ok := payload["type"].(string)
+			if !ok {
+				red.Println("⚠️  Received event without valid type field")
+				continue
+			}
+			
 			wsMsg := Message{
-				Type:      payload["type"].(string),
+				Type:      eventType,
 				Payload:   payload,
 				Timestamp: time.Now(),
 			}
 			msgJSON, _ := json.Marshal(wsMsg)
 			hub.broadcast <- msgJSON
 			
-			green.Printf("📤 Broadcast event: %s\n", payload["type"])
+			green.Printf("📤 Broadcast event: %s\n", eventType)
 		}
 	}
 }
