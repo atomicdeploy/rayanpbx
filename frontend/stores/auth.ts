@@ -32,21 +32,21 @@ export const useAuthStore = defineStore('auth', {
       } catch (error: any) {
         console.error('Login error:', error)
         
-        // Check if it's a connection error
-        if (!error.response && (error.cause?.code === 'ECONNREFUSED' || error.message?.includes('fetch failed'))) {
-          this.lastError = 'backend_unreachable'
-          return { success: false, error: 'backend_unreachable' }
+        // Check if error has a response (meaning we got a response from server)
+        if (error.response) {
+          // We got a response from the server
+          if (error.response.status === 422 || error.response.status === 401) {
+            this.lastError = 'invalid_credentials'
+            return { success: false, error: 'invalid_credentials' }
+          }
+          // Other server errors
+          this.lastError = 'unknown_error'
+          return { success: false, error: 'unknown_error' }
         }
         
-        // Check for validation errors from backend
-        if (error.response?.status === 422 || error.response?.status === 401) {
-          this.lastError = 'invalid_credentials'
-          return { success: false, error: 'invalid_credentials' }
-        }
-        
-        // Generic error
-        this.lastError = 'unknown_error'
-        return { success: false, error: 'unknown_error' }
+        // No response means network/connection error
+        this.lastError = 'backend_unreachable'
+        return { success: false, error: 'backend_unreachable' }
       }
     },
 

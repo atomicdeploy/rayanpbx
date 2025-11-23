@@ -117,7 +117,7 @@ Route::get('/health', function () {
     
     // Check Asterisk AMI connectivity
     try {
-        $socket = @fsockopen(
+        $socket = fsockopen(
             config('rayanpbx.asterisk.ami_host', '127.0.0.1'),
             config('rayanpbx.asterisk.ami_port', 5038),
             $errno,
@@ -133,6 +133,9 @@ Route::get('/health', function () {
         }
     } catch (\Exception $e) {
         $asteriskStatus = 'unknown';
+    } catch (\ErrorException $e) {
+        // fsockopen can throw ErrorException on connection failure
+        $asteriskStatus = 'stopped';
     }
     
     return response()->json([

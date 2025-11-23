@@ -1,21 +1,18 @@
 export default defineNuxtRouteMiddleware((to, from) => {
-  const authStore = useAuthStore()
-  
-  // Skip middleware on server side
+  // Only run on client side to access localStorage
   if (process.server) {
     return
   }
   
-  // Check if user is authenticated
-  if (process.client) {
-    const token = localStorage.getItem('rayanpbx_token')
-    
-    if (!token && to.path !== '/login') {
-      return navigateTo('/login')
-    }
-    
-    if (token && to.path === '/login') {
-      return navigateTo('/')
-    }
+  const token = localStorage.getItem('rayanpbx_token')
+  
+  // Redirect to login if not authenticated and not already on login page
+  if (!token && to.path !== '/login') {
+    return navigateTo('/login')
+  }
+  
+  // Redirect to home if authenticated and trying to access login page
+  if (token && to.path === '/login') {
+    return navigateTo('/')
   }
 })
