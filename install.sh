@@ -14,6 +14,8 @@ readonly SCRIPT_VERSION="2.0.0"
 
 VERBOSE=false
 DRY_RUN=false
+INSTALL_TTS=false
+INSTALL_ADVANCED_SECURITY=false
 
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
@@ -70,6 +72,8 @@ show_help() {
     echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
     echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
+    echo -e "    ${GREEN}--with-tts${RESET}          Install Text-to-Speech engines (gTTS and Piper)"
+    echo -e "    ${GREEN}--with-security${RESET}     Install advanced security tools (coming soon)"
     echo ""
     echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
     echo -e "    ${CYAN}•${RESET} Ubuntu 24.04 LTS (recommended)"
@@ -84,6 +88,9 @@ show_help() {
     echo ""
     echo -e "    ${DIM}# Verbose installation (helpful for debugging)${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --verbose${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Installation with Text-to-Speech support${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --with-tts${RESET}"
     echo ""
     echo -e "    ${DIM}# Show version${RESET}"
     echo -e "    ${WHITE}./install.sh --version${RESET}"
@@ -261,6 +268,14 @@ while [[ $# -gt 0 ]]; do
         --dry-run)
             DRY_RUN=true
             echo "Dry-run mode enabled (not yet fully implemented)"
+            shift
+            ;;
+        --with-tts)
+            INSTALL_TTS=true
+            shift
+            ;;
+        --with-security)
+            INSTALL_ADVANCED_SECURITY=true
             shift
             ;;
         *)
@@ -445,10 +460,7 @@ PACKAGES=(
     mailutils
     jq
     expect
-    ntp
     python3-pip
-    openvpn
-    knockd
 )
 
 print_info "Installing essential packages..."
@@ -1245,7 +1257,9 @@ echo -e "  ${DIM}• sngrep${RESET}    - SIP packet analyzer"
 echo -e "  ${DIM}• fail2ban${RESET}  - Intrusion prevention"
 echo -e "  ${DIM}• sox/ffmpeg${RESET} - Audio conversion tools"
 echo -e "  ${DIM}• jq${RESET}        - JSON processor"
-echo -e "  ${DIM}• knockd${RESET}    - Port knocking daemon"
+if [ "$INSTALL_TTS" = true ]; then
+    echo -e "  ${DIM}• gTTS/Piper${RESET}  - Text-to-Speech engines"
+fi
 
 # Configure VIM for root user
 next_step "Shell Environment Configuration"
@@ -1277,111 +1291,68 @@ else
     print_info "Shell aliases already configured"
 fi
 
-# Install and configure gTTS for text-to-speech
-if command -v pip3 &> /dev/null; then
-    print_info "Installing gTTS (Google Text-to-Speech)..."
-    pip3 install --upgrade pip > /dev/null 2>&1
-    pip3 install gTTS > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        print_success "gTTS installed"
-    else
-        print_warning "gTTS installation failed (optional)"
-    fi
-else
-    print_warning "pip3 not available - skipping gTTS"
-fi
-
 # Configure NTP for time synchronization
-if command -v ntpd &> /dev/null || command -v chronyd &> /dev/null; then
-    print_info "Configuring time synchronization..."
-    if systemctl is-active --quiet systemd-timesyncd; then
-        systemctl enable systemd-timesyncd > /dev/null 2>&1
-        systemctl start systemd-timesyncd > /dev/null 2>&1
-        print_success "Time synchronization enabled (systemd-timesyncd)"
-    elif command -v ntpd &> /dev/null; then
-        systemctl enable ntp > /dev/null 2>&1
-        systemctl start ntp > /dev/null 2>&1
-        print_success "Time synchronization enabled (ntp)"
-    fi
+if systemctl is-active --quiet systemd-timesyncd; then
+    systemctl enable systemd-timesyncd > /dev/null 2>&1
+    systemctl start systemd-timesyncd > /dev/null 2>&1
+    print_success "Time synchronization enabled (systemd-timesyncd)"
 else
-    print_info "Using systemd-timesyncd for time synchronization"
+    print_info "Using system default time synchronization"
 fi
 
-# Disable IPv6 (optional security measure like IncrediblePBX)
-print_info "Configuring network settings..."
-if [ ! -f /etc/sysctl.d/70-disable-ipv6.conf ]; then
-    cat > /etc/sysctl.d/70-disable-ipv6.conf << 'EOF'
-# Disable IPv6 for security
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
-net.ipv6.conf.lo.disable_ipv6 = 0
-EOF
-    sysctl -p -f /etc/sysctl.d/70-disable-ipv6.conf > /dev/null 2>&1
-    print_success "IPv6 disabled (can be re-enabled if needed)"
-else
-    print_info "IPv6 configuration already exists"
-fi
-
-# Configure Port Knocking (knockd)
-next_step "Port Knocking Configuration (Optional)"
-print_info "Configuring knockd for enhanced security..."
-
-if command -v knockd &> /dev/null && [ -d /etc ]; then
-    # Generate random knock ports
-    KNOCK1=$((RANDOM % 3950 + 6001))
-    KNOCK2=$((RANDOM % 3950 + 6001))
-    KNOCK3=$((RANDOM % 3950 + 6001))
+# Optional: Install Text-to-Speech engines
+if [ "$INSTALL_TTS" = true ]; then
+    next_step "Text-to-Speech Installation (Optional)"
     
-    cat > /etc/knockd.conf << EOF
-[options]
-    logfile = /var/log/knockd.log
-
-[opencloseSSH]
-    sequence      = $KNOCK1:tcp,$KNOCK2:tcp,$KNOCK3:tcp
-    seq_timeout   = 15
-    tcpflags      = syn
-    start_command = /usr/sbin/iptables -I INPUT -s %IP% -p tcp --dport 22 -j ACCEPT
-    cmd_timeout   = 3600
-    stop_command  = /usr/sbin/iptables -D INPUT -s %IP% -p tcp --dport 22 -j ACCEPT
-EOF
-    chmod 640 /etc/knockd.conf
-    
-    # Configure knockd to start
-    if [ -f /etc/default/knockd ]; then
-        sed -i 's|START_KNOCKD=0|START_KNOCKD=1|' /etc/default/knockd
-        # Detect network interface
-        NETIF=$(ip route | grep default | awk '{print $5}' | head -1)
-        if [ -n "$NETIF" ]; then
-            echo "KNOCKD_OPTS=\"-i $NETIF\"" >> /etc/default/knockd
+    # Install gTTS (Google Text-to-Speech)
+    if command -v pip3 &> /dev/null; then
+        print_info "Installing gTTS (Google Text-to-Speech)..."
+        pip3 install --upgrade pip > /dev/null 2>&1
+        pip3 install gTTS > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            print_success "gTTS installed"
+        else
+            print_warning "gTTS installation failed"
         fi
+    else
+        print_warning "pip3 not available - skipping gTTS"
     fi
     
-    # Save knock information
-    cat > /root/knock.FAQ << EOF
-Port Knocking Configuration
-============================
-
-Your server is protected by port knocking on SSH port 22.
-
-Knock sequence: TCP ports $KNOCK1, $KNOCK2, $KNOCK3
-
-To enable access from remote IP, use:
-  nmap -p $KNOCK1 --max-retries 0 YOUR_SERVER_IP
-  nmap -p $KNOCK2 --max-retries 0 YOUR_SERVER_IP
-  nmap -p $KNOCK3 --max-retries 0 YOUR_SERVER_IP
-
-Or use iOS PortKnock / Android DroidKnocker apps.
-
-To enable knockd:
-  systemctl enable knockd
-  systemctl start knockd
-
-Note: Knockd is disabled by default. Enable it only if you understand port knocking.
-EOF
-    print_success "Port knocking configured (disabled by default)"
-    print_info "Configuration saved to /root/knock.FAQ"
+    # Install Piper TTS (local, fast, neural TTS)
+    print_info "Installing Piper TTS..."
+    if [ -d /opt ]; then
+        cd /opt
+        # Download Piper for x86_64 Linux
+        PIPER_VERSION="2023.11.14-2"
+        wget -q "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_x86_64.tar.gz" -O piper.tar.gz
+        if [ $? -eq 0 ]; then
+            tar -xzf piper.tar.gz
+            rm piper.tar.gz
+            # Create symlink for easy access
+            ln -sf /opt/piper/piper /usr/local/bin/piper
+            
+            # Download a default voice model (en_US-lessac-medium)
+            mkdir -p /opt/piper/voices
+            cd /opt/piper/voices
+            wget -q "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+            wget -q "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+            
+            if [ -f /usr/local/bin/piper ]; then
+                print_success "Piper TTS installed"
+                print_info "Default voice: en_US-lessac-medium"
+                print_info "Usage: echo 'Hello' | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f output.wav"
+            else
+                print_warning "Piper TTS installation failed"
+            fi
+        else
+            print_warning "Failed to download Piper TTS"
+        fi
+        cd /root
+    else
+        print_warning "/opt directory not found - skipping Piper"
+    fi
 else
-    print_warning "knockd not available - skipping port knocking configuration"
+    print_info "Text-to-Speech engines not requested (use --with-tts to install)"
 fi
 
 # Verify services
@@ -1455,8 +1426,6 @@ echo -e "${BOLD}${CYAN}🔒 Security Tools:${RESET}"
 echo -e "  ${DIM}Fail2ban:${RESET}         Configured for Asterisk (port 5060/5061)"
 echo -e "  ${DIM}Firewall:${RESET}         Use ${WHITE}rayanpbx-cli firewall setup${RESET}"
 echo -e "  ${DIM}Certificates:${RESET}     Use ${WHITE}rayanpbx-cli certificate${RESET}"
-echo -e "  ${DIM}Port Knocking:${RESET}    Configuration in /root/knock.FAQ"
-echo -e "  ${DIM}IPv6:${RESET}             Disabled for security (can be re-enabled)"
 echo ""
 
 echo -e "${BOLD}${CYAN}📧 Email & FAX:${RESET}"
@@ -1465,14 +1434,23 @@ echo -e "  ${DIM}FAX directory:${RESET}    /var/spool/asterisk/fax"
 echo -e "  ${DIM}FAX config:${RESET}       /etc/asterisk/extensions_custom.conf"
 echo ""
 
-echo -e "${BOLD}${CYAN}🎙️  Audio & TTS:${RESET}"
-echo -e "  ${DIM}Sound tools:${RESET}      sox, ffmpeg, lame, mpg123"
-echo -e "  ${DIM}Text-to-Speech:${RESET}   gTTS (Google TTS) installed"
-echo -e "  ${DIM}Audio formats:${RESET}    GSM, WAV, MP3, uLaw conversion"
-echo ""
+if [ "$INSTALL_TTS" = true ]; then
+    echo -e "${BOLD}${CYAN}🎙️  Audio & TTS:${RESET}"
+    echo -e "  ${DIM}Sound tools:${RESET}      sox, ffmpeg, lame, mpg123"
+    echo -e "  ${DIM}Text-to-Speech:${RESET}   gTTS and Piper TTS installed"
+    echo -e "  ${DIM}Piper usage:${RESET}      echo 'text' | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f out.wav"
+    echo -e "  ${DIM}Audio formats:${RESET}    GSM, WAV, MP3, uLaw conversion"
+    echo ""
+else
+    echo -e "${BOLD}${CYAN}🎙️  Audio:${RESET}"
+    echo -e "  ${DIM}Sound tools:${RESET}      sox, ffmpeg, lame, mpg123"
+    echo -e "  ${DIM}Audio formats:${RESET}    GSM, WAV, MP3, uLaw conversion"
+    echo -e "  ${DIM}TTS:${RESET}              Use ${WHITE}--with-tts${RESET} flag to install gTTS and Piper"
+    echo ""
+fi
 
 echo -e "${BOLD}${CYAN}⏰ System Services:${RESET}"
-echo -e "  ${DIM}Time sync:${RESET}        NTP/systemd-timesyncd enabled"
+echo -e "  ${DIM}Time sync:${RESET}        systemd-timesyncd enabled"
 echo -e "  ${DIM}Log rotation:${RESET}     Configured for Asterisk logs"
 echo -e "  ${DIM}Cron jobs:${RESET}        Laravel scheduler configured"
 echo ""
@@ -1487,7 +1465,6 @@ echo -e "  6. Upload custom sounds:   ${WHITE}sudo rayanpbx-cli sound upload <fi
 echo ""
 
 echo -e "${BOLD}${CYAN}📋 Important Files:${RESET}"
-echo -e "  ${DIM}Knock config:${RESET}     /root/knock.FAQ"
 echo -e "  ${DIM}VIM config:${RESET}       /root/.vimrc"
 echo -e "  ${DIM}Shell aliases:${RESET}    /etc/bash.bashrc"
 echo ""

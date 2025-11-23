@@ -5,7 +5,7 @@
 This document details the features integrated into RayanPBX's install.sh from IncrediblePBX 2025 and Issabel 5 netinstall scripts.
 
 ## Date
-November 23, 2025
+November 23, 2025 (Updated)
 
 ## Source Scripts Analyzed
 
@@ -21,43 +21,52 @@ November 23, 2025
 
 ## Features Integrated from IncrediblePBX
 
-### 1. Additional Packages (9 new)
+### 1. Essential Packages
+**Always Installed:**
 - **jq** - JSON processor for CLI operations
 - **expect** - Automation tool for interactive programs
-- **ntp** - Network Time Protocol for time synchronization
-- **python3-pip** - Python package installer
-- **openvpn** - VPN support for secure connections
-- **knockd** - Port knocking daemon for enhanced security
+- **python3-pip** - Python package installer (base for TTS)
 
-### 2. Security Enhancements
+**Removed from automatic installation:**
+- ~~ntp~~ - Not needed (systemd-timesyncd is default)
+- ~~openvpn~~ - Deferred (see DEFERRED_FEATURES.md)
+- ~~knockd~~ - Deferred (see DEFERRED_FEATURES.md)
 
-#### Port Knocking (knockd)
+### 2. Optional Features (via Flags)
+
+#### Text-to-Speech (--with-tts flag)
 ```bash
-- Random port generation for knock sequence
-- Configurable timeout (15 seconds)
-- Auto-detection of network interface
-- Documentation saved to /root/knock.FAQ
-- Disabled by default for safety
+sudo ./install.sh --with-tts
 ```
 
-#### IPv6 Disabling
-```bash
-- Optional security measure
-- Configured via sysctl
-- Can be re-enabled if needed
-- Configuration: /etc/sysctl.d/70-disable-ipv6.conf
-```
+Installs:
+- **gTTS** (Google Text-to-Speech)
+  - Python-based
+  - Requires internet connection
+  - Multiple language support
+  
+- **Piper TTS** (Local Neural TTS)
+  - Fast, offline TTS
+  - Neural voice models
+  - Download: en_US-lessac-medium voice
+  - Usage: `echo "text" | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f output.wav`
+
+### 3. Security Enhancements
 
 #### Enhanced Fail2ban
 ```bash
-- Already configured for Asterisk (ports 5060/5061)
+- Configured for Asterisk (ports 5060/5061)
 - UDP and TCP protocol support
 - 5 retry attempts before ban
 - 1 hour ban time
 - 10 minute find time window
 ```
 
-### 3. System Configuration
+**Removed/Deferred:**
+- ❌ Port knocking (knockd) - Deferred to future release
+- ❌ IPv6 disabling - Anti-pattern, not implemented
+
+### 4. System Configuration
 
 #### VIM Configuration
 ```bash
@@ -76,29 +85,29 @@ November 23, 2025
 - Added to /etc/bash.bashrc
 ```
 
-### 4. Communication Tools
-
-#### Text-to-Speech (gTTS)
-```bash
-- Google Text-to-Speech library
-- Python-based
-- Supports multiple languages
-- Can generate audio files for Asterisk
-```
-
 #### Time Synchronization
 ```bash
-- NTP daemon or systemd-timesyncd
-- Auto-detection of available service
+- Uses built-in systemd-timesyncd (Ubuntu 24.04 default)
+- No additional NTP package needed
 - Ensures accurate timestamps for calls
 ```
 
-### 5. FAX Support
+### 5. Communication Features
+
+#### FAX Support
 ```bash
 - Enhanced configuration in extensions_custom.conf
 - TIFF to PDF conversion
 - Dedicated spool directory
 - Email delivery support
+```
+
+#### Email Configuration
+```bash
+- Postfix configured as Internet Site
+- Loopback-only interface for security
+- Hostname configuration
+- Ready for SMTP relay configuration
 ```
 
 ### 6. Log Rotation
@@ -110,13 +119,42 @@ November 23, 2025
 - Auto-reload after rotation
 ```
 
-### 7. Email Configuration
+## Command-Line Flags
+
+### Standard Installation
 ```bash
-- Postfix configured as Internet Site
-- Loopback-only interface for security
-- Hostname configuration
-- Ready for Gmail SMTP relay
+sudo ./install.sh
 ```
+
+### With Text-to-Speech
+```bash
+sudo ./install.sh --with-tts
+```
+Installs gTTS and Piper TTS engines for voice synthesis.
+
+### Verbose Mode
+```bash
+sudo ./install.sh --verbose
+```
+Shows detailed installation steps for debugging.
+
+### Multiple Flags
+```bash
+sudo ./install.sh --verbose --with-tts
+```
+
+## Deferred Features
+
+See **DEFERRED_FEATURES.md** for detailed information on features that were identified but not implemented, including:
+
+- Port knocking (knockd) - Advanced security
+- IPv6 disabling - Anti-pattern
+- OpenVPN - Complex, user-specific
+- NTP daemon - Built-in alternative exists
+- Webmin - Conflicts with RayanPBX UI
+- Weather TTS script - Nice-to-have
+- Gmail SMTP helper - Too specific
+- pbxstatus tool - CLI provides equivalent
 
 ## Features Noted from Issabel (Not Directly Applicable)
 
@@ -145,16 +183,18 @@ November 23, 2025
 
 ## Installation Script Enhancements Summary
 
-### Packages Added
-| Package | Purpose | From |
-|---------|---------|------|
-| jq | JSON processing | IncrediblePBX |
-| expect | Automation | IncrediblePBX |
-| ntp | Time sync | IncrediblePBX |
-| python3-pip | Package management | IncrediblePBX |
-| gTTS (pip) | Text-to-speech | IncrediblePBX |
-| openvpn | VPN support | IncrediblePBX |
-| knockd | Port knocking | IncrediblePBX |
+### Packages Added (Always Installed)
+| Package | Purpose |
+|---------|---------|
+| jq | JSON processing |
+| expect | Automation |
+| python3-pip | Package management |
+
+### Optional Packages (--with-tts flag)
+| Package | Purpose |
+|---------|---------|
+| gTTS (pip) | Google Text-to-Speech |
+| Piper TTS | Local neural TTS engine |
 
 ### Configuration Sections Added
 1. **Shell Environment Configuration**
@@ -163,13 +203,11 @@ November 23, 2025
    - Color schemes
 
 2. **Security Hardening**
-   - Port knocking configuration
-   - IPv6 disabling
-   - Enhanced fail2ban rules
+   - Enhanced fail2ban rules for Asterisk
 
 3. **Communication Setup**
-   - gTTS installation
-   - Time synchronization
+   - Optional gTTS and Piper installation
+   - Time synchronization (systemd-timesyncd)
    - Enhanced FAX support
 
 4. **System Tools**
@@ -216,30 +254,32 @@ Users can enable/disable:
 ## Documentation Updates
 
 ### New Documentation Files
-1. **/root/knock.FAQ** - Port knocking instructions
-2. **/root/.vimrc** - VIM configuration
-3. **Enhanced /etc/bash.bashrc** - Shell aliases
+1. **/root/.vimrc** - VIM configuration
+2. **Enhanced /etc/bash.bashrc** - Shell aliases
+3. **DEFERRED_FEATURES.md** - Documentation of deferred features
 
 ### Updated Sections
-1. **Final installation banner** - Shows all new tools
-2. **Security tools section** - Lists fail2ban, knockd, etc.
-3. **Audio/TTS section** - gTTS and sound tools
-4. **System services** - Time sync, log rotation
+1. **Final installation banner** - Shows optional TTS status
+2. **Security tools section** - Lists fail2ban, firewall
+3. **Audio section** - TTS info if installed
+4. **System services** - Time sync via systemd-timesyncd
 
 ## Integration Statistics
 
-- **Lines added to install.sh**: ~150 lines
-- **New packages**: 7 additional packages
-- **New configuration files**: 3 files
-- **Enhanced sections**: 4 major areas
-- **Total features integrated**: 15+ features
+- **Lines added to install.sh**: ~200 lines
+- **New packages (always)**: 3 packages
+- **Optional packages**: 2 (gTTS + Piper)
+- **New configuration files**: 2 files
+- **Enhanced sections**: 6 major areas
+- **Total features integrated**: 12+ features
+- **Command-line flags**: 2 optional features
 
 ## Backward Compatibility
 
 ✅ **100% Backward Compatible**
 - All existing features preserved
 - No breaking changes
-- Optional features can be disabled
+- Optional features via flags
 - Safe for existing installations
 
 ## Next Steps for Users
@@ -248,7 +288,7 @@ After installation, users should:
 
 1. Review security configuration
    ```bash
-   cat /root/knock.FAQ
+   sudo fail2ban-client status asterisk
    ```
 
 2. Configure firewall
@@ -263,15 +303,46 @@ After installation, users should:
    jq --version   # JSON processor
    ```
 
-4. Check fail2ban status
+4. Test TTS (if installed with --with-tts)
    ```bash
-   sudo fail2ban-client status asterisk
+   # Test gTTS
+   gtts-cli "Hello from RayanPBX" --output /tmp/test.mp3
+   
+   # Test Piper
+   echo "Hello from Piper" | piper -m /opt/piper/voices/en_US-lessac-medium.onnx -f /tmp/test.wav
    ```
 
 5. Verify time synchronization
    ```bash
    timedatectl status
    ```
+
+## User Guidelines
+
+### Installing with TTS Support
+If you need Text-to-Speech capabilities for IVR, announcements, or accessibility:
+
+```bash
+sudo ./install.sh --with-tts
+```
+
+This will install both gTTS (cloud-based) and Piper (local) TTS engines.
+
+### Standard Installation (Recommended)
+For most users, the standard installation is sufficient:
+
+```bash
+sudo ./install.sh
+```
+
+You can always add TTS later by running the pip install commands manually.
+
+### Deferred Features
+For features like port knocking, OpenVPN, or Webmin, see **DEFERRED_FEATURES.md** for:
+- Why they were deferred
+- Manual installation instructions (if desired)
+- Alternative solutions
+- Future considerations
 
 ## Conclusion
 
