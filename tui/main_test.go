@@ -1,0 +1,117 @@
+package main
+
+import (
+	"testing"
+)
+
+// TestUsageCommandsGeneration tests that usage commands are generated correctly
+func TestUsageCommandsGeneration(t *testing.T) {
+	commands := getUsageCommands()
+	
+	if len(commands) == 0 {
+		t.Error("Expected usage commands to be generated, got empty slice")
+	}
+	
+	// Check that we have commands for all categories
+	categories := make(map[string]int)
+	for _, cmd := range commands {
+		categories[cmd.Category]++
+		
+		// Verify each command has required fields
+		if cmd.Command == "" {
+			t.Errorf("Command has empty Command field: %+v", cmd)
+		}
+		if cmd.Category == "" {
+			t.Errorf("Command has empty Category field: %+v", cmd)
+		}
+		if cmd.Description == "" {
+			t.Errorf("Command has empty Description field: %+v", cmd)
+		}
+	}
+	
+	// Verify we have major categories
+	expectedCategories := []string{"Extensions", "Trunks", "Asterisk", "Diagnostics", "System"}
+	for _, expected := range expectedCategories {
+		if count, ok := categories[expected]; !ok || count == 0 {
+			t.Errorf("Expected category %s to have commands, got %d", expected, count)
+		}
+	}
+}
+
+// TestModelInitialization tests that the model initializes correctly
+func TestModelInitialization(t *testing.T) {
+	// Create a model without DB (nil is acceptable for this test)
+	m := initialModel(nil, nil)
+	
+	if m.currentScreen != mainMenu {
+		t.Errorf("Expected currentScreen to be mainMenu, got %d", m.currentScreen)
+	}
+	
+	if len(m.menuItems) == 0 {
+		t.Error("Expected menuItems to be populated")
+	}
+	
+	if m.cursor != 0 {
+		t.Errorf("Expected cursor to start at 0, got %d", m.cursor)
+	}
+}
+
+// TestInputFieldsValidation tests input validation logic
+func TestInputFieldsValidation(t *testing.T) {
+	m := initialModel(nil, nil)
+	
+	// Test extension creation initialization
+	m.initCreateExtension()
+	
+	if m.currentScreen != createExtensionScreen {
+		t.Errorf("Expected screen to be createExtensionScreen, got %d", m.currentScreen)
+	}
+	
+	if !m.inputMode {
+		t.Error("Expected inputMode to be true after initCreateExtension")
+	}
+	
+	if len(m.inputFields) != 3 {
+		t.Errorf("Expected 3 input fields for extension, got %d", len(m.inputFields))
+	}
+	
+	// Test trunk creation initialization
+	m.initCreateTrunk()
+	
+	if m.currentScreen != createTrunkScreen {
+		t.Errorf("Expected screen to be createTrunkScreen, got %d", m.currentScreen)
+	}
+	
+	if len(m.inputFields) != 4 {
+		t.Errorf("Expected 4 input fields for trunk, got %d", len(m.inputFields))
+	}
+}
+
+// TestScreenEnumValues tests that screen enum values are distinct
+func TestScreenEnumValues(t *testing.T) {
+	screens := []screen{
+		mainMenu,
+		extensionsScreen,
+		trunksScreen,
+		asteriskScreen,
+		diagnosticsScreen,
+		statusScreen,
+		logsScreen,
+		usageScreen,
+		createExtensionScreen,
+		createTrunkScreen,
+	}
+	
+	// Check that all values are unique
+	seen := make(map[screen]bool)
+	for _, s := range screens {
+		if seen[s] {
+			t.Errorf("Duplicate screen value: %d", s)
+		}
+		seen[s] = true
+	}
+	
+	if len(seen) != len(screens) {
+		t.Errorf("Expected %d unique screen values, got %d", len(screens), len(seen))
+	}
+}
