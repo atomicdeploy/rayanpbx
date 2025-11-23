@@ -1057,9 +1057,9 @@ else
 fi
 
 # Always update database credentials (in case of re-run or fresh install)
-sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$ESCAPED_DB_PASSWORD/" .env
-sed -i "s/DB_DATABASE=.*/DB_DATABASE=rayanpbx/" .env
-sed -i "s/DB_USERNAME=.*/DB_USERNAME=rayanpbx/" .env
+sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$ESCAPED_DB_PASSWORD|" .env
+sed -i "s|DB_DATABASE=.*|DB_DATABASE=rayanpbx|" .env
+sed -i "s|DB_USERNAME=.*|DB_USERNAME=rayanpbx|" .env
 print_verbose "Database credentials updated in .env"
 
 # Generate JWT secret if not already set
