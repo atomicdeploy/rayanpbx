@@ -8,6 +8,9 @@
 
 set -e
 
+# Configuration
+API_BASE_URL="${API_BASE_URL:-http://localhost/api}"
+
 # Colors
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
@@ -75,7 +78,7 @@ test_extension_creation() {
     # Get auth token first
     log_info "Authenticating with API..."
     
-    TOKEN_RESPONSE=$(curl -s -X POST http://localhost:8000/api/auth/login \
+    TOKEN_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/auth/login \
         -H "Content-Type: application/json" \
         -d "{\"username\":\"$(whoami)\",\"password\":\"test123\"}" 2>/dev/null)
     
@@ -92,7 +95,7 @@ test_extension_creation() {
     fi
     
     # Create extension
-    CREATE_RESPONSE=$(curl -s -X POST http://localhost:8000/api/extensions \
+    CREATE_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/extensions \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{
@@ -233,7 +236,7 @@ EOF
     # Step 7: Verify registration status via API
     log_test "Checking registration status via API..."
     
-    STATUS_RESPONSE=$(curl -s -X POST http://localhost:8000/api/asterisk/endpoint/status \
+    STATUS_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/asterisk/endpoint/status \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{\"endpoint\": \"$TEST_EXT\"}" 2>/dev/null)
@@ -264,12 +267,12 @@ test_trunk_configuration() {
     # Step 1: Create trunk via API
     log_test "Creating SIP trunk via API..."
     
-    TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+    TOKEN=$(curl -s -X POST ${API_BASE_URL}/auth/login \
         -H "Content-Type: application/json" \
         -d "{\"username\":\"$(whoami)\",\"password\":\"test123\"}" 2>/dev/null | \
         grep -o '"token":"[^"]*"' | cut -d'"' -f4)
     
-    TRUNK_RESPONSE=$(curl -s -X POST http://localhost:8000/api/trunks \
+    TRUNK_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/trunks \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{
@@ -370,7 +373,7 @@ test_trunk_configuration() {
     # Step 7: Verify trunk status via API
     log_test "Checking trunk status via API..."
     
-    API_TRUNK_STATUS=$(curl -s -X POST http://localhost:8000/api/asterisk/trunk/status \
+    API_TRUNK_STATUS=$(curl -s -X POST ${API_BASE_URL}/asterisk/trunk/status \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{\"trunk\": \"$TRUNK_NAME\"}" 2>/dev/null)
@@ -399,7 +402,7 @@ test_error_reporting() {
     # Step 1: Test API error reporting endpoint
     log_test "Testing error explanation API..."
     
-    TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+    TOKEN=$(curl -s -X POST ${API_BASE_URL}/auth/login \
         -H "Content-Type: application/json" \
         -d "{\"username\":\"$(whoami)\",\"password\":\"test123\"}" 2>/dev/null | \
         grep -o '"token":"[^"]*"' | cut -d'"' -f4)
@@ -407,7 +410,7 @@ test_error_reporting() {
     # Test with common SIP error
     ERROR_TEST="Failed to register SIP extension - 401 Unauthorized"
     
-    EXPLAIN_RESPONSE=$(curl -s -X POST http://localhost:8000/api/help/error \
+    EXPLAIN_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/help/error \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{
@@ -429,7 +432,7 @@ test_error_reporting() {
     # Step 2: Test codec explanation
     log_test "Testing codec explanation API..."
     
-    CODEC_RESPONSE=$(curl -s -X POST http://localhost:8000/api/help/codec \
+    CODEC_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/help/codec \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{\"codec\": \"g722\"}" 2>/dev/null)
@@ -446,7 +449,7 @@ test_error_reporting() {
     # Step 3: Test field help
     log_test "Testing field help API..."
     
-    FIELD_RESPONSE=$(curl -s -X POST http://localhost:8000/api/help/field \
+    FIELD_RESPONSE=$(curl -s -X POST ${API_BASE_URL}/help/field \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{
@@ -478,7 +481,7 @@ test_error_reporting() {
         log_info "Detected error: ${RELOAD_ERROR:0:100}..."
         
         # Get AI explanation for the error
-        AI_SOLUTION=$(curl -s -X POST http://localhost:8000/api/help/error \
+        AI_SOLUTION=$(curl -s -X POST ${API_BASE_URL}/help/error \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $TOKEN" \
             -d "{
@@ -546,7 +549,7 @@ main() {
         exit 1
     fi
     
-    if ! curl -s http://localhost:8000/api/health > /dev/null 2>&1; then
+    if ! curl -s ${API_BASE_URL}/health > /dev/null 2>&1; then
         log_fail "Backend API is not running!"
         log_info "Start it with: cd /opt/rayanpbx/backend && php artisan serve"
         exit 1

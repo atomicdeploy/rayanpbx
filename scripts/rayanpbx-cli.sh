@@ -27,13 +27,18 @@ ROCKET="🚀"
 
 # Configuration
 RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
-API_BASE_URL="http://localhost:8000/api"
+API_BASE_URL="http://localhost/api"
 ENV_FILE="$RAYANPBX_ROOT/.env"
 
 # Load configuration
 if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
-    API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
+    # Build API URL from environment variables if available
+    if [ -n "$API_BASE_URL" ]; then
+        API_BASE_URL="${API_BASE_URL}/api"
+    else
+        API_BASE_URL="http://localhost/api"
+    fi
 fi
 
 # Helper functions
@@ -262,7 +267,7 @@ cmd_diag_health_check() {
     
     # Check API
     echo -n "API Server: "
-    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000" | grep -q "200\|302"; then
+    if curl -s -o /dev/null -w "%{http_code}" "http://localhost" | grep -q "200\|302"; then
         print_success "Running"
     else
         print_warn "Not responding"
