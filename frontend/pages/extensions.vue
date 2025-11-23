@@ -55,15 +55,43 @@
           <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
             <tr v-for="ext in extensions" :key="ext.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
               <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                {{ ext.extension_number }}
+                <div class="flex items-center space-x-2">
+                  <span>{{ ext.extension_number }}</span>
+                  <!-- HD Badge if using 16kHz+ codec -->
+                  <span v-if="ext.hd_codec" 
+                    class="px-2 py-0.5 text-xs font-bold rounded bg-gradient-to-r from-green-400 to-green-600 text-white shadow-sm"
+                    :title="`HD Audio - ${ext.codec_info || '16kHz+'}`">
+                    🎵 HD
+                  </span>
+                </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">
-                {{ ext.name }}
+                <div>
+                  <div class="font-medium">{{ ext.name }}</div>
+                  <!-- Show IP address if registered -->
+                  <div v-if="ext.ip_address" class="text-xs text-gray-500 dark:text-gray-400">
+                    📍 {{ ext.ip_address }}:{{ ext.port }}
+                  </div>
+                </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">
-                <span :class="statusClass(ext.status)">
-                  {{ $t(`status.${ext.status}`) }}
-                </span>
+                <div class="flex items-center space-x-2">
+                  <!-- Live registration indicator -->
+                  <span v-if="ext.registered" class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  <span v-else class="inline-flex rounded-full h-2 w-2 bg-gray-400"></span>
+                  
+                  <span :class="statusClass(ext.status)">
+                    {{ ext.registered ? '🟢 Registered' : '⚫ Offline' }}
+                  </span>
+                  
+                  <!-- Show latency if available -->
+                  <span v-if="ext.latency_ms" class="text-xs text-gray-500" :title="`Qualify latency: ${ext.latency_ms}ms`">
+                    ({{ ext.latency_ms }}ms)
+                  </span>
+                </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">
                 <span v-if="ext.enabled" class="text-green-600">✓</span>
@@ -181,10 +209,59 @@ const fetchExtensions = async () => {
   try {
     const response = await api.getExtensions()
     extensions.value = response.extensions
+    
+    // Fetch live status for each extension
+    await enrichWithLiveStatus()
   } catch (error) {
     console.error('Error fetching extensions:', error)
   }
   loading.value = false
+}
+
+const enrichWithLiveStatus = async () => {
+  // Fetch all endpoint statuses from Asterisk
+  try {
+    const statusResponse = await api.apiFetch('/asterisk/endpoints')
+    if (statusResponse.success && statusResponse.endpoints) {
+      // Match endpoints with extensions
+      extensions.value = extensions.value.map(ext => {
+        const endpoint = statusResponse.endpoints.find(
+          e => e.endpoint === ext.extension_number
+        )
+        
+        if (endpoint) {
+          return {
+            ...ext,
+            registered: endpoint.registered,
+            status: endpoint.status,
+            ip_address: endpoint.ip_address,
+            port: endpoint.port,
+            latency_ms: endpoint.last_qualify_ms,
+            device_state: endpoint.device_state,
+            hd_codec: false, // Will be determined from codecs
+            codec_info: endpoint.codecs?.join(', '),
+          }
+        }
+        
+        return ext
+      })
+      
+      // Check for HD codecs
+      extensions.value = extensions.value.map(ext => {
+        const hdCodecs = ['g722', 'opus', 'silk', 'speex16', 'slin16', 'g722.2']
+        const hasHD = ext.codec_info && hdCodecs.some(c => 
+          ext.codec_info.toLowerCase().includes(c)
+        )
+        
+        return {
+          ...ext,
+          hd_codec: hasHD
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Error fetching live status:', error)
+  }
 }
 
 const editExtension = (ext: any) => {
@@ -249,5 +326,8 @@ onMounted(async () => {
     return
   }
   await fetchExtensions()
+  
+  // Auto-refresh live status every 10 seconds
+  setInterval(enrichWithLiveStatus, 10000)
 })
 </script>

@@ -345,27 +345,28 @@ if ! check_installed go "Go"; then
     print_success "Go 1.23 installed"
 fi
 
-# MySQL/MariaDB Installation
-next_step "MySQL/MariaDB Setup"
-if ! check_installed mysql "MySQL"; then
-    print_progress "Installing MySQL Server..."
+# MariaDB Installation
+next_step "MariaDB Setup"
+if ! check_installed mysql "MariaDB"; then
+    print_progress "Installing MariaDB Server..."
     (
         export DEBIAN_FRONTEND=noninteractive
-        nala install -y mysql-server
-        systemctl start mysql
-        systemctl enable mysql
-    ) > /tmp/mysql-install.log 2>&1 &
-    spinner $! "Installing MySQL"
-    print_success "MySQL installed"
+        nala install -y mariadb-server mariadb-client
+        systemctl start mariadb
+        systemctl enable mariadb
+    ) > /tmp/mariadb-install.log 2>&1 &
+    spinner $! "Installing MariaDB"
+    print_success "MariaDB installed"
     
     # Run mysql_secure_installation if not done before
     if [ ! -f /root/.mysql_secured ]; then
-        print_info "Securing MySQL installation..."
-        read -sp "Enter MySQL root password: " MYSQL_ROOT_PASSWORD
+        print_info "Securing MariaDB installation..."
+        read -sp "Enter MariaDB root password: " MYSQL_ROOT_PASSWORD
         echo
         
+        # Secure MariaDB
         mysql -uroot <<EOF
-ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASSWORD}';
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
 DELETE FROM mysql.user WHERE User='';
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
 DROP DATABASE IF EXISTS test;
@@ -373,25 +374,48 @@ DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOF
         touch /root/.mysql_secured
-        print_success "MySQL secured"
+        print_success "MariaDB secured"
     fi
 else
-    print_success "MySQL already installed"
+    print_success "MariaDB already installed"
 fi
 
 # Create database with UTF8MB4
 print_info "Creating RayanPBX database with UTF8MB4..."
-read -sp "Enter MySQL root password: " MYSQL_ROOT_PASSWORD
-echo
 
-mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" <<EOF
+# Get or prompt for password
+if [ -f /root/.mysql_secured ]; then
+    read -sp "Enter MariaDB root password: " MYSQL_ROOT_PASSWORD
+    echo
+else
+    MYSQL_ROOT_PASSWORD=""
+fi
+
+# Create database and user
+DB_PASSWORD="rayanpbx_$(openssl rand -hex 12)"
+
+mysql -uroot ${MYSQL_ROOT_PASSWORD:+-p"${MYSQL_ROOT_PASSWORD}"} <<EOF
 CREATE DATABASE IF NOT EXISTS rayanpbx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY 'rayanpbx_secure_$(openssl rand -hex 8)';
+CREATE USER IF NOT EXISTS 'rayanpbx'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON rayanpbx.* TO 'rayanpbx'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
+# Save database credentials for later use
+mkdir -p /opt/rayanpbx
+cat > /opt/rayanpbx/.db_credentials <<EOF
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=rayanpbx
+DB_USERNAME=rayanpbx
+DB_PASSWORD=${DB_PASSWORD}
+EOF
+
+chmod 600 /opt/rayanpbx/.db_credentials
+
 print_success "Database created with UTF8MB4 collation"
+print_info "Database credentials saved to /opt/rayanpbx/.db_credentials"
 
 # Asterisk 22 Installation
 next_step "Asterisk 22 Installation"
