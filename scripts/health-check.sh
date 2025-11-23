@@ -259,20 +259,23 @@ main() {
             
             echo -e "${CYAN}📊 Services:${RESET}"
             check_systemd_service "asterisk"
-            check_systemd_service "rayanpbx-api"
+            check_systemd_service "apache2"
+            check_systemd_service "php8.3-fpm"
+            check_systemd_service "rayanpbx-queue"
             check_systemd_service "mysql" || check_systemd_service "mariadb"
             echo
             
             echo -e "${CYAN}🌐 Ports:${RESET}"
             verify_port_listening 5038 "Asterisk AMI"
-            verify_port_listening 8000 "RayanPBX API"
-            verify_port_listening 3000 "RayanPBX Web"
+            verify_port_listening 80 "Apache2 (Backend)"
+            verify_port_listening 8080 "Apache2 (Frontend Proxy)"
+            verify_port_listening 3000 "Nuxt (PM2)"
             verify_port_listening 9000 "WebSocket Server"
             echo
             
             echo -e "${CYAN}💊 Health Checks:${RESET}"
             check_asterisk_health
-            check_http_health "http://localhost:8000/api" 200
+            check_http_health "http://localhost/api" 200
             check_pm2_services
             echo
             ;;

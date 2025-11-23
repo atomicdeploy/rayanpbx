@@ -590,6 +590,8 @@ PACKAGES=(
     lolcat
     redis-server
     cron
+    apache2
+    libapache2-mod-php8.3
 )
 
 print_info "Installing essential packages..."
@@ -849,6 +851,28 @@ if ! check_installed "composer" "Composer"; then
 fi
 composer --version | head -n 1
 print_verbose "Composer location: $(which composer)"
+
+# Apache2 Configuration
+next_step "Apache2 Web Server Setup"
+print_verbose "Checking Apache2 status..."
+if systemctl is-enabled --quiet apache2 2>/dev/null; then
+    print_success "Apache2 already installed and enabled"
+else
+    print_progress "Enabling Apache2 service..."
+    systemctl enable apache2 > /dev/null 2>&1 || true
+fi
+
+print_progress "Configuring Apache2 modules..."
+print_verbose "Enabling required Apache2 modules..."
+
+# Enable necessary modules
+a2enmod rewrite > /dev/null 2>&1 || print_warning "rewrite module may already be enabled"
+a2enmod proxy > /dev/null 2>&1 || print_warning "proxy module may already be enabled"
+a2enmod proxy_http > /dev/null 2>&1 || print_warning "proxy_http module may already be enabled"
+a2enmod ssl > /dev/null 2>&1 || print_warning "ssl module may already be enabled"
+a2enmod headers > /dev/null 2>&1 || print_warning "headers module may already be enabled"
+
+print_success "Apache2 modules configured"
 
 # Node.js 24 Installation
 next_step "Node.js 24 Installation"
@@ -1229,6 +1253,110 @@ if [ ${PIPESTATUS[0]} -ne 0 ]; then
 fi
 print_success "Frontend built successfully"
 
+# Apache Virtual Host Configuration
+next_step "Apache2 Virtual Host Configuration"
+print_progress "Configuring Apache2 virtual hosts for RayanPBX..."
+
+# Get server IP
+SERVER_IP=$(hostname -I | awk '{print $1}')
+print_verbose "Server IP: $SERVER_IP"
+
+# Configure Laravel backend virtual host
+print_info "Setting up Apache virtual host for Laravel backend..."
+cat > /etc/apache2/sites-available/rayanpbx-backend.conf << EOF
+<VirtualHost *:80>
+    ServerName rayanpbx-api.local
+    ServerAlias $SERVER_IP
+    DocumentRoot /opt/rayanpbx/backend/public
+
+    <Directory /opt/rayanpbx/backend/public>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog \${APACHE_LOG_DIR}/rayanpbx-backend-error.log
+    CustomLog \${APACHE_LOG_DIR}/rayanpbx-backend-access.log combined
+
+    # PHP Configuration
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/var/run/php/php8.3-fpm.sock|fcgi://localhost"
+    </FilesMatch>
+</VirtualHost>
+EOF
+
+print_success "Backend virtual host configured"
+
+# Set proper permissions for Laravel
+print_progress "Setting permissions for Laravel backend..."
+chown -R www-data:www-data /opt/rayanpbx/backend
+chmod -R 755 /opt/rayanpbx/backend
+chmod -R 775 /opt/rayanpbx/backend/storage
+chmod -R 775 /opt/rayanpbx/backend/bootstrap/cache
+print_success "Permissions set for backend"
+
+# Configure frontend to be served by Apache (proxying to Node.js)
+print_info "Setting up Apache virtual host for Nuxt frontend..."
+# Note: Using quoted EOF to prevent variable expansion for Apache config variables
+# This preserves $1 and ${APACHE_LOG_DIR} as literal strings for Apache
+cat > /etc/apache2/sites-available/rayanpbx-frontend.conf << 'EOF'
+<VirtualHost *:8080>
+    ServerName rayanpbx.local
+
+    ProxyPreserveHost On
+    ProxyPass / http://localhost:3000/
+    ProxyPassReverse / http://localhost:3000/
+
+    # WebSocket support
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule /(.*)  ws://localhost:3000/$1 [P,L]
+
+    ErrorLog ${APACHE_LOG_DIR}/rayanpbx-frontend-error.log
+    CustomLog ${APACHE_LOG_DIR}/rayanpbx-frontend-access.log combined
+</VirtualHost>
+EOF
+
+# Add ServerAlias with actual IP after file creation
+sed -i "/ServerName rayanpbx.local/a\    ServerAlias $SERVER_IP" /etc/apache2/sites-available/rayanpbx-frontend.conf
+
+print_success "Frontend virtual host configured"
+
+# Configure Apache to listen on port 8080 for frontend
+print_progress "Configuring Apache to listen on additional ports..."
+if ! grep -q "Listen 8080" /etc/apache2/ports.conf; then
+    echo "Listen 8080" >> /etc/apache2/ports.conf
+    print_verbose "Added port 8080 to Apache configuration"
+fi
+
+# Enable PHP-FPM
+print_progress "Enabling PHP-FPM..."
+systemctl enable php8.3-fpm > /dev/null 2>&1
+systemctl start php8.3-fpm > /dev/null 2>&1 || true
+
+# Enable proxy_fcgi for PHP-FPM
+a2enmod proxy_fcgi > /dev/null 2>&1 || print_verbose "proxy_fcgi already enabled"
+a2enconf php8.3-fpm > /dev/null 2>&1 || print_verbose "php8.3-fpm config already enabled"
+
+# Enable the sites
+print_progress "Enabling virtual hosts..."
+a2dissite 000-default.conf > /dev/null 2>&1 || print_verbose "Default site already disabled"
+a2ensite rayanpbx-backend.conf > /dev/null 2>&1
+a2ensite rayanpbx-frontend.conf > /dev/null 2>&1
+
+print_success "Virtual hosts enabled"
+
+# Restart Apache to apply changes
+print_progress "Restarting Apache2..."
+if systemctl restart apache2 2>&1; then
+    print_success "Apache2 restarted successfully"
+else
+    print_warning "Apache2 restart encountered an issue, checking configuration..."
+    apache2ctl configtest 2>&1 | tail -5
+fi
+
+print_success "Apache2 configuration complete"
+
 # TUI Setup
 next_step "TUI (Terminal UI) Build"
 print_progress "Building TUI application..."
@@ -1282,17 +1410,17 @@ print_success "PM2 ecosystem configured"
 # Systemd Services
 next_step "Systemd Services Configuration"
 
-# Backend API service
-cat > /etc/systemd/system/rayanpbx-api.service << 'EOF'
+# Backend queue worker service (for Laravel queues)
+cat > /etc/systemd/system/rayanpbx-queue.service << 'EOF'
 [Unit]
-Description=RayanPBX API Server
-After=network.target mysql.service asterisk.service redis-server.service
+Description=RayanPBX Queue Worker
+After=network.target mysql.service redis-server.service
 
 [Service]
 Type=simple
 User=www-data
 WorkingDirectory=/opt/rayanpbx/backend
-ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port=8000
+ExecStart=/usr/bin/php artisan queue:work --sleep=3 --tries=3 --max-time=3600
 Restart=always
 RestartSec=3
 StandardOutput=journal
@@ -1302,15 +1430,20 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-print_success "Created rayanpbx-api.service"
+print_success "Created rayanpbx-queue.service"
 
 # Reload systemd
 systemctl daemon-reload
 
 # Enable and start services
 print_progress "Starting services..."
-systemctl enable rayanpbx-api > /dev/null 2>&1
-systemctl restart rayanpbx-api
+systemctl enable rayanpbx-queue > /dev/null 2>&1
+systemctl start rayanpbx-queue
+
+# Ensure Apache2 is running
+print_progress "Ensuring Apache2 is running..."
+systemctl enable apache2 > /dev/null 2>&1
+systemctl restart apache2
 
 # Start PM2 services
 cd /opt/rayanpbx
@@ -1330,14 +1463,28 @@ print_success "Cron jobs configured"
 next_step "Service Verification"
 sleep 3
 
-if systemctl is-active --quiet rayanpbx-api; then
-    print_success "✓ API service running"
+if systemctl is-active --quiet apache2; then
+    print_success "✓ Apache2 running"
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost/ | grep -q "200\|301\|302"; then
+        print_success "✓ Laravel backend accessible via Apache2"
+    else
+        print_warning "✗ Laravel backend may not be responding correctly"
+    fi
 else
-    print_warning "✗ API service failed - check: systemctl status rayanpbx-api"
+    print_warning "✗ Apache2 service failed - check: systemctl status apache2"
+fi
+
+if systemctl is-active --quiet rayanpbx-queue; then
+    print_success "✓ Queue worker running"
+else
+    print_warning "✗ Queue worker failed - check: systemctl status rayanpbx-queue"
 fi
 
 if su - www-data -s /bin/bash -c "pm2 list" | grep -q "rayanpbx-web.*online"; then
     print_success "✓ Web service running (PM2)"
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ | grep -q "200\|301\|302"; then
+        print_success "✓ Frontend accessible via PM2"
+    fi
 else
     print_warning "✗ Web service issue - check: pm2 list"
 fi
@@ -1365,10 +1512,10 @@ print_banner
 print_box "Installation Successful!" "$GREEN"
 
 echo -e "${BOLD}${CYAN}📊 System Services:${RESET}"
-echo -e "  ${GREEN}✓${RESET} API Server      : http://$(hostname -I | awk '{print $1}'):8000/api"
-echo -e "  ${GREEN}✓${RESET} Web Interface   : http://$(hostname -I | awk '{print $1}'):3000"
-echo -e "  ${GREEN}✓${RESET} WebSocket Server: ws://$(hostname -I | awk '{print $1}'):9000/ws"
-echo -e "  ${GREEN}✓${RESET} TUI Terminal    : ${WHITE}rayanpbx-tui${RESET}"
+echo -e "  ${GREEN}✓${RESET} Laravel Backend (Apache2): http://$(hostname -I | awk '{print $1}')/api"
+echo -e "  ${GREEN}✓${RESET} Web Interface (Apache2)  : http://$(hostname -I | awk '{print $1}'):8080"
+echo -e "  ${GREEN}✓${RESET} WebSocket Server         : ws://$(hostname -I | awk '{print $1}'):9000/ws"
+echo -e "  ${GREEN}✓${RESET} TUI Terminal             : ${WHITE}rayanpbx-tui${RESET}"
 echo ""
 
 echo -e "${BOLD}${CYAN}🔐 Default Login (Development):${RESET}"
@@ -1376,33 +1523,45 @@ echo -e "  ${YELLOW}Username:${RESET} admin"
 echo -e "  ${YELLOW}Password:${RESET} admin"
 echo ""
 
+echo -e "${BOLD}${CYAN}🌐 Apache2 Configuration:${RESET}"
+echo -e "  ${DIM}Backend VHost:${RESET}  /etc/apache2/sites-available/rayanpbx-backend.conf"
+echo -e "  ${DIM}Frontend VHost:${RESET} /etc/apache2/sites-available/rayanpbx-frontend.conf"
+echo -e "  ${DIM}Backend Port:${RESET}   80 (default HTTP)"
+echo -e "  ${DIM}Frontend Port:${RESET}  8080"
+echo ""
+
 echo -e "${BOLD}${CYAN}📁 File Locations:${RESET}"
 echo -e "  ${DIM}Configuration:${RESET} /opt/rayanpbx/.env"
+echo -e "  ${DIM}Backend Root:${RESET}  /opt/rayanpbx/backend/public"
 echo -e "  ${DIM}Asterisk:${RESET}      /etc/asterisk/"
-echo -e "  ${DIM}Logs:${RESET}          /var/log/rayanpbx/"
+echo -e "  ${DIM}Apache Logs:${RESET}   /var/log/apache2/"
 echo ""
 
 echo -e "${BOLD}${CYAN}🛠️  Useful Commands:${RESET}"
 echo -e "  ${DIM}View services:${RESET}     pm2 list"
 echo -e "  ${DIM}View logs:${RESET}         pm2 logs"
+echo -e "  ${DIM}Apache status:${RESET}     systemctl status apache2"
+echo -e "  ${DIM}Apache test:${RESET}       apache2ctl configtest"
 echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv   ${GREEN}(Recommended!)${RESET}"
 echo -e "  ${DIM}Asterisk status:${RESET}   systemctl status asterisk"
-echo -e "  ${DIM}System status:${RESET}     systemctl status rayanpbx-api"
+echo -e "  ${DIM}Queue worker:${RESET}      systemctl status rayanpbx-queue"
 echo ""
 
 echo -e "${BOLD}${CYAN}🚀 Next Steps:${RESET}"
 echo -e "  ${GREEN}1.${RESET} ${BOLD}Launch Asterisk Console${RESET} to monitor calls:"
 echo -e "     ${WHITE}asterisk -rvvv${RESET}  ${DIM}(press 'exit' or Ctrl+C to quit)${RESET}"
 echo ""
-echo -e "  ${GREEN}2.${RESET} Access web UI: http://$(hostname -I | awk '{print $1}'):3000"
+echo -e "  ${GREEN}2.${RESET} Access web UI via Apache2: http://$(hostname -I | awk '{print $1}'):8080"
 echo ""
-echo -e "  ${GREEN}3.${RESET} Login with admin/admin"
+echo -e "  ${GREEN}3.${RESET} Access API via Apache2: http://$(hostname -I | awk '{print $1}')/api"
 echo ""
-echo -e "  ${GREEN}4.${RESET} Configure your first extension"
+echo -e "  ${GREEN}4.${RESET} Login with admin/admin"
 echo ""
-echo -e "  ${GREEN}5.${RESET} Set up a SIP trunk"
+echo -e "  ${GREEN}5.${RESET} Configure your first extension"
 echo ""
-echo -e "  ${GREEN}6.${RESET} Test your setup"
+echo -e "  ${GREEN}6.${RESET} Set up a SIP trunk"
+echo ""
+echo -e "  ${GREEN}7.${RESET} Test your setup"
 echo ""
 
 echo -e "${BOLD}${CYAN}📚 Documentation & Support:${RESET}"

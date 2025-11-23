@@ -167,7 +167,7 @@ configure_api() {
     echo -e "${BLUE}${BOLD}🌐 API Configuration${RESET}\n"
     
     input_with_default "API Host" "API_HOST" "0.0.0.0"
-    input_with_default "API Port" "API_PORT" "8000"
+    input_with_default "API Port (Apache2 default: 80)" "API_PORT" "80"
     CONFIG[API_BASE_URL]="http://localhost:${CONFIG[API_PORT]}"
     echo -e "${GREEN}✓ API Base URL set to: ${CONFIG[API_BASE_URL]}${RESET}"
     
@@ -543,7 +543,7 @@ non_interactive_mode() {
     CONFIG[APP_TIMEZONE]="${CONFIG[APP_TIMEZONE]:-UTC}"
     
     CONFIG[API_HOST]="${CONFIG[API_HOST]:-0.0.0.0}"
-    CONFIG[API_PORT]="${CONFIG[API_PORT]:-8000}"
+    CONFIG[API_PORT]="${CONFIG[API_PORT]:-80}"
     CONFIG[API_BASE_URL]="http://localhost:${CONFIG[API_PORT]}"
     
     CONFIG[FRONTEND_PORT]="${CONFIG[FRONTEND_PORT]:-3000}"
