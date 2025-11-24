@@ -418,7 +418,6 @@ fix_radiusclient_config() {
         if [ "$VERBOSE" = true ]; then
             if $PKG_MGR install -y radiusclient-ng; then
                 print_success "radiusclient-ng package installed"
-                return 0
             else
                 print_warning "Failed to install radiusclient-ng package"
                 return 1
@@ -426,7 +425,6 @@ fix_radiusclient_config() {
         else
             if $PKG_MGR install -y radiusclient-ng > /dev/null 2>&1; then
                 print_success "radiusclient-ng package installed"
-                return 0
             else
                 print_warning "Failed to install radiusclient-ng package"
                 return 1
@@ -434,7 +432,7 @@ fix_radiusclient_config() {
         fi
     fi
     
-    # Check if the config file exists now
+    # Check if the config file exists now (after package installation)
     if [ -f "$config_file" ]; then
         print_success "Configuration file now exists: $config_file"
         return 0
@@ -540,7 +538,15 @@ check_asterisk_status() {
         print_info "Attempting to fix radiusclient error..."
         
         # Extract the missing file path from error message
-        local config_file=$(echo "$radiusclient_error" | grep -oP "(?<=open )[^:]+(?=:)" | head -1)
+        # Try with grep -P first (PCRE), fallback to sed if not available
+        local config_file=""
+        if echo "$radiusclient_error" | grep -P "(?<=open )[^:]+(?=:)" > /dev/null 2>&1; then
+            config_file=$(echo "$radiusclient_error" | grep -oP "(?<=open )[^:]+(?=:)" | head -1)
+        else
+            # Fallback: use sed for extraction if grep -P is not available
+            config_file=$(echo "$radiusclient_error" | sed -n 's/.*open \([^:]*\):.*/\1/p' | head -1)
+        fi
+        
         if [ -z "$config_file" ]; then
             # Default path if extraction failed
             config_file="/etc/radiusclient-ng/radiusclient.conf"
@@ -552,7 +558,7 @@ check_asterisk_status() {
             print_success "Radiusclient configuration fixed"
             print_info "Restarting Asterisk to apply fix..."
             
-            if systemctl restart asterisk 2>&1 > /dev/null; then
+            if systemctl restart asterisk > /dev/null 2>&1; then
                 sleep 2
                 if systemctl is-active --quiet asterisk; then
                     print_success "Asterisk service restarted successfully after fix"
@@ -1882,7 +1888,7 @@ fi
 systemctl enable asterisk > /dev/null 2>&1
 
 print_progress "Restarting Asterisk service..."
-if systemctl restart asterisk 2>&1 > /dev/null; then
+if systemctl restart asterisk > /dev/null 2>&1; then
     print_verbose "Asterisk restart command completed"
 else
     print_warning "Asterisk restart command had issues"
@@ -1927,7 +1933,7 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
     touch /etc/asterisk/manager.conf.rayanpbx-configured
     
     print_progress "Reloading Asterisk to apply AMI configuration..."
-    if systemctl reload asterisk 2>&1 > /dev/null; then
+    if systemctl reload asterisk > /dev/null 2>&1; then
         print_verbose "Asterisk reload command completed"
     else
         print_verbose "Asterisk reload command had issues, will check status"
@@ -1940,7 +1946,7 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
         
         # Try a full restart if reload failed
         print_info "Attempting a full restart instead of reload..."
-        if systemctl restart asterisk 2>&1 > /dev/null; then
+        if systemctl restart asterisk > /dev/null 2>&1; then
             sleep 2
             if check_asterisk_status "Asterisk restart after AMI configuration" "true"; then
                 print_success "Asterisk restarted successfully"
