@@ -199,16 +199,108 @@ class GrandStreamProvisioningService
      */
     public function discoverPhones($network = '192.168.1.0/24')
     {
-        // TODO: Implement network scanning using nmap or similar
-        // Look for devices with open port 80/443 and GrandStream in HTTP headers
-        
         Log::info("Discovering GrandStream phones on network: $network");
         
+        // Get registered phones from Asterisk
+        $registeredPhones = $this->getRegisteredPhonesFromAsterisk();
+        
         return [
-            'status' => 'pending',
-            'message' => 'Phone discovery not yet implemented',
-            'implementation' => 'Will use nmap to scan network for devices with GrandStream signatures',
+            'status' => 'success',
+            'phones' => $registeredPhones,
+            'network' => $network,
         ];
+    }
+
+    /**
+     * Get registered phones from Asterisk PJSIP
+     */
+    protected function getRegisteredPhonesFromAsterisk()
+    {
+        try {
+            $output = shell_exec('asterisk -rx "pjsip show endpoints"');
+            
+            if (!$output) {
+                return [];
+            }
+            
+            $phones = [];
+            $lines = explode("\n", $output);
+            
+            foreach ($lines as $line) {
+                $line = trim($line);
+                
+                // Skip headers and empty lines
+                if (empty($line) || strpos($line, '=====') !== false || 
+                    strpos($line, 'Endpoint:') !== false || strpos($line, '<Endpoint') !== false) {
+                    continue;
+                }
+                
+                // Parse endpoint line
+                $fields = preg_split('/\s+/', $line);
+                if (count($fields) >= 2) {
+                    $extension = $fields[0];
+                    
+                    // Skip if not an endpoint line
+                    if (strpos($extension, ':') !== false || empty($extension)) {
+                        continue;
+                    }
+                    
+                    // Extract IP from contact info
+                    $ip = $this->extractIPFromLine($line);
+                    
+                    if (!empty($ip)) {
+                        $phones[] = [
+                            'extension' => $extension,
+                            'ip' => $ip,
+                            'status' => count($fields) >= 5 ? $fields[4] : 'Unknown',
+                            'user_agent' => $this->detectUserAgent($ip),
+                        ];
+                    }
+                }
+            }
+            
+            return $phones;
+        } catch (\Exception $e) {
+            Log::error("Failed to get registered phones", ['error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
+     * Extract IP address from line
+     */
+    protected function extractIPFromLine($line)
+    {
+        if (preg_match('/@(\d+\.\d+\.\d+\.\d+)/', $line, $matches)) {
+            return $matches[1];
+        }
+        return null;
+    }
+
+    /**
+     * Detect user agent from phone
+     */
+    protected function detectUserAgent($ip)
+    {
+        try {
+            $ch = curl_init("http://{$ip}/");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_HEADER, true);
+            curl_setopt($ch, CURLOPT_NOBODY, true);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode == 200 && preg_match('/Server:\s*([^\r\n]+)/i', $response, $matches)) {
+                return $matches[1];
+            }
+            
+            return 'Unknown';
+        } catch (\Exception $e) {
+            return 'Unknown';
+        }
     }
 
     /**
@@ -216,14 +308,56 @@ class GrandStreamProvisioningService
      */
     public function getPhoneStatus($ip, $credentials = [])
     {
-        // TODO: Implement HTTP API call to phone
-        // GrandStream phones have web interface at http://phone-ip/
+        $username = $credentials['username'] ?? 'admin';
+        $password = $credentials['password'] ?? '';
         
-        return [
-            'status' => 'unknown',
-            'message' => 'Phone status retrieval not yet implemented',
-            'implementation' => 'Will use HTTP client to fetch phone status from web interface',
-        ];
+        try {
+            $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode != 200) {
+                throw new \Exception("HTTP error: {$httpCode}");
+            }
+            
+            // Parse response (could be JSON or XML)
+            $data = json_decode($response, true);
+            if (!$data) {
+                // Try XML parsing
+                $xml = simplexml_load_string($response);
+                if ($xml) {
+                    $data = json_decode(json_encode($xml), true);
+                }
+            }
+            
+            return [
+                'status' => 'online',
+                'ip' => $ip,
+                'model' => $data['model'] ?? 'Unknown',
+                'firmware' => $data['firmware'] ?? 'Unknown',
+                'mac' => $data['mac'] ?? 'Unknown',
+                'uptime' => $data['uptime'] ?? 'Unknown',
+                'registered' => true,
+                'last_update' => now()->toIso8601String(),
+            ];
+        } catch (\Exception $e) {
+            Log::error("Failed to get phone status", [
+                'ip' => $ip,
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'status' => 'offline',
+                'ip' => $ip,
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 
     /**
@@ -259,5 +393,215 @@ class GrandStreamProvisioningService
     public function getSupportedModels()
     {
         return $this->supportedModels;
+    }
+
+    /**
+     * Reboot phone via HTTP API
+     */
+    public function rebootPhone($ip, $credentials = [])
+    {
+        $username = $credentials['username'] ?? 'admin';
+        $password = $credentials['password'] ?? '';
+        
+        try {
+            $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation?request=reboot");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode != 200 && $httpCode != 202) {
+                throw new \Exception("HTTP error: {$httpCode}");
+            }
+            
+            Log::info("Phone rebooted", ['ip' => $ip]);
+            
+            return [
+                'success' => true,
+                'message' => 'Phone reboot command sent successfully',
+                'ip' => $ip,
+            ];
+        } catch (\Exception $e) {
+            Log::error("Failed to reboot phone", [
+                'ip' => $ip,
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Failed to reboot phone',
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Factory reset phone via HTTP API
+     */
+    public function factoryResetPhone($ip, $credentials = [])
+    {
+        $username = $credentials['username'] ?? 'admin';
+        $password = $credentials['password'] ?? '';
+        
+        try {
+            $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation?request=factory_reset");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode != 200 && $httpCode != 202) {
+                throw new \Exception("HTTP error: {$httpCode}");
+            }
+            
+            Log::warning("Phone factory reset", ['ip' => $ip]);
+            
+            return [
+                'success' => true,
+                'message' => 'Phone factory reset command sent successfully',
+                'ip' => $ip,
+            ];
+        } catch (\Exception $e) {
+            Log::error("Failed to factory reset phone", [
+                'ip' => $ip,
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Failed to factory reset phone',
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Get phone configuration via HTTP API
+     */
+    public function getPhoneConfig($ip, $credentials = [])
+    {
+        $username = $credentials['username'] ?? 'admin';
+        $password = $credentials['password'] ?? '';
+        
+        try {
+            $ch = curl_init("http://{$ip}/cgi-bin/api-get_config");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode != 200) {
+                throw new \Exception("HTTP error: {$httpCode}");
+            }
+            
+            // Parse response
+            $config = json_decode($response, true);
+            if (!$config) {
+                // Try XML parsing
+                $xml = simplexml_load_string($response);
+                if ($xml) {
+                    $config = json_decode(json_encode($xml), true);
+                }
+            }
+            
+            return [
+                'success' => true,
+                'config' => $config ?? [],
+                'ip' => $ip,
+            ];
+        } catch (\Exception $e) {
+            Log::error("Failed to get phone config", [
+                'ip' => $ip,
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Failed to get phone configuration',
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Set phone configuration via HTTP API
+     */
+    public function setPhoneConfig($ip, $config, $credentials = [])
+    {
+        $username = $credentials['username'] ?? 'admin';
+        $password = $credentials['password'] ?? '';
+        
+        try {
+            $jsonData = json_encode($config);
+            
+            $ch = curl_init("http://{$ip}/cgi-bin/api-set_config");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonData);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode != 200 && $httpCode != 202) {
+                throw new \Exception("HTTP error: {$httpCode}");
+            }
+            
+            Log::info("Phone configuration updated", ['ip' => $ip]);
+            
+            return [
+                'success' => true,
+                'message' => 'Phone configuration updated successfully',
+                'ip' => $ip,
+            ];
+        } catch (\Exception $e) {
+            Log::error("Failed to set phone config", [
+                'ip' => $ip,
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Failed to set phone configuration',
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Provision extension to phone via HTTP API
+     */
+    public function provisionExtensionToPhone($ip, $extension, $accountNumber = 1, $credentials = [])
+    {
+        $sipServer = config('rayanpbx.sip_server_ip', '127.0.0.1');
+        
+        $config = [
+            "P{$accountNumber}47" => $sipServer, // SIP Server
+            "P{$accountNumber}35" => $extension['extension_number'], // SIP User ID
+            "P{$accountNumber}36" => $extension['extension_number'], // Authenticate ID
+            "P{$accountNumber}34" => $extension['secret'], // Authenticate Password
+            "P{$accountNumber}3" => $extension['name'], // Name
+            "P{$accountNumber}270" => "1", // Account Active
+        ];
+        
+        return $this->setPhoneConfig($ip, $config, $credentials);
     }
 }
