@@ -39,6 +39,7 @@
 │ 🔗 Trunk Routing      │  Advanced outbound call routing    │
 │ 🖥️  Asterisk Console   │  Interactive CLI from web UI       │
 │ 📊 Live Monitoring    │  Real-time call & system status    │
+│ ⚙️  Config Management │  CLI/TUI/Web .env management       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -296,6 +297,7 @@ go build -o rayanpbx-tui main.go config.go
 │  🔐 Security:            /docs/security.md         │
 │  🌐 CORS Configuration:  CORS_CONFIGURATION.md     │
 │  📝 Command Options:     COMMAND_LINE_OPTIONS.md   │
+│  ⚙️  Config Management:  ENV_MANAGEMENT.md         │
 ╰─────────────────────────────────────────────────────╯
 ```
 

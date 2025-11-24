@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -283,6 +284,36 @@ func (cm *ConfigManager) isSensitive(key string) bool {
 	return false
 }
 
+// reloadAllServices reloads all configured services
+func reloadAllServices() string {
+	messages := []string{}
+	
+	// Try to reload Asterisk
+	if err := exec.Command("asterisk", "-rx", "core reload").Run(); err == nil {
+		messages = append(messages, "✅ Asterisk reloaded")
+	} else {
+		messages = append(messages, "⚠️  Asterisk reload failed or not found")
+	}
+	
+	// Try to clear Laravel cache
+	rootPath := findRootPath()
+	backendPath := filepath.Join(rootPath, "backend")
+	if _, err := os.Stat(backendPath); err == nil {
+		if err := exec.Command("php", filepath.Join(backendPath, "artisan"), "config:clear").Run(); err == nil {
+			messages = append(messages, "✅ Laravel config cleared")
+		}
+		if err := exec.Command("php", filepath.Join(backendPath, "artisan"), "cache:clear").Run(); err == nil {
+			messages = append(messages, "✅ Laravel cache cleared")
+		}
+	}
+	
+	if len(messages) == 0 {
+		return "⚠️  No services could be reloaded"
+	}
+	
+	return strings.Join(messages, " | ")
+}
+
 // Update function to handle config management screen
 func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -330,7 +361,7 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 					m.inputCursor = 0
 				} else if m.cursor == len(configs)+1 {
 					// Reload services
-					m.successMsg = "Services reloaded (functionality to be implemented)"
+					m.successMsg = reloadAllServices()
 				} else {
 					// Back
 					m.currentScreen = mainMenu
