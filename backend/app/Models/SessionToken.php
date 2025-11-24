@@ -76,8 +76,9 @@ class SessionToken extends Model implements HasAbilities
      */
     public function can($ability): bool
     {
-        return in_array('*', $this->abilities ?? []) ||
-               in_array($ability, $this->abilities ?? []);
+        $abilities = $this->abilities ?? [];
+
+        return in_array('*', $abilities) || in_array($ability, $abilities);
     }
 
     /**

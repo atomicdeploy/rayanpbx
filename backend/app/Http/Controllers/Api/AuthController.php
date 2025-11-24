@@ -158,7 +158,12 @@ class AuthController extends Controller
         $token = $this->jwtService->generateToken(['user' => $decoded->user], $accessJti);
         $newRefreshToken = $this->jwtService->generateRefreshToken(['user' => $decoded->user], $refreshJti);
 
-        $userId = $decoded->user->id ?? 'unknown';
+        // Ensure user ID exists
+        if (! isset($decoded->user->id)) {
+            return response()->json(['message' => 'Invalid user data in token'], 401);
+        }
+
+        $userId = $decoded->user->id;
 
         // Store new access token in database
         SessionToken::create([
@@ -289,13 +294,11 @@ class AuthController extends Controller
                 $query->whereNull('expires_at')
                     ->orWhere('expires_at', '>', now());
             })
-            ->get(['id', 'name', 'ip_address', 'user_agent', 'last_used_at', 'created_at', 'expires_at']);
+            ->get(['id', 'name', 'jti', 'ip_address', 'user_agent', 'last_used_at', 'created_at', 'expires_at']);
 
         // Mark current session
         $currentJti = $decoded->jti ?? null;
         $sessions = $sessions->map(function ($session) use ($currentJti) {
-            $sessionToken = SessionToken::find($session->id);
-
             return [
                 'id' => $session->id,
                 'name' => $session->name,
@@ -304,7 +307,7 @@ class AuthController extends Controller
                 'last_used_at' => $session->last_used_at,
                 'created_at' => $session->created_at,
                 'expires_at' => $session->expires_at,
-                'is_current' => $sessionToken && $sessionToken->jti === $currentJti,
+                'is_current' => $session->jti === $currentJti,
             ];
         });
 
