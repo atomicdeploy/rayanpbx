@@ -410,20 +410,51 @@ handle_asterisk_error() {
 fix_radiusclient_config() {
     local config_file="$1"
     
+    # Validate input path
+    if [ -z "$config_file" ]; then
+        print_error "Invalid config file path (empty)"
+        return 1
+    fi
+    
+    # Sanitize path - remove any command substitution attempts and special characters
+    config_file="${config_file//\$()/}"
+    config_file="${config_file//\`/}"
+    config_file="${config_file//;/}"
+    config_file="${config_file//|/}"
+    config_file="${config_file//&/}"
+    
+    # Validate that path looks like a real config file path
+    if [[ ! "$config_file" =~ ^/[a-zA-Z0-9/_.-]+\.conf$ ]]; then
+        print_error "Invalid config file path format: $config_file"
+        return 1
+    fi
+    
     print_progress "Attempting to fix radiusclient configuration..."
+    
+    # Validate PKG_MGR is set and safe
+    if [ -z "$PKG_MGR" ]; then
+        print_error "Package manager not configured"
+        return 1
+    fi
+    
+    # Ensure PKG_MGR is one of the expected values
+    if [[ "$PKG_MGR" != "nala" && "$PKG_MGR" != "apt-get" ]]; then
+        print_error "Invalid package manager: $PKG_MGR"
+        return 1
+    fi
     
     # Check if radiusclient-ng package is installed
     if ! dpkg -l | grep -q radiusclient-ng; then
         print_info "Installing radiusclient-ng package..."
         if [ "$VERBOSE" = true ]; then
-            if $PKG_MGR install -y radiusclient-ng; then
+            if "$PKG_MGR" install -y radiusclient-ng; then
                 print_success "radiusclient-ng package installed"
             else
                 print_warning "Failed to install radiusclient-ng package"
                 return 1
             fi
         else
-            if $PKG_MGR install -y radiusclient-ng > /dev/null 2>&1; then
+            if "$PKG_MGR" install -y radiusclient-ng > /dev/null 2>&1; then
                 print_success "radiusclient-ng package installed"
             else
                 print_warning "Failed to install radiusclient-ng package"
@@ -439,10 +470,10 @@ fix_radiusclient_config() {
     fi
     
     # Create directory if it doesn't exist
-    local config_dir=$(dirname "$config_file")
+    local config_dir=$(dirname -- "$config_file")
     if [ ! -d "$config_dir" ]; then
         print_info "Creating directory: $config_dir"
-        mkdir -p "$config_dir"
+        mkdir -p -- "$config_dir"
     fi
     
     # Create a minimal configuration file
@@ -520,17 +551,22 @@ check_asterisk_status() {
     # Check for specific known errors
     local radiusclient_error=""
     
-    # Check for radiusclient configuration error
+    # Check for radiusclient configuration error in systemctl status
     if echo "$status_output" | grep -q "radiusclient"; then
         radiusclient_error=$(echo "$status_output" | grep "radiusclient" | head -1)
         print_warning "Detected radiusclient configuration issue"
         print_verbose "Error: $radiusclient_error"
     fi
     
+    # Also check journal logs (append if already found in status)
     if echo "$journal_errors" | grep -q "radiusclient"; then
-        radiusclient_error=$(echo "$journal_errors" | grep "radiusclient" | head -1)
+        local journal_radiusclient_error=$(echo "$journal_errors" | grep "radiusclient" | head -1)
+        if [ -z "$radiusclient_error" ]; then
+            # No error found in status, use journal error
+            radiusclient_error="$journal_radiusclient_error"
+        fi
         print_warning "Detected radiusclient configuration issue in logs"
-        print_verbose "Error: $radiusclient_error"
+        print_verbose "Error: $journal_radiusclient_error"
     fi
     
     # Try to fix radiusclient error if found
@@ -540,8 +576,9 @@ check_asterisk_status() {
         # Extract the missing file path from error message
         # Try with grep -P first (PCRE), fallback to sed if not available
         local config_file=""
-        if echo "$radiusclient_error" | grep -P "(?<=open )[^:]+(?=:)" > /dev/null 2>&1; then
-            config_file=$(echo "$radiusclient_error" | grep -oP "(?<=open )[^:]+(?=:)" | head -1)
+        local grep_result=$(echo "$radiusclient_error" | grep -oP "(?<=open )[^:]+(?=:)" 2>/dev/null | head -1)
+        if [ -n "$grep_result" ]; then
+            config_file="$grep_result"
         else
             # Fallback: use sed for extraction if grep -P is not available
             config_file=$(echo "$radiusclient_error" | sed -n 's/.*open \([^:]*\):.*/\1/p' | head -1)
