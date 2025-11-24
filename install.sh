@@ -1037,39 +1037,55 @@ if next_step "System Update" "system-update"; then
 fi
 
 # Install dependencies
-if next_step "Essential Dependencies" "dependencies"; then
-    PACKAGES=(
-        software-properties-common
-        curl
-        wget
-        aria2
-        git
-        build-essential
-        libncurses5-dev
-        libssl-dev
-        libxml2-dev
-        libsqlite3-dev
-        uuid-dev
-        libjansson-dev
-        pkg-config
-        figlet
-        lolcat
-        redis-server
-        cron
-        net-tools
-    )
+if  next_step "Essential Dependencies" "dependencies"; then
+PACKAGES=(
+    software-properties-common
+    curl
+    wget
+    aria2
+    git
+    build-essential
+    libncurses5-dev
+    libssl-dev
+    libxml2-dev
+    libsqlite3-dev
+    uuid-dev
+    libjansson-dev
+    pkg-config
+    figlet
+    lolcat
+    redis-server
+    cron
+    net-tools
+    lldpd
+    nmap
+    tcpdump
+    jq
+    avahi-utils
+)
 
-    print_info "Installing essential packages..."
-    print_verbose "Package list: ${PACKAGES[*]}"
+print_info "Installing essential packages..."
+print_verbose "Package list: ${PACKAGES[*]}"
 
-    ensure_pkg_mgr
-
-    for package in "${PACKAGES[@]}"; do
-        print_verbose "Checking package: $package"
-        # Use dpkg-query for more reliable package status checking
-        if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
-            echo -e "${DIM}   ✓ $package (already installed)${RESET}"
-            print_verbose "$package is already installed, skipping"
+ensure_pkg_mgr
+for package in "${PACKAGES[@]}"; do
+    print_verbose "Checking package: $package"
+    # Use dpkg-query for more reliable package status checking
+    if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
+        echo -e "${DIM}   ✓ $package (already installed)${RESET}"
+        print_verbose "$package is already installed, skipping"
+    else
+        echo -e "${DIM}   Installing $package...${RESET}"
+        print_verbose "Running: $PKG_MGR install -y $package"
+        
+        if [ "$VERBOSE" = true ]; then
+            if ! $PKG_MGR install -y "$package"; then
+                print_error "Failed to install $package"
+                print_warning "Some features may not work without $package"
+                # Continue with other packages
+            else
+                print_success "✓ $package"
+            fi
         else
             echo -e "${DIM}   Installing $package...${RESET}"
             print_verbose "Running: $PKG_MGR install -y $package"
@@ -1094,6 +1110,36 @@ if next_step "Essential Dependencies" "dependencies"; then
         fi
     done
 fi
+
+# Enable and start lldpd service for VoIP phone discovery
+print_verbose "Configuring lldpd service for VoIP phone discovery..."
+if dpkg-query -W -f='${Status}' lldpd 2>/dev/null | grep -q "install ok installed"; then
+    if ! systemctl is-enabled lldpd > /dev/null 2>&1; then
+        print_verbose "Enabling lldpd service..."
+        systemctl enable lldpd > /dev/null 2>&1 || print_warning "Failed to enable lldpd service"
+    fi
+    if ! systemctl is-active lldpd > /dev/null 2>&1; then
+        print_verbose "Starting lldpd service..."
+        systemctl start lldpd > /dev/null 2>&1 || print_warning "Failed to start lldpd service"
+    fi
+    print_success "lldpd service configured for VoIP phone discovery"
+fi
+
+# Install optional SIP testing tools
+print_verbose "Installing optional SIP testing tools..."
+SIP_TOOLS=(pjsua sipsak sipp)
+for tool in "${SIP_TOOLS[@]}"; do
+    if ! command -v "$tool" > /dev/null 2>&1; then
+        print_verbose "Installing $tool..."
+        if $PKG_MGR install -y "$tool" > /dev/null 2>&1; then
+            print_success "✓ $tool (SIP testing tool)"
+        else
+            print_verbose "$tool not available in repositories (optional)"
+        fi
+    else
+        echo -e "${DIM}   ✓ $tool (already installed)${RESET}"
+    fi
+done
 
 # Install GitHub CLI
 if next_step "GitHub CLI Installation" "github-cli"; then

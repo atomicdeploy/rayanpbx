@@ -30,16 +30,17 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🌐 Web Admin Panel    │  Modern, responsive SPA/PWA        │
-│ 🖥️  Terminal UI (TUI)  │  Beautiful CLI interface           │
+│ 🖥️ Terminal UI (TUI)  │  Beautiful CLI interface           │
 │ ⚡ Real-time Events   │  WebSocket-based live updates      │
 │ 🔐 JWT Authentication │  Secure, token-based auth          │
 │ 🎨 Dark Mode          │  Elegant dark/light themes         │
 │ 🌍 i18n Support       │  English & Persian (RTL)           │
 │ 📱 Extension Manager  │  Complete SIP extension lifecycle  │
 │ 🔗 Trunk Routing      │  Advanced outbound call routing    │
-│ 🖥️  Asterisk Console   │  Interactive CLI from web UI       │
+│ 🖥️ Asterisk Console   │  Interactive CLI from web UI       │
 │ 📊 Live Monitoring    │  Real-time call & system status    │
-│ ⚙️  Config Management │  CLI/TUI/Web .env management       │
+│ ⚙️ Config Management  │  CLI/TUI/Web .env management       │
+│ 🔍 Phone Discovery    │  LLDP/nmap-based phone detection   │
 │ 🧪 SIP Testing Suite  │  Comprehensive extension testing   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -324,20 +325,20 @@ go build -o rayanpbx-tui main.go config.go
 
 ## 📚 Documentation
 
-```
-╭─────────────────────────────────────────────────────╮
-│  📖 User Guide:          /docs/user-guide.md       │
-│  🔧 API Docs:            /docs/api.md              │
-│  🏗️  Architecture:        /docs/architecture.md     │
-│  🚀 Deployment:          /docs/deployment.md       │
-│  🔐 Security:            /docs/security.md         │
-│  🌐 CORS Configuration:  CORS_CONFIGURATION.md     │
-│  📝 Command Options:     COMMAND_LINE_OPTIONS.md   │
-│  ⚙️  Config Management:  ENV_MANAGEMENT.md         │
-│  🧪 SIP Testing Guide:   SIP_TESTING_GUIDE.md      │
-│  📡 PJSIP Setup:         PJSIP_SETUP_GUIDE.md      │
-╰─────────────────────────────────────────────────────╯
-```
+╭──────────────────────────────────────────────────────────╮
+│  📖 User Guide:          /docs/user-guide.md             │
+│  🔧 API Docs:            /docs/api.md                    │
+│  🏗️ Architecture:        /docs/architecture.md           │
+│  🚀 Deployment:          /docs/deployment.md             │
+│  🔐 Security:            /docs/security.md               │
+│  🌐 CORS Configuration:  CORS_CONFIGURATION.md           │
+│  📝 Command Options:     COMMAND_LINE_OPTIONS.md         │
+│  ⚙️ Config Management:  ENV_MANAGEMENT.md                │
+│  🔍 Phone Discovery:     PHONE_DISCOVERY.md              │
+│  🧪 SIP Testing Guide:   SIP_TESTING_GUIDE.md            │
+│  📡 PJSIP Setup:         PJSIP_SETUP_GUIDE.md            │
+│  📊 Implementation:      VOIP_DISCOVERY_IMPLEMENTATION.md│
+╰──────────────────────────────────────────────────────────╯
 
 ## 🤝 Contributing
 

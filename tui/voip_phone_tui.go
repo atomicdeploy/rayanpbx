@@ -39,7 +39,7 @@ func (m model) renderVoIPPhones() string {
 		content += line
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, Enter for details, 'm' to add manually")
+	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, Enter for details, 'm' to add manually, 'd' to discover phones")
 	
 	return menuStyle.Render(content)
 }
@@ -285,6 +285,9 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "m":
 			// Manual IP input
 			m.initManualIPInput()
+		case "d":
+			// Phone discovery
+			m.initVoIPDiscoveryScreen()
 		case "r":
 			// Refresh phone list
 			m.loadRegisteredPhones()
@@ -670,4 +673,203 @@ func (m *model) executeVoIPProvision() {
 	m.successMsg = fmt.Sprintf("Extension %s provisioned on account %d", ext.ExtensionNumber, accountNumber)
 	m.inputMode = false
 	m.currentScreen = voipPhoneDetailsScreen
+}
+
+// renderVoIPDiscovery renders the phone discovery screen
+func (m model) renderVoIPDiscovery() string {
+content := infoStyle.Render("🔍 VoIP Phone Discovery") + "\n\n"
+
+if m.voipPhoneOutput != "" {
+content += m.voipPhoneOutput + "\n\n"
+}
+
+if len(m.discoveredPhones) == 0 {
+content += "📭 No phones discovered yet\n\n"
+content += helpStyle.Render("💡 Press 's' to scan network for VoIP phones\n")
+content += helpStyle.Render("   Press 'l' to discover via LLDP (requires root/sudo)\n")
+content += helpStyle.Render("   ESC to go back")
+return menuStyle.Render(content)
+}
+
+content += fmt.Sprintf("Discovered Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.discoveredPhones))))
+
+for i, phone := range m.discoveredPhones {
+cursor := " "
+if i == m.selectedPhoneIdx {
+cursor = "▶"
+}
+
+status := "🔴 Offline"
+if phone.Online {
+status = "🟢 Online"
+}
+
+vendor := phone.Vendor
+if vendor == "" {
+vendor = "Unknown"
+}
+
+model := phone.Model
+if model == "" {
+model = "Unknown"
+}
+
+discoveryType := ""
+switch phone.DiscoveryType {
+case "lldp":
+discoveryType = "📡 LLDP"
+case "nmap":
+discoveryType = "🔍 Scan"
+case "http":
+discoveryType = "🌐 HTTP"
+}
+
+line := fmt.Sprintf("%s %s - %s %s/%s (%s) %s\n",
+cursor,
+phone.IP,
+status,
+successStyle.Render(vendor),
+model,
+phone.MAC,
+discoveryType,
+)
+content += line
+}
+
+content += "\n" + helpStyle.Render("💡 's' to scan, 'l' for LLDP, 'r' to check reachability, 'a' to add selected phone, ESC to go back")
+
+return menuStyle.Render(content)
+}
+
+// initVoIPDiscoveryScreen initializes the phone discovery screen
+func (m *model) initVoIPDiscoveryScreen() {
+m.currentScreen = voipDiscoveryScreen
+m.selectedPhoneIdx = 0
+m.voipPhoneOutput = ""
+m.errorMsg = ""
+m.successMsg = ""
+
+// Initialize phone discovery if not already done
+if m.phoneDiscovery == nil {
+if m.phoneManager == nil {
+m.phoneManager = NewPhoneManager(m.asteriskManager)
+}
+m.phoneDiscovery = NewPhoneDiscovery(m.phoneManager)
+}
+}
+
+// discoverPhones discovers phones on the network
+func (m *model) discoverPhones(network string) {
+if m.phoneDiscovery == nil {
+m.errorMsg = "Phone discovery not initialized"
+return
+}
+
+m.voipPhoneOutput = "🔍 Scanning network for VoIP phones...\nThis may take a few moments..."
+
+phones, err := m.phoneDiscovery.DiscoverPhones(network)
+if err != nil {
+m.errorMsg = fmt.Sprintf("Discovery failed: %v", err)
+m.voipPhoneOutput = ""
+return
+}
+
+m.discoveredPhones = phones
+m.successMsg = fmt.Sprintf("Found %d phone(s)", len(phones))
+m.voipPhoneOutput = ""
+}
+
+// discoverViaLLDP discovers phones using LLDP protocol
+func (m *model) discoverViaLLDP() {
+if m.phoneDiscovery == nil {
+m.errorMsg = "Phone discovery not initialized"
+return
+}
+
+m.voipPhoneOutput = "📡 Discovering phones via LLDP...\nNote: This may require root/sudo privileges"
+
+phones, err := m.phoneDiscovery.GetLLDPNeighbors()
+if err != nil {
+m.errorMsg = fmt.Sprintf("LLDP discovery failed: %v\nMake sure lldpd is installed or run with sudo", err)
+m.voipPhoneOutput = ""
+return
+}
+
+m.discoveredPhones = phones
+m.successMsg = fmt.Sprintf("Found %d phone(s) via LLDP", len(phones))
+m.voipPhoneOutput = ""
+}
+
+// checkDiscoveredPhonesReachability checks if discovered phones are reachable
+func (m *model) checkDiscoveredPhonesReachability() {
+if m.phoneDiscovery == nil || len(m.discoveredPhones) == 0 {
+return
+}
+
+m.voipPhoneOutput = "🔍 Checking reachability of discovered phones..."
+
+for i := range m.discoveredPhones {
+m.discoveredPhones[i].Online = m.phoneDiscovery.PingHost(m.discoveredPhones[i].IP, 2)
+}
+
+onlineCount := 0
+for _, phone := range m.discoveredPhones {
+if phone.Online {
+onlineCount++
+}
+}
+
+m.successMsg = fmt.Sprintf("%d of %d phone(s) are online", onlineCount, len(m.discoveredPhones))
+m.voipPhoneOutput = ""
+}
+
+// addDiscoveredPhone adds the selected discovered phone to the phone list
+func (m *model) addDiscoveredPhone() {
+if m.selectedPhoneIdx >= len(m.discoveredPhones) {
+return
+}
+
+phone := m.discoveredPhones[m.selectedPhoneIdx]
+
+// Convert to PhoneInfo
+phoneInfo := PhoneInfo{
+Extension: fmt.Sprintf("Discovered-%s", phone.MAC),
+IP:        phone.IP,
+Status:    "Discovered",
+UserAgent: fmt.Sprintf("%s %s", phone.Vendor, phone.Model),
+Online:    phone.Online,
+}
+
+// Add to phone list
+m.voipPhones = append(m.voipPhones, phoneInfo)
+m.successMsg = fmt.Sprintf("Added phone at %s to the list", phone.IP)
+
+// Switch back to phones screen
+m.currentScreen = voipPhonesScreen
+}
+
+// handleVoIPDiscoveryKeyPress handles key presses in VoIP discovery screen
+func (m *model) handleVoIPDiscoveryKeyPress(key string) {
+	// Get network subnet from config or use default
+	network := "192.168.1.0/24"
+	if m.config != nil && m.config.NetworkSubnet != "" {
+		network = m.config.NetworkSubnet
+	}
+	
+	switch key {
+	case "s":
+		// Scan network
+		m.discoverPhones(network)
+	case "l":
+		// LLDP discovery
+		m.discoverViaLLDP()
+	case "r":
+		// Check reachability
+		m.checkDiscoveredPhonesReachability()
+	case "a":
+		// Add selected phone
+		if len(m.discoveredPhones) > 0 {
+			m.addDiscoveredPhone()
+		}
+	}
 }
