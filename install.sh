@@ -19,6 +19,7 @@ readonly SCRIPT_VERSION
 VERBOSE=false
 DRY_RUN=false
 UPGRADE_MODE=false
+CREATE_BACKUP=false
 
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
@@ -73,6 +74,7 @@ show_help() {
     echo -e "${YELLOW}${BOLD}OPTIONS:${RESET}"
     echo -e "    ${GREEN}-h, --help${RESET}          Show this help message and exit"
     echo -e "    ${GREEN}-u, --upgrade${RESET}       Automatically apply updates without prompting"
+    echo -e "    ${GREEN}-b, --backup${RESET}        Create backup before updates (.env and backend/storage)"
     echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
     echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
@@ -513,6 +515,10 @@ while [[ $# -gt 0 ]]; do
             UPGRADE_MODE=true
             shift
             ;;
+        -b|--backup)
+            CREATE_BACKUP=true
+            shift
+            ;;
         -v|--verbose)
             VERBOSE=true
             shift
@@ -577,6 +583,15 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     print_verbose "Current branch: $CURRENT_BRANCH"
     
+    # Check for local changes
+    print_verbose "Checking for local changes..."
+    if git diff-index --quiet HEAD -- 2>/dev/null; then
+        print_verbose "No local changes detected"
+    else
+        print_warning "Local changes detected in repository"
+        print_info "Local changes will be preserved during update"
+    fi
+    
     # Fetch the latest changes without merging
     print_progress "Fetching latest updates from repository..."
     FETCH_SUCCESS=true
@@ -626,6 +641,33 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
             fi
             
             if [[ $REPLY =~ ^[Yy]$ ]]; then
+                # Create backup before pulling updates (only if --backup flag is set)
+                if [ "$CREATE_BACKUP" = true ]; then
+                    BACKUP_DIR="/tmp/rayanpbx-backup-$(date +%Y%m%d-%H%M%S)"
+                    print_progress "Creating backup before update..."
+                    print_verbose "Backup directory: $BACKUP_DIR"
+                    mkdir -p "$BACKUP_DIR"
+                    if [ -f "$SCRIPT_DIR/.env" ]; then
+                        cp "$SCRIPT_DIR/.env" "$BACKUP_DIR/" 2>/dev/null || true
+                        print_verbose "Backed up .env file"
+                    fi
+                    if [ -d "$SCRIPT_DIR/backend/storage" ]; then
+                        cp -r "$SCRIPT_DIR/backend/storage" "$BACKUP_DIR/" 2>/dev/null || true
+                        print_verbose "Backed up backend storage"
+                    fi
+                    print_success "Backup created: $BACKUP_DIR"
+                fi
+                
+                # Stash local changes if any
+                if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+                    print_info "Stashing local changes before update..."
+                    if git stash push -m "Auto-stash before update $(date)" 2>/dev/null; then
+                        print_verbose "Local changes stashed successfully"
+                    else
+                        print_warning "Could not stash changes, attempting update anyway"
+                    fi
+                fi
+                
                 print_progress "Pulling latest updates..."
                 
                 # Determine which branch to pull from
@@ -648,6 +690,13 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
                     exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "${ORIGINAL_ARGS[@]}"
                 else
                     print_error "Failed to pull updates"
+                    print_warning "Restoring from backup if needed..."
+                    if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+                        if [ -f "$BACKUP_DIR/.env" ]; then
+                            cp "$BACKUP_DIR/.env" "$SCRIPT_DIR/" 2>/dev/null || true
+                            print_verbose "Restored .env from backup"
+                        fi
+                    fi
                     print_warning "Continuing with current version..."
                 fi
             else
@@ -1558,6 +1607,14 @@ php artisan migrate --force
 
 if [ $? -eq 0 ]; then
     print_success "Database migrations completed"
+    
+    # Clear Laravel caches after migrations
+    print_progress "Clearing application caches..."
+    print_verbose "Clearing cache, config, and route caches..."
+    php artisan cache:clear 2>/dev/null || true
+    php artisan config:clear 2>/dev/null || true
+    php artisan route:clear 2>/dev/null || true
+    print_success "Caches cleared"
 else
     print_error "Database migration failed"
     exit 1
@@ -1750,12 +1807,26 @@ print_success "Created rayanpbx-api.service"
 systemctl daemon-reload
 
 # Enable and start services
+# Service restart logic handles both fresh installs and updates
+# During fresh install, services won't be running yet
+# During updates, this will restart existing services
 print_progress "Starting services..."
 systemctl enable rayanpbx-api > /dev/null 2>&1
-systemctl restart rayanpbx-api
+
+# Check if service is already running (update scenario)
+if systemctl is-active --quiet rayanpbx-api 2>/dev/null; then
+    print_verbose "rayanpbx-api is already running, restarting..."
+    systemctl restart rayanpbx-api
+else
+    print_verbose "rayanpbx-api not running, starting fresh..."
+    systemctl start rayanpbx-api
+fi
 
 # Start PM2 services
 cd /opt/rayanpbx
+# Stop existing PM2 services if running (update scenario)
+su - www-data -s /bin/bash -c "pm2 delete rayanpbx-web rayanpbx-ws 2>/dev/null || true"
+# Start PM2 services
 su - www-data -s /bin/bash -c "cd /opt/rayanpbx && pm2 start ecosystem.config.js"
 su - www-data -s /bin/bash -c "pm2 save"
 
