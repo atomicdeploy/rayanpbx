@@ -1,19 +1,21 @@
 # Update Script Integration Documentation
 
-This document describes exactly where code from the old `scripts/update-rayanpbx.sh` was integrated into `install.sh`.
+This document describes exactly where code from the old update script was integrated into `install.sh`.
 
 ## Overview
 
 All functionality from the old update script has been successfully integrated into `install.sh`. The install script now serves as both an installer and an updater, eliminating code duplication and following DRY (Don't Repeat Yourself) principles.
 
-**Result:** The old `scripts/update-rayanpbx.sh` has been **removed** and replaced with `scripts/upgrade.sh` - a simple wrapper that calls `install.sh --upgrade`.
+**Result:** The old update script has been **replaced** with `scripts/upgrade.sh` - a simple wrapper that calls `install.sh --upgrade`.
 
 ## New Upgrade Script
 
 The new `scripts/upgrade.sh` is a minimal wrapper that:
+- Displays an informative header with version information
 - Validates that install.sh exists
 - Checks for root privileges  
 - Optionally prompts for confirmation with `-i/--confirm` flag
+- Optionally creates backup with `-b/--backup` flag
 - Calls `install.sh --upgrade` with all passed arguments
 - The `--upgrade` flag tells install.sh to automatically apply updates without prompting
 
@@ -21,14 +23,14 @@ This follows the DRY principle by having all logic in one place (install.sh) whi
 
 ## Code Integration Locations
 
-### 1. Local Changes Detection (Line ~567-573 in install.sh)
+### 1. Local Changes Detection (Line ~586-592 in install.sh)
 
-**From update-rayanpbx.sh:** Lines 94-101 (Step 2: Check for local changes)
+**Source:** Old update script (Step 2: Check for local changes)
 
-**Added to install.sh:** After line 564 (CURRENT_BRANCH detection), before git fetch
+**Added to install.sh:** After line 584 (CURRENT_BRANCH detection), before git fetch
 
 ```bash
-# Check for local changes (from update-rayanpbx.sh)
+# Check for local changes (from old update script)
 print_verbose "Checking for local changes..."
 if git diff-index --quiet HEAD -- 2>/dev/null; then
     print_verbose "No local changes detected"
@@ -44,12 +46,12 @@ fi
 
 ### 2. Backup Creation Before Updates (Line ~607-625 in install.sh)
 
-**From update-rayanpbx.sh:** Lines 87-91 (Step 1: Backup current installation)
+**From old update script:** Lines 87-91 (Step 1: Backup current installation)
 
 **Added to install.sh:** Inside the update acceptance block, before git pull
 
 ```bash
-# Create backup before pulling updates (from update-rayanpbx.sh)
+# Create backup before pulling updates (from old update script)
 BACKUP_DIR="/tmp/rayanpbx-backup-$(date +%Y%m%d-%H%M%S)"
 print_progress "Creating backup before update..."
 print_verbose "Backup directory: $BACKUP_DIR"
@@ -71,12 +73,12 @@ print_success "Backup created: $BACKUP_DIR"
 
 ### 3. Git Stash for Local Changes (Line ~627-634 in install.sh)
 
-**From update-rayanpbx.sh:** Lines 94-101 (Step 2: Check for local changes - stash portion)
+**From old update script:** Lines 94-101 (Step 2: Check for local changes - stash portion)
 
 **Added to install.sh:** After backup creation, before git pull
 
 ```bash
-# Stash local changes if any (from update-rayanpbx.sh)
+# Stash local changes if any (from old update script)
 if ! git diff-index --quiet HEAD -- 2>/dev/null; then
     print_info "Stashing local changes before update..."
     if git stash push -m "Auto-stash before update $(date)" 2>/dev/null; then
@@ -93,7 +95,7 @@ fi
 
 ### 4. Backup Restoration on Failed Update (Line ~654-664 in install.sh)
 
-**From update-rayanpbx.sh:** Lines 127-129 (error handling in Step 4)
+**From old update script:** Lines 127-129 (error handling in Step 4)
 
 **Added to install.sh:** In the git pull error handling block
 
@@ -117,7 +119,7 @@ fi
 
 ### 5. Cache Clearing After Migrations (Line ~1588-1595 in install.sh)
 
-**From update-rayanpbx.sh:** Lines 172-176 (Step 9: Clear caches)
+**From old update script:** Lines 172-176 (Step 9: Clear caches)
 
 **Added to install.sh:** After database migrations complete successfully
 
@@ -125,7 +127,7 @@ fi
 if [ $? -eq 0 ]; then
     print_success "Database migrations completed"
     
-    # Clear Laravel caches after migrations (from update-rayanpbx.sh)
+    # Clear Laravel caches after migrations (from old update script)
     print_progress "Clearing application caches..."
     print_verbose "Clearing cache, config, and route caches..."
     php artisan cache:clear 2>/dev/null || true
@@ -140,7 +142,7 @@ if [ $? -eq 0 ]; then
 
 ### 6. Enhanced Service Restart Logic (Line ~1828-1846 in install.sh)
 
-**From update-rayanpbx.sh:** Lines 178-218 (Step 10: Restart services - detection logic)
+**From old update script:** Lines 178-218 (Step 10: Restart services - detection logic)
 
 **Added to install.sh:** In the systemd services section, replacing simple restart
 
@@ -149,7 +151,7 @@ if [ $? -eq 0 ]; then
 systemctl daemon-reload
 
 # Enable and start services
-# Note: Service restart logic integrated from update-rayanpbx.sh
+# Note: Service restart logic integrated from old update script
 # During fresh install, services won't be running yet
 # During updates, this will restart existing services
 print_progress "Starting services..."
@@ -182,30 +184,30 @@ su - www-data -s /bin/bash -c "pm2 save"
 
 ## Already Existing Functionality (No Duplication)
 
-The following functionality from `update-rayanpbx.sh` was **already present** in `install.sh`, so no code needed to be added:
+The following functionality from `old update script` was **already present** in `install.sh`, so no code needed to be added:
 
 ### Repository Update (Line 1485-1495 in install.sh)
-- **Corresponds to:** update-rayanpbx.sh Lines 103-129 (Steps 3-4: Fetch and pull)
+- **Corresponds to:** old update script Lines 103-129 (Steps 3-4: Fetch and pull)
 - Already handles cloning fresh or pulling updates if directory exists
 
 ### Backend Dependencies Update (Line ~1584 in install.sh)
-- **Corresponds to:** update-rayanpbx.sh Lines 132-139 (Step 5)
+- **Corresponds to:** old update script Lines 132-139 (Step 5)
 - `composer install --no-dev --optimize-autoloader` runs every time
 
 ### Frontend Dependencies and Build (Lines ~1657, 1671 in install.sh)
-- **Corresponds to:** update-rayanpbx.sh Lines 141-150 (Step 6)
+- **Corresponds to:** old update script Lines 141-150 (Step 6)
 - `npm install` and `npm run build` run every time
 
 ### TUI Rebuild (Lines ~1695-1696 in install.sh)
-- **Corresponds to:** update-rayanpbx.sh Lines 152-161 (Step 7)
+- **Corresponds to:** old update script Lines 152-161 (Step 7)
 - `go mod download` and `go build` run every time
 
 ### Database Migrations (Line ~1587 in install.sh)
-- **Corresponds to:** update-rayanpbx.sh Lines 163-169 (Step 8)
+- **Corresponds to:** old update script Lines 163-169 (Step 8)
 - `php artisan migrate --force` runs every time
 
 ### Installation Verification (Lines ~1803-1879 in install.sh)
-- **Corresponds to:** update-rayanpbx.sh Lines 220-239 (Step 11)
+- **Corresponds to:** old update script Lines 220-239 (Step 11)
 - Comprehensive health checks with `test_service_health()` already implemented
 - More thorough than update script's basic curl checks
 

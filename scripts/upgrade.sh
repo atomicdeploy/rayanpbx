@@ -5,29 +5,56 @@
 
 set -euo pipefail
 
+# Version - read from VERSION file
+VERSION="2.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 WHITE='\033[1;37m'
+BOLD='\033[1m'
+DIM='\033[2m'
 RESET='\033[0m'
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Emojis
+ROCKET="🚀"
+
+# Get repository root
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SCRIPT="$REPO_ROOT/install.sh"
 
-# Parse arguments for interactive mode
+print_header() {
+    echo -e "${MAGENTA}${BOLD}"
+    echo "╔════════════════════════════════════════════════════╗"
+    echo "║  $ROCKET RayanPBX Upgrade Utility $ROCKET                   ║"
+    echo "╚════════════════════════════════════════════════════╝"
+    echo -e "${RESET}"
+    echo -e "${CYAN}Version: ${VERSION}${RESET}\n"
+}
+
+# Parse arguments for interactive mode and backup flag
 INTERACTIVE=false
+CREATE_BACKUP=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -i|--confirm)
             INTERACTIVE=true
             shift
             ;;
+        -b|--backup)
+            CREATE_BACKUP=true
+            shift
+            ;;
         -h|--help)
-            # Show install.sh help with --upgrade flag
+            # Show install.sh help
             if [ -f "$INSTALL_SCRIPT" ]; then
                 "$INSTALL_SCRIPT" --help
             fi
@@ -54,6 +81,27 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Print header
+print_header
+
+echo -e "${CYAN}This upgrade script provides a convenient way to update RayanPBX.${RESET}"
+echo ""
+echo -e "${CYAN}The install script automatically:${RESET}"
+echo -e "  ${GREEN}•${RESET} Detects whether to install or update"
+echo -e "  ${GREEN}•${RESET} Backs up your configuration before updates (with --backup flag)"
+echo -e "  ${GREEN}•${RESET} Stashes local changes automatically"
+echo -e "  ${GREEN}•${RESET} Updates all dependencies and services"
+echo -e "  ${GREEN}•${RESET} Clears caches and restarts services"
+echo ""
+echo -e "${CYAN}Upgrading using the install script:${RESET}"
+echo -e "  ${WHITE}cd /opt/rayanpbx && sudo ./install.sh --upgrade${RESET}"
+echo ""
+echo -e "${CYAN}Or with verbose output:${RESET}"
+echo -e "  ${WHITE}cd /opt/rayanpbx && sudo ./install.sh --upgrade --verbose${RESET}"
+echo ""
+echo -e "${DIM}────────────────────────────────────────────────────────────${RESET}"
+echo ""
+
 # Ask for confirmation if in interactive mode
 if [ "$INTERACTIVE" = true ]; then
     echo -e "${CYAN}This script will launch ${WHITE}install.sh --upgrade${RESET}${CYAN} to perform the upgrade.${RESET}"
@@ -68,9 +116,17 @@ if [ "$INTERACTIVE" = true ]; then
     fi
 fi
 
+# Build arguments for install.sh
+INSTALL_ARGS="--upgrade"
+if [ "$CREATE_BACKUP" = true ]; then
+    INSTALL_ARGS="$INSTALL_ARGS --backup"
+fi
+
 # Execute install.sh with --upgrade and pass through all original arguments
 if ! cd "$REPO_ROOT" 2>/dev/null; then
     echo -e "${RED}Error: Cannot access repository root: $REPO_ROOT${RESET}"
     exit 1
 fi
-exec "$INSTALL_SCRIPT" --upgrade "$@"
+
+exec "$INSTALL_SCRIPT" $INSTALL_ARGS "$@"
+

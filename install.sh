@@ -19,6 +19,7 @@ readonly SCRIPT_VERSION
 VERBOSE=false
 DRY_RUN=false
 UPGRADE_MODE=false
+CREATE_BACKUP=false
 
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
@@ -73,6 +74,7 @@ show_help() {
     echo -e "${YELLOW}${BOLD}OPTIONS:${RESET}"
     echo -e "    ${GREEN}-h, --help${RESET}          Show this help message and exit"
     echo -e "    ${GREEN}-u, --upgrade${RESET}       Automatically apply updates without prompting"
+    echo -e "    ${GREEN}-b, --backup${RESET}        Create backup before updates (.env and backend/storage)"
     echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
     echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
@@ -513,6 +515,10 @@ while [[ $# -gt 0 ]]; do
             UPGRADE_MODE=true
             shift
             ;;
+        -b|--backup)
+            CREATE_BACKUP=true
+            shift
+            ;;
         -v|--verbose)
             VERBOSE=true
             shift
@@ -577,7 +583,7 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     print_verbose "Current branch: $CURRENT_BRANCH"
     
-    # Check for local changes (from update-rayanpbx.sh)
+    # Check for local changes
     print_verbose "Checking for local changes..."
     if git diff-index --quiet HEAD -- 2>/dev/null; then
         print_verbose "No local changes detected"
@@ -635,22 +641,24 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
             fi
             
             if [[ $REPLY =~ ^[Yy]$ ]]; then
-                # Create backup before pulling updates (from update-rayanpbx.sh)
-                BACKUP_DIR="/tmp/rayanpbx-backup-$(date +%Y%m%d-%H%M%S)"
-                print_progress "Creating backup before update..."
-                print_verbose "Backup directory: $BACKUP_DIR"
-                mkdir -p "$BACKUP_DIR"
-                if [ -f "$SCRIPT_DIR/.env" ]; then
-                    cp "$SCRIPT_DIR/.env" "$BACKUP_DIR/" 2>/dev/null || true
-                    print_verbose "Backed up .env file"
+                # Create backup before pulling updates (only if --backup flag is set)
+                if [ "$CREATE_BACKUP" = true ]; then
+                    BACKUP_DIR="/tmp/rayanpbx-backup-$(date +%Y%m%d-%H%M%S)"
+                    print_progress "Creating backup before update..."
+                    print_verbose "Backup directory: $BACKUP_DIR"
+                    mkdir -p "$BACKUP_DIR"
+                    if [ -f "$SCRIPT_DIR/.env" ]; then
+                        cp "$SCRIPT_DIR/.env" "$BACKUP_DIR/" 2>/dev/null || true
+                        print_verbose "Backed up .env file"
+                    fi
+                    if [ -d "$SCRIPT_DIR/backend/storage" ]; then
+                        cp -r "$SCRIPT_DIR/backend/storage" "$BACKUP_DIR/" 2>/dev/null || true
+                        print_verbose "Backed up backend storage"
+                    fi
+                    print_success "Backup created: $BACKUP_DIR"
                 fi
-                if [ -d "$SCRIPT_DIR/backend/storage" ]; then
-                    cp -r "$SCRIPT_DIR/backend/storage" "$BACKUP_DIR/" 2>/dev/null || true
-                    print_verbose "Backed up backend storage"
-                fi
-                print_success "Backup created: $BACKUP_DIR"
                 
-                # Stash local changes if any (from update-rayanpbx.sh)
+                # Stash local changes if any
                 if ! git diff-index --quiet HEAD -- 2>/dev/null; then
                     print_info "Stashing local changes before update..."
                     if git stash push -m "Auto-stash before update $(date)" 2>/dev/null; then
@@ -1600,7 +1608,7 @@ php artisan migrate --force
 if [ $? -eq 0 ]; then
     print_success "Database migrations completed"
     
-    # Clear Laravel caches after migrations (from update-rayanpbx.sh)
+    # Clear Laravel caches after migrations
     print_progress "Clearing application caches..."
     print_verbose "Clearing cache, config, and route caches..."
     php artisan cache:clear 2>/dev/null || true
@@ -1798,7 +1806,7 @@ print_success "Created rayanpbx-api.service"
 systemctl daemon-reload
 
 # Enable and start services
-# Note: Service restart logic integrated from update-rayanpbx.sh
+# Service restart logic handles both fresh installs and updates
 # During fresh install, services won't be running yet
 # During updates, this will restart existing services
 print_progress "Starting services..."
