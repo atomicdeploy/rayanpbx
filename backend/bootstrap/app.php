@@ -8,6 +8,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withProviders([
         App\Providers\EnvLoaderServiceProvider::class,
         App\Providers\RedisServiceProvider::class,
+        App\Providers\AuthServiceProvider::class,
+        App\Providers\RateLimitServiceProvider::class,
     ])
     ->withRouting(
         api: __DIR__.'/../routes/api.php',
@@ -18,7 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             \Illuminate\Http\Middleware\HandleCors::class,
         ]);
+
+        $middleware->redirectGuestsTo(fn () => throw new \Illuminate\Auth\AuthenticationException());
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        $exceptions->shouldRenderJsonWhen(function ($request, Throwable $e) {
+            return $request->is('api/*');
+        });
     })->create();
