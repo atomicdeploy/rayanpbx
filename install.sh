@@ -98,6 +98,19 @@ initialize_steps() {
             STEPS_TO_RUN+=("$step_id")
         done
         print_verbose "Running only steps: ${STEPS_TO_RUN[*]}"
+        
+        # Warn about potential missing dependencies
+        if [ ${#STEPS_TO_RUN[@]} -lt ${#ALL_STEPS[@]} ]; then
+            echo ""
+            print_warning "Running only selected steps. Ensure dependencies are met:"
+            echo -e "${DIM}   - backend requires: database, php, composer, source, env-config${RESET}"
+            echo -e "${DIM}   - frontend requires: nodejs, source, env-config${RESET}"
+            echo -e "${DIM}   - tui requires: go, source${RESET}"
+            echo -e "${DIM}   - systemd requires: backend (or frontend/tui for their services)${RESET}"
+            echo -e "${DIM}   - health-check requires: systemd, pm2${RESET}"
+            echo -e "${DIM}   See INSTALL_STEPS_GUIDE.md for detailed dependency information.${RESET}"
+            echo ""
+        fi
     else
         # Run all steps by default
         for step_def in "${ALL_STEPS[@]}"; do
@@ -115,6 +128,14 @@ initialize_steps() {
         # Remove empty elements
         STEPS_TO_RUN=("${STEPS_TO_RUN[@]}")
         print_verbose "Skipping steps: ${SKIPPED_STEPS[*]}"
+        
+        # Warn if critical steps are skipped
+        if [ ${#SKIPPED_STEPS[@]} -gt 0 ]; then
+            echo ""
+            print_warning "Skipping steps may cause issues if dependencies are not met."
+            echo -e "${DIM}   Skipped: ${SKIPPED_STEPS[*]}${RESET}"
+            echo ""
+        fi
     fi
 }
 
