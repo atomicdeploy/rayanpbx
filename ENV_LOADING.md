@@ -51,7 +51,9 @@ The Laravel backend uses `EnvLoaderServiceProvider` in `backend/app/Providers/En
 
 ```php
 class EnvLoaderServiceProvider extends ServiceProvider {
-    // Loads .env files using Dotenv::createMutable()->overload()
+    // Loads .env files using Dotenv::createMutable()->load()
+    // createMutable creates a mutable repository that allows overwriting
+    // existing environment variables
 }
 ```
 
