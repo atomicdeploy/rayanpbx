@@ -119,6 +119,11 @@ const (
 	configManagementScreen
 	configEditScreen
 	configAddScreen
+	voipPhonesScreen
+	voipPhoneDetailsScreen
+	voipPhoneControlScreen
+	voipPhoneProvisionScreen
+	voipManualIPScreen
 )
 
 type model struct {
@@ -163,6 +168,15 @@ type model struct {
 	asteriskManager *AsteriskManager
 	asteriskMenu    []string
 	asteriskOutput  string
+	
+	// VoIP phone management
+	phoneManager       *PhoneManager
+	voipPhones         []PhoneInfo
+	selectedPhoneIdx   int
+	voipControlMenu    []string
+	voipPhoneOutput    string
+	currentPhoneStatus *PhoneStatus
+	phoneCredentials   map[string]map[string]string
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -186,6 +200,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		menuItems: []string{
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
+			"📞 VoIP Phones Management",
 			"⚙️  Asterisk Management",
 			"🔍 Diagnostics & Debugging",
 			"📊 System Status",
@@ -254,6 +269,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return updateConfigEdit(msg, m)
 		}
 		
+		// Handle VoIP phone screens
+		if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneDetailsScreen || 
+		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+			// Handle VoIP-specific keys first
+			switch msg.String() {
+			case "m", "c", "r", "p":
+				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle VoIP manual IP screen with input mode
+		if m.currentScreen == voipManualIPScreen && m.inputMode {
+			return m.handleInputMode(msg)
+		}
+		
 		// Handle input mode for creation forms
 		if m.inputMode {
 			return m.handleInputMode(msg)
@@ -293,6 +324,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
 				}
+			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+				// Handle VoIP phone navigation
+				m.handleVoIPPhonesKeyPress("up")
 			} else if m.cursor > 0 {
 				m.cursor--
 			}
@@ -319,8 +353,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor++
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 5 options
-				if m.cursor < 4 {
+				// System settings has 6 options (added upgrade)
+				if m.cursor < 5 {
 					m.cursor++
 				}
 			} else if m.currentScreen == extensionsScreen {
@@ -328,6 +362,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
 				}
+			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+				// Handle VoIP phone navigation
+				m.handleVoIPPhonesKeyPress("down")
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
 			}
@@ -382,34 +419,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
 				case 2:
+					// VoIP Phones Management
+					m.initVoIPPhonesScreen()
+				case 3:
 					m.currentScreen = asteriskMenuScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 3:
+				case 4:
 					m.currentScreen = diagnosticsMenuScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 4:
-					m.currentScreen = statusScreen
 				case 5:
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 6:
+					m.currentScreen = logsScreen
+				case 7:
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 7:
+				case 8:
 					m.currentScreen = configManagementScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 8:
+				case 9:
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 9:
+				case 10:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -429,6 +469,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
 				m.handleSystemSettingsAction()
+			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+				// Handle VoIP phone enter key
+				m.handleVoIPPhonesKeyPress("enter")
 			}
 
 		case "esc":
@@ -477,6 +520,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == configAddScreen || m.currentScreen == configEditScreen {
 					m.currentScreen = configManagementScreen
 					m.inputMode = false
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipPhoneControlScreen || 
+				           m.currentScreen == voipPhoneProvisionScreen || m.currentScreen == voipManualIPScreen {
+					// Handle VoIP phone screen back navigation
+					if m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+						m.currentScreen = voipPhoneDetailsScreen
+					} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipManualIPScreen {
+						m.currentScreen = voipPhonesScreen
+						m.inputMode = false
+					}
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == voipPhonesScreen {
+					m.currentScreen = mainMenu
+					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
@@ -567,6 +626,16 @@ func (m model) View() string {
 		s += viewConfigInput(m, true)
 	case configEditScreen:
 		s += viewConfigInput(m, false)
+	case voipPhonesScreen:
+		s += m.renderVoIPPhones()
+	case voipPhoneDetailsScreen:
+		s += m.renderVoIPPhoneDetails()
+	case voipPhoneControlScreen:
+		s += m.renderVoIPPhoneControl()
+	case voipPhoneProvisionScreen:
+		s += m.renderVoIPPhoneProvision()
+	case voipManualIPScreen:
+		s += m.renderVoIPManualIP()
 	}
 
 	// Footer with emojis
@@ -1256,6 +1325,10 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeSipTestCall()
 			} else if m.currentScreen == sipTestFullScreen {
 				m.executeSipTestFull()
+			} else if m.currentScreen == voipManualIPScreen {
+				m.executeManualIPAdd()
+			} else if m.currentScreen == voipPhoneProvisionScreen {
+				m.executeVoIPProvision()
 			}
 		}
 
@@ -1957,6 +2030,7 @@ func (m *model) renderSystemSettings() string {
 		fmt.Sprintf("🐛 Toggle Debug (Current: %v)", appDebug),
 		"📝 Set to Production Mode",
 		"🔧 Set to Development Mode",
+		"🚀 Run System Upgrade",
 		"⬅️  Back to Main Menu",
 	}
 	
@@ -1996,6 +2070,9 @@ func (m *model) handleSystemSettingsAction() {
 		// Set to Development
 		m.setMode("development", true)
 	case 4:
+		// Run System Upgrade
+		m.runSystemUpgrade()
+	case 5:
 		// Back to main menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
@@ -2071,6 +2148,52 @@ func (m *model) setMode(env string, debug bool) {
 	m.config.AppDebug = debug
 	
 	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Changes will take effect after service restart.", env, debug)
+}
+
+// runSystemUpgrade executes the upgrade script
+func (m *model) runSystemUpgrade() {
+	// Use absolute path for security
+	upgradeScript := "/opt/rayanpbx/scripts/upgrade.sh"
+	
+	// Check if the script exists and is a regular file
+	fileInfo, err := os.Stat(upgradeScript)
+	if os.IsNotExist(err) {
+		m.errorMsg = fmt.Sprintf("Upgrade script not found at: %s", upgradeScript)
+		return
+	}
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Error checking upgrade script: %v", err)
+		return
+	}
+	if !fileInfo.Mode().IsRegular() {
+		m.errorMsg = fmt.Sprintf("Upgrade script is not a regular file: %s", upgradeScript)
+		return
+	}
+	
+	// Display a message and exit TUI to run upgrade
+	fmt.Println("\n🚀 Launching system upgrade...")
+	fmt.Println("The TUI will close and the upgrade script will start.")
+	fmt.Println()
+	
+	// Prepare the command with sudo
+	cmd := exec.Command("sudo", "bash", upgradeScript)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	// Execute the upgrade script
+	if err := cmd.Run(); err != nil {
+		// Check for specific error types
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fmt.Printf("Upgrade script exited with status %d\n", exitErr.ExitCode())
+		} else {
+			fmt.Printf("Error running upgrade script: %v\n", err)
+		}
+		os.Exit(1)
+	}
+	
+	// Exit successfully after upgrade completes
+	os.Exit(0)
 }
 
 // Helper function to replace environment variable value in .env content
