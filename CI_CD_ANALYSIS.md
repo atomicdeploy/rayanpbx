@@ -75,11 +75,11 @@ The test expects the install.sh script to output "This script must be run as roo
 
 **Root Cause:**
 ```bash
-# In install.sh line 562:
+# In install.sh around line 562:
 print_banner
 
-# In print_banner() at line 120:
-clear  # <-- This fails when TERM is not set
+# In print_banner() function around line 119-120:
+clear  # <-- This previously failed when TERM is not set
 ```
 
 **Solution:** The `clear` command should be wrapped in a check for TERM availability, or use a fallback that doesn't depend on TERM.

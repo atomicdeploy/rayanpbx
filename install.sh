@@ -119,7 +119,7 @@ print_verbose() {
 print_banner() {
     # Only clear if TERM is set (avoid errors in CI environments without TTY)
     if [ -n "${TERM:-}" ]; then
-        clear 2>/dev/null || true
+        clear
     fi
     print_verbose "Displaying banner..."
     
