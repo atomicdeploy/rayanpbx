@@ -69,5 +69,8 @@ if [ "$INTERACTIVE" = true ]; then
 fi
 
 # Execute install.sh with --upgrade and pass through all original arguments
-cd "$REPO_ROOT"
+if ! cd "$REPO_ROOT" 2>/dev/null; then
+    echo -e "${RED}Error: Cannot access repository root: $REPO_ROOT${RESET}"
+    exit 1
+fi
 exec "$INSTALL_SCRIPT" --upgrade "$@"
