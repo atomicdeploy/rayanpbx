@@ -385,10 +385,23 @@ func (m *model) refreshPhoneStatus() {
 		return
 	}
 	
-	// Create phone instance
+	// Get credentials - use stored credentials or default
 	credentials := map[string]string{
 		"username": "admin",
-		"password": "admin", // Default, should be configurable
+		"password": "", // Empty password will fail, forcing user to provide
+	}
+	
+	if m.phoneCredentials != nil {
+		if creds, ok := m.phoneCredentials[phone.IP]; ok {
+			credentials = creds
+		}
+	}
+	
+	// If no stored credentials, prompt user to add phone manually first
+	if credentials["password"] == "" {
+		m.errorMsg = "No credentials available. Please add phone manually with 'm' to provide credentials."
+		m.voipPhoneOutput = ""
+		return
 	}
 	
 	phoneInstance, err := m.phoneManager.CreatePhone(phone.IP, vendor, credentials)
@@ -419,10 +432,22 @@ func (m *model) executeVoIPControlAction() {
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
 	
-	// Create phone instance
+	// Get credentials from stored credentials or prompt for manual entry
 	credentials := map[string]string{
 		"username": "admin",
-		"password": "admin", // Default, should be configurable
+		"password": "",
+	}
+	
+	if m.phoneCredentials != nil {
+		if creds, ok := m.phoneCredentials[phone.IP]; ok {
+			credentials = creds
+		}
+	}
+	
+	// Check if we have credentials
+	if credentials["password"] == "" {
+		m.errorMsg = "No credentials available. Please add phone manually with 'm' to provide credentials."
+		return
 	}
 	
 	vendor := "grandstream" // Default to GrandStream
@@ -555,17 +580,22 @@ func (m *model) executeVoIPProvision() {
 		fmt.Sscanf(m.inputValues[0], "%d", &accountNumber)
 	}
 	
-	// Create phone instance
+	// Get credentials from stored credentials
 	credentials := map[string]string{
 		"username": "admin",
-		"password": "admin",
+		"password": "",
 	}
 	
-	// Use stored credentials if available
 	if m.phoneCredentials != nil {
 		if creds, ok := m.phoneCredentials[phone.IP]; ok {
 			credentials = creds
 		}
+	}
+	
+	// Check if we have credentials
+	if credentials["password"] == "" {
+		m.errorMsg = "No credentials available. Please add phone manually with 'm' to provide credentials."
+		return
 	}
 	
 	vendor := "grandstream"

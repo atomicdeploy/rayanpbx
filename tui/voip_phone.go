@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+// GrandStream configuration parameter constants
+const (
+	// Account configuration parameters (replace X with account number 1-6)
+	GSParamSIPServer       = "P%d47"  // SIP Server
+	GSParamSIPUserID       = "P%d35"  // SIP User ID
+	GSParamAuthID          = "P%d36"  // Authenticate ID
+	GSParamAuthPassword    = "P%d34"  // Authenticate Password
+	GSParamDisplayName     = "P%d3"   // Display Name
+	GSParamAccountActive   = "P%d270" // Account Active (1=yes, 0=no)
+)
+
 // VoIPPhone represents a generic VoIP phone interface
 type VoIPPhone interface {
 	// GetStatus retrieves the phone status
@@ -108,22 +119,35 @@ func (pm *PhoneManager) parseEndpoints(output string) ([]PhoneInfo, error) {
 	
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "=") || strings.Contains(line, "Endpoint:") {
+		// Skip empty lines, headers, and separator lines
+		if line == "" || strings.HasPrefix(line, "=") || strings.Contains(line, "Endpoint:") || 
+		   strings.Contains(line, "<Endpoint") {
 			continue
 		}
 		
 		// Parse endpoint line format: "extension/sip:extension@ip:port"
 		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			extension := fields[0]
-			status := "Unknown"
-			if len(fields) >= 5 {
-				status = fields[4]
-			}
-			
-			// Try to extract IP from contact info
-			ip := pm.extractIPFromContact(line)
-			
+		if len(fields) < 2 {
+			continue
+		}
+		
+		extension := fields[0]
+		
+		// Skip if this is not an endpoint line (e.g., it's an InAuth, Aor, Contact, etc. line)
+		if strings.Contains(extension, ":") || len(extension) == 0 {
+			continue
+		}
+		
+		status := "Unknown"
+		if len(fields) >= 5 {
+			status = fields[4]
+		}
+		
+		// Try to extract IP from contact info
+		ip := pm.extractIPFromContact(line)
+		
+		// Only add if we have valid data
+		if extension != "" && ip != "" {
 			phones = append(phones, PhoneInfo{
 				Extension: extension,
 				IP:        ip,
@@ -433,12 +457,12 @@ func (gsp *GrandStreamPhone) SetConfig(config map[string]interface{}) error {
 // ProvisionExtension provisions an extension on the phone
 func (gsp *GrandStreamPhone) ProvisionExtension(ext Extension, accountNumber int) error {
 	config := map[string]interface{}{
-		fmt.Sprintf("P%d47", accountNumber):  ext.Transport,  // SIP Server
-		fmt.Sprintf("P%d35", accountNumber):  ext.ExtensionNumber, // SIP User ID
-		fmt.Sprintf("P%d36", accountNumber):  ext.ExtensionNumber, // Auth ID
-		fmt.Sprintf("P%d34", accountNumber):  ext.Secret, // Auth Password
-		fmt.Sprintf("P%d3", accountNumber):   ext.Name, // Name
-		fmt.Sprintf("P%d270", accountNumber): "1", // Account Active
+		fmt.Sprintf(GSParamSIPServer, accountNumber):     ext.Transport,
+		fmt.Sprintf(GSParamSIPUserID, accountNumber):     ext.ExtensionNumber,
+		fmt.Sprintf(GSParamAuthID, accountNumber):        ext.ExtensionNumber,
+		fmt.Sprintf(GSParamAuthPassword, accountNumber):  ext.Secret,
+		fmt.Sprintf(GSParamDisplayName, accountNumber):   ext.Name,
+		fmt.Sprintf(GSParamAccountActive, accountNumber): "1",
 	}
 	
 	return gsp.SetConfig(config)
