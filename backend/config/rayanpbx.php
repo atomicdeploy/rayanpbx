@@ -71,6 +71,9 @@ return [
     | Webhook Configuration
     |--------------------------------------------------------------------------
     | Base URL for GrandStream phone Action URL webhooks
+    | Set to your public URL if different from APP_URL.
+    | Example: env('WEBHOOK_BASE_URL', null)
+    | e.g., 'https://pbx.example.com/api/grandstream/webhook'
     */
     'webhook_base_url' => env('WEBHOOK_BASE_URL', null),
 
