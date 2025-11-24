@@ -62,6 +62,11 @@ class JWTGuard implements Guard
         // Create a User instance from JWT payload
         $userData = (array) $decoded->user;
         
+        // Validate required fields
+        if (!isset($userData['id']) || !isset($userData['name']) || !isset($userData['email'])) {
+            return null;
+        }
+        
         // Check cache first
         $cachedUser = cache()->get("user:{$userData['id']}");
         if ($cachedUser) {
