@@ -511,11 +511,48 @@ EOF
     if [ -f "$config_file" ]; then
         print_success "Created radiusclient configuration file"
         print_warning "Note: This is a minimal configuration. You may need to configure RADIUS servers."
-        return 0
     else
         print_error "Failed to create configuration file"
         return 1
     fi
+    
+    # Update Asterisk CDR and CEL configuration files to use correct radiusclient path
+    print_verbose "Updating Asterisk CDR and CEL configuration files..."
+    
+    # Check which radiusclient config path exists
+    local actual_radcli_path=""
+    if [ -f "/etc/radcli/radiusclient.conf" ]; then
+        actual_radcli_path="/etc/radcli/radiusclient.conf"
+    elif [ -f "/etc/radiusclient-ng/radiusclient.conf" ]; then
+        actual_radcli_path="/etc/radiusclient-ng/radiusclient.conf"
+    else
+        actual_radcli_path="$config_file"
+    fi
+    
+    print_verbose "Using radiusclient config path: $actual_radcli_path"
+    
+    # Update cdr.conf if it exists
+    if [ -f "/etc/asterisk/cdr.conf" ]; then
+        print_verbose "Updating /etc/asterisk/cdr.conf..."
+        # Enable radius section
+        sed -i 's/;\[radius\]/[radius]/g' /etc/asterisk/cdr.conf 2>/dev/null || true
+        # Update radiuscfg path
+        sed -i "s|;radiuscfg => /usr/local/etc/radiusclient-ng/radiusclient.conf|radiuscfg => ${actual_radcli_path}|g" /etc/asterisk/cdr.conf 2>/dev/null || true
+        sed -i "s|radiuscfg => /usr/local/etc/radiusclient-ng/radiusclient.conf|radiuscfg => ${actual_radcli_path}|g" /etc/asterisk/cdr.conf 2>/dev/null || true
+        print_verbose "Updated cdr.conf"
+    fi
+    
+    # Update cel.conf if it exists
+    if [ -f "/etc/asterisk/cel.conf" ]; then
+        print_verbose "Updating /etc/asterisk/cel.conf..."
+        # Update radiuscfg path
+        sed -i "s|;radiuscfg => /usr/local/etc/radiusclient-ng/radiusclient.conf|radiuscfg => ${actual_radcli_path}|g" /etc/asterisk/cel.conf 2>/dev/null || true
+        sed -i "s|radiuscfg => /usr/local/etc/radiusclient-ng/radiusclient.conf|radiuscfg => ${actual_radcli_path}|g" /etc/asterisk/cel.conf 2>/dev/null || true
+        print_verbose "Updated cel.conf"
+    fi
+    
+    print_success "Asterisk RADIUS configuration updated"
+    return 0
 }
 
 check_asterisk_status() {
@@ -633,6 +670,21 @@ check_asterisk_status() {
         if [ -z "$full_error_msg" ]; then
             full_error_msg="Service failed to start (no specific error details available)"
         fi
+        
+        # Write error to persistent log file for Web UI and TUI to read
+        local error_log_file="/var/log/rayanpbx/asterisk-errors.log"
+        mkdir -p /var/log/rayanpbx 2>/dev/null || true
+        
+        {
+            echo "==================================="
+            echo "Asterisk Error - $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "Context: $context"
+            echo "==================================="
+            echo -e "$full_error_msg"
+            echo ""
+        } >> "$error_log_file"
+        
+        print_verbose "Error logged to: $error_log_file"
         
         # Display error and get AI solution
         handle_asterisk_error "$full_error_msg" "$context"
