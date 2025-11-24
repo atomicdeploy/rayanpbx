@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Helpers\GrandStreamActionUrls;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
@@ -157,49 +158,7 @@ class GrandStreamProvisioningService
      */
     protected function addActionUrlConfig($config, $options = [])
     {
-        $baseUrl = config('rayanpbx.webhook_base_url', url('/api/grandstream/webhook'));
-        
-        $config['action_urls'] = [
-            'setup_completed' => "{$baseUrl}/setup-completed",
-            'registered' => "{$baseUrl}/registered",
-            'unregistered' => "{$baseUrl}/unregistered",
-            'register_failed' => "{$baseUrl}/register-failed",
-            'off_hook' => "{$baseUrl}/off-hook",
-            'on_hook' => "{$baseUrl}/on-hook",
-            'incoming_call' => "{$baseUrl}/incoming-call",
-            'outgoing_call' => "{$baseUrl}/outgoing-call",
-            'missed_call' => "{$baseUrl}/missed-call",
-            'answered_call' => "{$baseUrl}/answered-call",
-            'rejected_call' => "{$baseUrl}/rejected-call",
-            'forwarded_call' => "{$baseUrl}/forwarded-call",
-            'established_call' => "{$baseUrl}/established-call",
-            'terminated_call' => "{$baseUrl}/terminated-call",
-            'idle_to_busy' => "{$baseUrl}/idle-to-busy",
-            'busy_to_idle' => "{$baseUrl}/busy-to-idle",
-            'open_dnd' => "{$baseUrl}/open-dnd",
-            'close_dnd' => "{$baseUrl}/close-dnd",
-            'open_forward' => "{$baseUrl}/open-forward",
-            'close_forward' => "{$baseUrl}/close-forward",
-            'open_unconditional_forward' => "{$baseUrl}/open-unconditional-forward",
-            'close_unconditional_forward' => "{$baseUrl}/close-unconditional-forward",
-            'open_busy_forward' => "{$baseUrl}/open-busy-forward",
-            'close_busy_forward' => "{$baseUrl}/close-busy-forward",
-            'open_no_answer_forward' => "{$baseUrl}/open-no-answer-forward",
-            'close_no_answer_forward' => "{$baseUrl}/close-no-answer-forward",
-            'blind_transfer' => "{$baseUrl}/blind-transfer",
-            'attended_transfer' => "{$baseUrl}/attended-transfer",
-            'transfer_finished' => "{$baseUrl}/transfer-finished",
-            'transfer_failed' => "{$baseUrl}/transfer-failed",
-            'hold_call' => "{$baseUrl}/hold-call",
-            'unhold_call' => "{$baseUrl}/unhold-call",
-            'mute_call' => "{$baseUrl}/mute-call",
-            'unmute_call' => "{$baseUrl}/unmute-call",
-            'open_syslog' => "{$baseUrl}/open-syslog",
-            'close_syslog' => "{$baseUrl}/close-syslog",
-            'ip_change' => "{$baseUrl}/ip-change",
-            'auto_provision_finish' => "{$baseUrl}/auto-provision-finish",
-        ];
-
+        $config['action_urls'] = GrandStreamActionUrls::getAllActionUrls();
         return $config;
     }
 
@@ -208,92 +167,7 @@ class GrandStreamProvisioningService
      */
     public function getActionUrlConfig()
     {
-        $baseUrl = config('rayanpbx.webhook_base_url', url('/api/grandstream/webhook'));
-        
-        return [
-            'base_url' => $baseUrl,
-            'action_urls' => [
-                'setup_completed' => "{$baseUrl}/setup-completed",
-                'registered' => "{$baseUrl}/registered",
-                'unregistered' => "{$baseUrl}/unregistered",
-                'register_failed' => "{$baseUrl}/register-failed",
-                'off_hook' => "{$baseUrl}/off-hook",
-                'on_hook' => "{$baseUrl}/on-hook",
-                'incoming_call' => "{$baseUrl}/incoming-call",
-                'outgoing_call' => "{$baseUrl}/outgoing-call",
-                'missed_call' => "{$baseUrl}/missed-call",
-                'answered_call' => "{$baseUrl}/answered-call",
-                'rejected_call' => "{$baseUrl}/rejected-call",
-                'forwarded_call' => "{$baseUrl}/forwarded-call",
-                'established_call' => "{$baseUrl}/established-call",
-                'terminated_call' => "{$baseUrl}/terminated-call",
-                'idle_to_busy' => "{$baseUrl}/idle-to-busy",
-                'busy_to_idle' => "{$baseUrl}/busy-to-idle",
-                'open_dnd' => "{$baseUrl}/open-dnd",
-                'close_dnd' => "{$baseUrl}/close-dnd",
-                'open_forward' => "{$baseUrl}/open-forward",
-                'close_forward' => "{$baseUrl}/close-forward",
-                'open_unconditional_forward' => "{$baseUrl}/open-unconditional-forward",
-                'close_unconditional_forward' => "{$baseUrl}/close-unconditional-forward",
-                'open_busy_forward' => "{$baseUrl}/open-busy-forward",
-                'close_busy_forward' => "{$baseUrl}/close-busy-forward",
-                'open_no_answer_forward' => "{$baseUrl}/open-no-answer-forward",
-                'close_no_answer_forward' => "{$baseUrl}/close-no-answer-forward",
-                'blind_transfer' => "{$baseUrl}/blind-transfer",
-                'attended_transfer' => "{$baseUrl}/attended-transfer",
-                'transfer_finished' => "{$baseUrl}/transfer-finished",
-                'transfer_failed' => "{$baseUrl}/transfer-failed",
-                'hold_call' => "{$baseUrl}/hold-call",
-                'unhold_call' => "{$baseUrl}/unhold-call",
-                'mute_call' => "{$baseUrl}/mute-call",
-                'unmute_call' => "{$baseUrl}/unmute-call",
-                'open_syslog' => "{$baseUrl}/open-syslog",
-                'close_syslog' => "{$baseUrl}/close-syslog",
-                'ip_change' => "{$baseUrl}/ip-change",
-                'auto_provision_finish' => "{$baseUrl}/auto-provision-finish",
-            ],
-            // GrandStream P-value parameters for each Action URL
-            'p_values' => [
-                'setup_completed' => 'P1500',
-                'registered' => 'P1501',
-                'unregistered' => 'P1502',
-                'register_failed' => 'P1503',
-                'off_hook' => 'P1504',
-                'on_hook' => 'P1505',
-                'incoming_call' => 'P1506',
-                'outgoing_call' => 'P1507',
-                'missed_call' => 'P1508',
-                'answered_call' => 'P1509',
-                'rejected_call' => 'P1510',
-                'forwarded_call' => 'P1511',
-                'established_call' => 'P1512',
-                'terminated_call' => 'P1513',
-                'idle_to_busy' => 'P1514',
-                'busy_to_idle' => 'P1515',
-                'open_dnd' => 'P1516',
-                'close_dnd' => 'P1517',
-                'open_forward' => 'P1518',
-                'close_forward' => 'P1519',
-                'open_unconditional_forward' => 'P1520',
-                'close_unconditional_forward' => 'P1521',
-                'open_busy_forward' => 'P1522',
-                'close_busy_forward' => 'P1523',
-                'open_no_answer_forward' => 'P1524',
-                'close_no_answer_forward' => 'P1525',
-                'blind_transfer' => 'P1526',
-                'attended_transfer' => 'P1527',
-                'transfer_finished' => 'P1528',
-                'transfer_failed' => 'P1529',
-                'hold_call' => 'P1530',
-                'unhold_call' => 'P1531',
-                'mute_call' => 'P1532',
-                'unmute_call' => 'P1533',
-                'open_syslog' => 'P1534',
-                'close_syslog' => 'P1535',
-                'ip_change' => 'P1536',
-                'auto_provision_finish' => 'P1537',
-            ],
-        ];
+        return GrandStreamActionUrls::getActionUrlConfig();
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\GrandStreamActionUrls;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,93 +18,52 @@ use Illuminate\Support\Facades\Log;
  */
 class GrandStreamWebhookController extends Controller
 {
-    /**
-     * GrandStream Action URL event types
-     */
-    public const EVENT_SETUP_COMPLETED = 'setup_completed';
-    public const EVENT_REGISTERED = 'registered';
-    public const EVENT_UNREGISTERED = 'unregistered';
-    public const EVENT_REGISTER_FAILED = 'register_failed';
-    public const EVENT_OFF_HOOK = 'off_hook';
-    public const EVENT_ON_HOOK = 'on_hook';
-    public const EVENT_INCOMING_CALL = 'incoming_call';
-    public const EVENT_OUTGOING_CALL = 'outgoing_call';
-    public const EVENT_MISSED_CALL = 'missed_call';
-    public const EVENT_ANSWERED_CALL = 'answered_call';
-    public const EVENT_REJECTED_CALL = 'rejected_call';
-    public const EVENT_FORWARDED_CALL = 'forwarded_call';
-    public const EVENT_ESTABLISHED_CALL = 'established_call';
-    public const EVENT_TERMINATED_CALL = 'terminated_call';
-    public const EVENT_IDLE_TO_BUSY = 'idle_to_busy';
-    public const EVENT_BUSY_TO_IDLE = 'busy_to_idle';
-    public const EVENT_OPEN_DND = 'open_dnd';
-    public const EVENT_CLOSE_DND = 'close_dnd';
-    public const EVENT_OPEN_FORWARD = 'open_forward';
-    public const EVENT_CLOSE_FORWARD = 'close_forward';
-    public const EVENT_OPEN_UNCONDITIONAL_FORWARD = 'open_unconditional_forward';
-    public const EVENT_CLOSE_UNCONDITIONAL_FORWARD = 'close_unconditional_forward';
-    public const EVENT_OPEN_BUSY_FORWARD = 'open_busy_forward';
-    public const EVENT_CLOSE_BUSY_FORWARD = 'close_busy_forward';
-    public const EVENT_OPEN_NO_ANSWER_FORWARD = 'open_no_answer_forward';
-    public const EVENT_CLOSE_NO_ANSWER_FORWARD = 'close_no_answer_forward';
-    public const EVENT_BLIND_TRANSFER = 'blind_transfer';
-    public const EVENT_ATTENDED_TRANSFER = 'attended_transfer';
-    public const EVENT_TRANSFER_FINISHED = 'transfer_finished';
-    public const EVENT_TRANSFER_FAILED = 'transfer_failed';
-    public const EVENT_HOLD_CALL = 'hold_call';
-    public const EVENT_UNHOLD_CALL = 'unhold_call';
-    public const EVENT_MUTE_CALL = 'mute_call';
-    public const EVENT_UNMUTE_CALL = 'unmute_call';
-    public const EVENT_OPEN_SYSLOG = 'open_syslog';
-    public const EVENT_CLOSE_SYSLOG = 'close_syslog';
-    public const EVENT_IP_CHANGE = 'ip_change';
-    public const EVENT_AUTO_PROVISION_FINISH = 'auto_provision_finish';
+    // Event type constants delegated to GrandStreamActionUrls helper
+    public const EVENT_SETUP_COMPLETED = GrandStreamActionUrls::EVENT_SETUP_COMPLETED;
+    public const EVENT_REGISTERED = GrandStreamActionUrls::EVENT_REGISTERED;
+    public const EVENT_UNREGISTERED = GrandStreamActionUrls::EVENT_UNREGISTERED;
+    public const EVENT_REGISTER_FAILED = GrandStreamActionUrls::EVENT_REGISTER_FAILED;
+    public const EVENT_OFF_HOOK = GrandStreamActionUrls::EVENT_OFF_HOOK;
+    public const EVENT_ON_HOOK = GrandStreamActionUrls::EVENT_ON_HOOK;
+    public const EVENT_INCOMING_CALL = GrandStreamActionUrls::EVENT_INCOMING_CALL;
+    public const EVENT_OUTGOING_CALL = GrandStreamActionUrls::EVENT_OUTGOING_CALL;
+    public const EVENT_MISSED_CALL = GrandStreamActionUrls::EVENT_MISSED_CALL;
+    public const EVENT_ANSWERED_CALL = GrandStreamActionUrls::EVENT_ANSWERED_CALL;
+    public const EVENT_REJECTED_CALL = GrandStreamActionUrls::EVENT_REJECTED_CALL;
+    public const EVENT_FORWARDED_CALL = GrandStreamActionUrls::EVENT_FORWARDED_CALL;
+    public const EVENT_ESTABLISHED_CALL = GrandStreamActionUrls::EVENT_ESTABLISHED_CALL;
+    public const EVENT_TERMINATED_CALL = GrandStreamActionUrls::EVENT_TERMINATED_CALL;
+    public const EVENT_IDLE_TO_BUSY = GrandStreamActionUrls::EVENT_IDLE_TO_BUSY;
+    public const EVENT_BUSY_TO_IDLE = GrandStreamActionUrls::EVENT_BUSY_TO_IDLE;
+    public const EVENT_OPEN_DND = GrandStreamActionUrls::EVENT_OPEN_DND;
+    public const EVENT_CLOSE_DND = GrandStreamActionUrls::EVENT_CLOSE_DND;
+    public const EVENT_OPEN_FORWARD = GrandStreamActionUrls::EVENT_OPEN_FORWARD;
+    public const EVENT_CLOSE_FORWARD = GrandStreamActionUrls::EVENT_CLOSE_FORWARD;
+    public const EVENT_OPEN_UNCONDITIONAL_FORWARD = GrandStreamActionUrls::EVENT_OPEN_UNCONDITIONAL_FORWARD;
+    public const EVENT_CLOSE_UNCONDITIONAL_FORWARD = GrandStreamActionUrls::EVENT_CLOSE_UNCONDITIONAL_FORWARD;
+    public const EVENT_OPEN_BUSY_FORWARD = GrandStreamActionUrls::EVENT_OPEN_BUSY_FORWARD;
+    public const EVENT_CLOSE_BUSY_FORWARD = GrandStreamActionUrls::EVENT_CLOSE_BUSY_FORWARD;
+    public const EVENT_OPEN_NO_ANSWER_FORWARD = GrandStreamActionUrls::EVENT_OPEN_NO_ANSWER_FORWARD;
+    public const EVENT_CLOSE_NO_ANSWER_FORWARD = GrandStreamActionUrls::EVENT_CLOSE_NO_ANSWER_FORWARD;
+    public const EVENT_BLIND_TRANSFER = GrandStreamActionUrls::EVENT_BLIND_TRANSFER;
+    public const EVENT_ATTENDED_TRANSFER = GrandStreamActionUrls::EVENT_ATTENDED_TRANSFER;
+    public const EVENT_TRANSFER_FINISHED = GrandStreamActionUrls::EVENT_TRANSFER_FINISHED;
+    public const EVENT_TRANSFER_FAILED = GrandStreamActionUrls::EVENT_TRANSFER_FAILED;
+    public const EVENT_HOLD_CALL = GrandStreamActionUrls::EVENT_HOLD_CALL;
+    public const EVENT_UNHOLD_CALL = GrandStreamActionUrls::EVENT_UNHOLD_CALL;
+    public const EVENT_MUTE_CALL = GrandStreamActionUrls::EVENT_MUTE_CALL;
+    public const EVENT_UNMUTE_CALL = GrandStreamActionUrls::EVENT_UNMUTE_CALL;
+    public const EVENT_OPEN_SYSLOG = GrandStreamActionUrls::EVENT_OPEN_SYSLOG;
+    public const EVENT_CLOSE_SYSLOG = GrandStreamActionUrls::EVENT_CLOSE_SYSLOG;
+    public const EVENT_IP_CHANGE = GrandStreamActionUrls::EVENT_IP_CHANGE;
+    public const EVENT_AUTO_PROVISION_FINISH = GrandStreamActionUrls::EVENT_AUTO_PROVISION_FINISH;
 
     /**
      * Get all supported event types
      */
     public static function getAllEventTypes(): array
     {
-        return [
-            self::EVENT_SETUP_COMPLETED,
-            self::EVENT_REGISTERED,
-            self::EVENT_UNREGISTERED,
-            self::EVENT_REGISTER_FAILED,
-            self::EVENT_OFF_HOOK,
-            self::EVENT_ON_HOOK,
-            self::EVENT_INCOMING_CALL,
-            self::EVENT_OUTGOING_CALL,
-            self::EVENT_MISSED_CALL,
-            self::EVENT_ANSWERED_CALL,
-            self::EVENT_REJECTED_CALL,
-            self::EVENT_FORWARDED_CALL,
-            self::EVENT_ESTABLISHED_CALL,
-            self::EVENT_TERMINATED_CALL,
-            self::EVENT_IDLE_TO_BUSY,
-            self::EVENT_BUSY_TO_IDLE,
-            self::EVENT_OPEN_DND,
-            self::EVENT_CLOSE_DND,
-            self::EVENT_OPEN_FORWARD,
-            self::EVENT_CLOSE_FORWARD,
-            self::EVENT_OPEN_UNCONDITIONAL_FORWARD,
-            self::EVENT_CLOSE_UNCONDITIONAL_FORWARD,
-            self::EVENT_OPEN_BUSY_FORWARD,
-            self::EVENT_CLOSE_BUSY_FORWARD,
-            self::EVENT_OPEN_NO_ANSWER_FORWARD,
-            self::EVENT_CLOSE_NO_ANSWER_FORWARD,
-            self::EVENT_BLIND_TRANSFER,
-            self::EVENT_ATTENDED_TRANSFER,
-            self::EVENT_TRANSFER_FINISHED,
-            self::EVENT_TRANSFER_FAILED,
-            self::EVENT_HOLD_CALL,
-            self::EVENT_UNHOLD_CALL,
-            self::EVENT_MUTE_CALL,
-            self::EVENT_UNMUTE_CALL,
-            self::EVENT_OPEN_SYSLOG,
-            self::EVENT_CLOSE_SYSLOG,
-            self::EVENT_IP_CHANGE,
-            self::EVENT_AUTO_PROVISION_FINISH,
-        ];
+        return GrandStreamActionUrls::getAllEventTypes();
     }
 
     /**
@@ -114,9 +74,7 @@ class GrandStreamWebhookController extends Controller
      */
     public function handleEvent(Request $request, string $event)
     {
-        $eventTypes = self::getAllEventTypes();
-        
-        if (!in_array($event, $eventTypes)) {
+        if (!GrandStreamActionUrls::isValidEventType($event)) {
             Log::warning('GrandStream webhook: Unknown event type', [
                 'event' => $event,
                 'ip' => $request->ip(),
@@ -457,53 +415,12 @@ class GrandStreamWebhookController extends Controller
      */
     public function getActionUrls(Request $request)
     {
-        $baseUrl = config('rayanpbx.webhook_base_url', url('/api/grandstream/webhook'));
-
-        $actionUrls = [
-            'setup_completed' => "{$baseUrl}/setup-completed",
-            'registered' => "{$baseUrl}/registered",
-            'unregistered' => "{$baseUrl}/unregistered",
-            'register_failed' => "{$baseUrl}/register-failed",
-            'off_hook' => "{$baseUrl}/off-hook",
-            'on_hook' => "{$baseUrl}/on-hook",
-            'incoming_call' => "{$baseUrl}/incoming-call",
-            'outgoing_call' => "{$baseUrl}/outgoing-call",
-            'missed_call' => "{$baseUrl}/missed-call",
-            'answered_call' => "{$baseUrl}/answered-call",
-            'rejected_call' => "{$baseUrl}/rejected-call",
-            'forwarded_call' => "{$baseUrl}/forwarded-call",
-            'established_call' => "{$baseUrl}/established-call",
-            'terminated_call' => "{$baseUrl}/terminated-call",
-            'idle_to_busy' => "{$baseUrl}/idle-to-busy",
-            'busy_to_idle' => "{$baseUrl}/busy-to-idle",
-            'open_dnd' => "{$baseUrl}/open-dnd",
-            'close_dnd' => "{$baseUrl}/close-dnd",
-            'open_forward' => "{$baseUrl}/open-forward",
-            'close_forward' => "{$baseUrl}/close-forward",
-            'open_unconditional_forward' => "{$baseUrl}/open-unconditional-forward",
-            'close_unconditional_forward' => "{$baseUrl}/close-unconditional-forward",
-            'open_busy_forward' => "{$baseUrl}/open-busy-forward",
-            'close_busy_forward' => "{$baseUrl}/close-busy-forward",
-            'open_no_answer_forward' => "{$baseUrl}/open-no-answer-forward",
-            'close_no_answer_forward' => "{$baseUrl}/close-no-answer-forward",
-            'blind_transfer' => "{$baseUrl}/blind-transfer",
-            'attended_transfer' => "{$baseUrl}/attended-transfer",
-            'transfer_finished' => "{$baseUrl}/transfer-finished",
-            'transfer_failed' => "{$baseUrl}/transfer-failed",
-            'hold_call' => "{$baseUrl}/hold-call",
-            'unhold_call' => "{$baseUrl}/unhold-call",
-            'mute_call' => "{$baseUrl}/mute-call",
-            'unmute_call' => "{$baseUrl}/unmute-call",
-            'open_syslog' => "{$baseUrl}/open-syslog",
-            'close_syslog' => "{$baseUrl}/close-syslog",
-            'ip_change' => "{$baseUrl}/ip-change",
-            'auto_provision_finish' => "{$baseUrl}/auto-provision-finish",
-        ];
+        $config = GrandStreamActionUrls::getActionUrlConfig();
 
         return response()->json([
             'success' => true,
-            'base_url' => $baseUrl,
-            'action_urls' => $actionUrls,
+            'base_url' => $config['base_url'],
+            'action_urls' => $config['action_urls'],
             'supported_events' => self::getAllEventTypes(),
         ]);
     }

@@ -111,6 +111,34 @@
         </div>
       </div>
 
+      <!-- Action URLs Panel -->
+      <div class="action-urls-panel">
+        <h3>📡 Action URLs</h3>
+        <div class="action-urls-actions">
+          <button @click="checkActionUrls" class="btn btn-info">
+            🔍 Check Status
+          </button>
+          <button @click="updateActionUrls(false)" class="btn btn-primary">
+            🔄 Update
+          </button>
+        </div>
+        <div v-if="actionUrlStatus" class="action-urls-status">
+          <div class="action-urls-summary">
+            <span :class="['status-badge', actionUrlStatus.needs_update ? 'warning' : 'success']">
+              {{ actionUrlStatus.needs_update ? 'Needs Update' : 'Configured' }}
+            </span>
+            <span v-if="actionUrlStatus.has_conflicts" class="status-badge danger">
+              ⚠️ Has Conflicts
+            </span>
+          </div>
+          <div class="action-urls-details">
+            <p>Total: {{ actionUrlStatus.summary?.total || 0 }}</p>
+            <p>Matching: {{ actionUrlStatus.summary?.matching || 0 }}</p>
+            <p>Conflicts: {{ actionUrlStatus.summary?.conflicts || 0 }}</p>
+          </div>
+        </div>
+      </div>
+
       <!-- Configuration Panel -->
       <div v-if="phoneConfig" class="config-panel">
         <h3>⚙️ Configuration</h3>
@@ -144,6 +172,32 @@
         </div>
       </div>
 
+      <!-- Action URL Confirmation Modal -->
+      <div v-if="showActionUrlConfirmModal" class="action-url-confirm-modal">
+        <div class="modal-content">
+          <h3>⚠️ Confirm Action URL Update</h3>
+          <p>The phone has existing Action URL configuration that differs from RayanPBX values.</p>
+          <div v-if="actionUrlConflicts" class="conflicts-list">
+            <h4>Conflicts:</h4>
+            <div v-for="(conflict, event) in actionUrlConflicts" :key="event" class="conflict-item">
+              <strong>{{ event }}</strong>
+              <div class="conflict-values">
+                <div class="current">Current: {{ conflict.current || '(empty)' }}</div>
+                <div class="expected">Expected: {{ conflict.expected }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button @click="updateActionUrls(true)" class="btn btn-danger">
+              Force Update
+            </button>
+            <button @click="showActionUrlConfirmModal = false" class="btn btn-secondary">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Provision Modal -->
       <div v-if="showProvisionModal" class="provision-modal">
         <div class="modal-content">
@@ -162,6 +216,12 @@
             placeholder="Account Number (1-6)"
             class="input"
           />
+          <div class="checkbox-group">
+            <label>
+              <input type="checkbox" v-model="includeActionUrls" />
+              Configure Action URLs
+            </label>
+          </div>
           <div class="modal-actions">
             <button @click="provisionExtension" class="btn btn-primary">
               Provision
@@ -191,10 +251,14 @@ const phoneConfig = ref(null)
 const loading = ref(false)
 const needsCredentials = ref(false)
 const showProvisionModal = ref(false)
+const showActionUrlConfirmModal = ref(false)
 const extensions = ref([])
 const selectedExtension = ref('')
 const accountNumber = ref(1)
+const includeActionUrls = ref(true)
 const notification = ref(null)
+const actionUrlStatus = ref(null)
+const actionUrlConflicts = ref(null)
 
 const credentials = ref({
   username: 'admin',
@@ -360,7 +424,10 @@ async function provisionExtension() {
   }
 
   try {
-    const response = await fetch('/api/phones/provision', {
+    // Use complete provisioning if Action URLs are included
+    const endpoint = includeActionUrls.value ? '/api/grandstream/provision-complete' : '/api/phones/provision'
+    
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -370,12 +437,19 @@ async function provisionExtension() {
         ip: selectedPhone.value.ip,
         extension_id: selectedExtension.value,
         account_number: accountNumber.value,
-        credentials: credentials.value
+        credentials: credentials.value,
+        force_action_urls: false
       })
     })
     const data = await response.json()
     
-    if (data.success) {
+    if (response.status === 409 && data.action_urls_result?.requires_confirmation) {
+      // Action URLs have conflicts - show confirmation modal
+      actionUrlConflicts.value = data.action_urls_result.conflicts
+      showActionUrlConfirmModal.value = true
+      showProvisionModal.value = false
+      showNotification('Extension provisioned but Action URLs need confirmation', 'warning')
+    } else if (data.success) {
       showNotification('Extension provisioned successfully', 'success')
       showProvisionModal.value = false
     } else {
@@ -383,6 +457,70 @@ async function provisionExtension() {
     }
   } catch (error) {
     showNotification('Provisioning failed', 'error')
+  }
+}
+
+async function checkActionUrls() {
+  if (!selectedPhone.value) return
+  
+  try {
+    const response = await fetch('/api/grandstream/action-urls/check', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ip: selectedPhone.value.ip,
+        credentials: credentials.value
+      })
+    })
+    const data = await response.json()
+    
+    if (data.success) {
+      actionUrlStatus.value = data
+      showNotification('Action URL status retrieved', 'success')
+    } else {
+      showNotification(data.error || 'Failed to check Action URLs', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to check Action URLs', 'error')
+  }
+}
+
+async function updateActionUrls(force = false) {
+  if (!selectedPhone.value) return
+  
+  try {
+    const response = await fetch('/api/grandstream/action-urls/update', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ip: selectedPhone.value.ip,
+        credentials: credentials.value,
+        force: force
+      })
+    })
+    const data = await response.json()
+    
+    if (response.status === 409 && data.requires_confirmation) {
+      // Conflicts found - show confirmation modal
+      actionUrlConflicts.value = data.conflicts
+      showActionUrlConfirmModal.value = true
+      showNotification('Action URL conflicts found - confirmation required', 'warning')
+    } else if (data.success) {
+      showActionUrlConfirmModal.value = false
+      showNotification(data.message || 'Action URLs updated successfully', 'success')
+      // Refresh status
+      await checkActionUrls()
+    } else {
+      showNotification(data.error || 'Failed to update Action URLs', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to update Action URLs', 'error')
   }
 }
 
@@ -608,7 +746,7 @@ function showNotification(message, type = 'info') {
   margin-top: 15px;
 }
 
-.credentials-modal, .provision-modal {
+.credentials-modal, .provision-modal, .action-url-confirm-modal {
   position: fixed;
   top: 0;
   left: 0;
@@ -627,6 +765,8 @@ function showNotification(message, type = 'info') {
   border-radius: 8px;
   min-width: 400px;
   max-width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 .modal-content h3 {
@@ -642,11 +782,104 @@ function showNotification(message, type = 'info') {
   font-size: 14px;
 }
 
+.checkbox-group {
+  margin-bottom: 15px;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
 .modal-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+.action-urls-panel {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.action-urls-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.action-urls-status {
+  margin-top: 15px;
+  padding: 15px;
+  background: white;
+  border-radius: 4px;
+}
+
+.action-urls-summary {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.action-urls-details {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #666;
+}
+
+.status-badge.success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.warning {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-badge.danger {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.conflicts-list {
+  margin: 15px 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.conflict-item {
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fff3cd;
+  border-radius: 4px;
+  border: 1px solid #ffc107;
+}
+
+.conflict-item strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #856404;
+}
+
+.conflict-values {
+  font-size: 12px;
+}
+
+.conflict-values .current {
+  color: #dc3545;
+  word-break: break-all;
+}
+
+.conflict-values .expected {
+  color: #28a745;
+  word-break: break-all;
 }
 
 .notification {
@@ -676,6 +909,12 @@ function showNotification(message, type = 'info') {
   background: #d1ecf1;
   color: #0c5460;
   border: 1px solid #bee5eb;
+}
+
+.notification.warning {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffc107;
 }
 
 @keyframes slideIn {
