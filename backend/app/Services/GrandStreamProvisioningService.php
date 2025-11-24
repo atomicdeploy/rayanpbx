@@ -1197,6 +1197,31 @@ class GrandStreamProvisioningService
         // Update Action URLs
         $actionUrlResult = $this->updateActionUrls($ip, $credentials, $forceActionUrls);
         
+        // Check if Action URL update requires confirmation
+        if (isset($actionUrlResult['requires_confirmation']) && $actionUrlResult['requires_confirmation']) {
+            return [
+                'success' => true, // Extension provisioned successfully
+                'ip' => $ip,
+                'extension' => $extension['extension_number'],
+                'account_number' => $accountNumber,
+                'extension_provisioned' => true,
+                'action_urls_result' => $actionUrlResult,
+            ];
+        }
+
+        // Check if Action URL update failed
+        if (!$actionUrlResult['success'] && !isset($actionUrlResult['requires_confirmation'])) {
+            return [
+                'success' => false,
+                'message' => 'Extension provisioned but Action URL update failed',
+                'ip' => $ip,
+                'extension' => $extension['extension_number'],
+                'account_number' => $accountNumber,
+                'extension_provisioned' => true,
+                'action_urls_result' => $actionUrlResult,
+            ];
+        }
+
         return [
             'success' => true,
             'ip' => $ip,

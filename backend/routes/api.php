@@ -23,8 +23,8 @@ use App\Http\Controllers\Api\SipTestController;
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/refresh', [AuthController::class, 'refresh']);
 
-// GrandStream Action URL Webhooks (public - called by phones)
-Route::prefix('grandstream/webhook')->group(function () {
+// GrandStream Action URL Webhooks (restricted to registered VoIP phone IPs)
+Route::prefix('grandstream/webhook')->middleware(['voip.whitelist', 'throttle:100,1'])->group(function () {
     Route::match(['get', 'post'], '/setup-completed', [GrandStreamWebhookController::class, 'setupCompleted']);
     Route::match(['get', 'post'], '/registered', [GrandStreamWebhookController::class, 'registered']);
     Route::match(['get', 'post'], '/unregistered', [GrandStreamWebhookController::class, 'unregistered']);
@@ -72,8 +72,9 @@ Route::prefix('grandstream/webhook')->group(function () {
     });
 });
 
-// Get Action URL configuration (public for phone setup)
-Route::get('/grandstream/action-urls', [GrandStreamWebhookController::class, 'getActionUrls']);
+// Get Action URL configuration (restricted to whitelisted VoIP phone IPs)
+Route::get('/grandstream/action-urls', [GrandStreamWebhookController::class, 'getActionUrls'])
+    ->middleware(['voip.whitelist', 'throttle:60,1']);
 
 // Protected routes
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {

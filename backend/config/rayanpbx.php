@@ -79,6 +79,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | VoIP Webhook Security
+    |--------------------------------------------------------------------------
+    | IP whitelisting for VoIP phone webhook endpoints.
+    | By default, private network IPs and registered phone IPs are allowed.
+    */
+    
+    // Allow private network IPs (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
+    'voip_webhook_allow_private' => env('VOIP_WEBHOOK_ALLOW_PRIVATE', true),
+    
+    // Additional whitelisted IP addresses (array)
+    'voip_webhook_whitelist' => array_filter(explode(',', env('VOIP_WEBHOOK_WHITELIST', ''))),
+    
+    // Additional CIDR ranges to whitelist (array)
+    // Example: '10.0.0.0/8,192.168.1.0/24'
+    'voip_webhook_cidr_whitelist' => array_filter(explode(',', env('VOIP_WEBHOOK_CIDR_WHITELIST', ''))),
+    
+    // Cache TTL for registered phone IPs (in seconds)
+    'voip_webhook_cache_ttl' => env('VOIP_WEBHOOK_CACHE_TTL', 60),
+
+    /*
+    |--------------------------------------------------------------------------
     | Security Configuration
     |--------------------------------------------------------------------------
     */

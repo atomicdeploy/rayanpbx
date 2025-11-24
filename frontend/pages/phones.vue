@@ -477,6 +477,11 @@ async function checkActionUrls() {
     })
     const data = await response.json()
     
+    if (!response.ok) {
+      showNotification(data.error || `Failed to check Action URLs (${response.status})`, 'error')
+      return
+    }
+    
     if (data.success) {
       actionUrlStatus.value = data
       showNotification('Action URL status retrieved', 'success')
@@ -511,6 +516,8 @@ async function updateActionUrls(force = false) {
       actionUrlConflicts.value = data.conflicts
       showActionUrlConfirmModal.value = true
       showNotification('Action URL conflicts found - confirmation required', 'warning')
+    } else if (!response.ok) {
+      showNotification(data.error || `Failed to update Action URLs (${response.status})`, 'error')
     } else if (data.success) {
       showActionUrlConfirmModal.value = false
       showNotification(data.message || 'Action URLs updated successfully', 'success')
