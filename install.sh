@@ -1671,6 +1671,7 @@ print_success "TUI built: /usr/local/bin/rayanpbx-tui"
 
 # WebSocket Server Setup
 print_progress "Building WebSocket server..."
+go mod download
 go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
 chmod +x /usr/local/bin/rayanpbx-ws
 
