@@ -119,6 +119,87 @@ class AsteriskStatusController extends Controller
             'endpoints' => $endpoints,
         ]);
     }
+    
+    /**
+     * Get Asterisk service errors from log file
+     */
+    public function getErrors()
+    {
+        $errorLogFile = '/var/log/rayanpbx/asterisk-errors.log';
+        $errors = [];
+        
+        if (file_exists($errorLogFile)) {
+            try {
+                // Read the last 50 lines of the error log
+                $content = shell_exec("tail -n 100 " . escapeshellarg($errorLogFile));
+                
+                if ($content) {
+                    // Parse the log content into structured errors
+                    $entries = preg_split('/={30,}/', $content);
+                    
+                    foreach ($entries as $entry) {
+                        $entry = trim($entry);
+                        if (empty($entry)) continue;
+                        
+                        // Extract timestamp and context
+                        if (preg_match('/Asterisk Error - (.+?)\nContext: (.+?)$/m', $entry, $matches)) {
+                            $timestamp = $matches[1] ?? '';
+                            $context = $matches[2] ?? '';
+                            
+                            // Extract error message (everything after Context line)
+                            $lines = explode("\n", $entry);
+                            $errorLines = [];
+                            $foundContext = false;
+                            
+                            foreach ($lines as $line) {
+                                if ($foundContext && !empty(trim($line))) {
+                                    $errorLines[] = $line;
+                                }
+                                if (strpos($line, 'Context:') !== false) {
+                                    $foundContext = true;
+                                }
+                            }
+                            
+                            $errors[] = [
+                                'timestamp' => $timestamp,
+                                'context' => $context,
+                                'message' => implode("\n", $errorLines),
+                            ];
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                \Log::error('Failed to read Asterisk error log: ' . $e->getMessage());
+            }
+        }
+        
+        // Also check systemctl status for current errors
+        try {
+            exec('systemctl is-active asterisk 2>&1', $output, $returnCode);
+            $isActive = ($returnCode === 0);
+            
+            if (!$isActive) {
+                // Get recent journal errors
+                $journalErrors = shell_exec('journalctl -u asterisk -n 20 --no-pager 2>/dev/null | grep -i "error\|fail\|warning" | tail -5');
+                
+                if ($journalErrors) {
+                    $errors[] = [
+                        'timestamp' => date('Y-m-d H:M:S'),
+                        'context' => 'Current Asterisk Status',
+                        'message' => "Asterisk service is not running.\n\nRecent errors:\n" . trim($journalErrors),
+                    ];
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::error('Failed to check Asterisk status: ' . $e->getMessage());
+        }
+        
+        return response()->json([
+            'success' => true,
+            'errors' => array_reverse($errors), // Most recent first
+            'count' => count($errors),
+            'has_errors' => count($errors) > 0,
+        ]);
 
     /**
      * Get all PJSIP transports

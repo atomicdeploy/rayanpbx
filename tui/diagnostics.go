@@ -242,6 +242,8 @@ func (dm *DiagnosticsManager) RunHealthCheck() {
 		green.Println("✅ Running")
 	} else {
 		red.Println("❌ Not Running")
+		// Show errors if service is not running
+		dm.ShowAsteriskErrors()
 	}
 
 	// Check PJSIP endpoints
@@ -266,4 +268,94 @@ func (dm *DiagnosticsManager) RunHealthCheck() {
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
+}
+
+// ShowAsteriskErrors displays Asterisk service errors
+func (dm *DiagnosticsManager) ShowAsteriskErrors() {
+	red := color.New(color.FgRed, color.Bold)
+	yellow := color.New(color.FgYellow)
+	cyan := color.New(color.FgCyan)
+
+	red.Println("\n❌ Asterisk Service Errors:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Check the persistent error log file
+	errorLogFile := "/var/log/rayanpbx/asterisk-errors.log"
+	if output, err := exec.Command("tail", "-n", "30", errorLogFile).Output(); err == nil && len(output) > 0 {
+		cyan.Println("📋 Recent errors from log file:")
+		fmt.Println(string(output))
+	}
+
+	// Get current journal errors
+	if output, err := exec.Command("journalctl", "-u", "asterisk", "-n", "20", "--no-pager").Output(); err == nil {
+		journalOutput := string(output)
+		// Filter for errors and warnings
+		lines := strings.Split(journalOutput, "\n")
+		hasErrors := false
+		for _, line := range lines {
+			lineLower := strings.ToLower(line)
+			if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "fail") || strings.Contains(lineLower, "warning") {
+				if !hasErrors {
+					cyan.Println("\n📋 Recent journal entries:")
+					hasErrors = true
+				}
+				if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "fail") {
+					red.Println("  " + line)
+				} else {
+					yellow.Println("  " + line)
+				}
+			}
+		}
+		if !hasErrors {
+			fmt.Println("  No specific error messages found in recent logs")
+		}
+	}
+
+	// Check systemctl status for more details
+	if output, err := exec.Command("systemctl", "status", "asterisk", "--no-pager").Output(); err != nil {
+		// Error means service is not running, show the output
+		if len(output) > 0 {
+			cyan.Println("\n📋 Service status:")
+			fmt.Println(string(output))
+		}
+	}
+
+	// Check for common issues
+	cyan.Println("\n💡 Common fixes:")
+	yellow.Println("  1. Check radiusclient config: ls -la /etc/radiusclient-ng/")
+	yellow.Println("  2. View detailed logs: journalctl -u asterisk -f")
+	yellow.Println("  3. Start in verbose mode: asterisk -vvvvvc")
+	yellow.Println("  4. Check Asterisk config: asterisk -rx 'core show settings'")
+	
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// GetAsteriskErrorsSummary returns a summary of Asterisk errors for display
+func (dm *DiagnosticsManager) GetAsteriskErrorsSummary() ([]string, error) {
+	var errors []string
+
+	// Check the persistent error log file
+	errorLogFile := "/var/log/rayanpbx/asterisk-errors.log"
+	if output, err := exec.Command("tail", "-n", "10", errorLogFile).Output(); err == nil && len(output) > 0 {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "===") {
+				errors = append(errors, line)
+			}
+		}
+	}
+
+	// Get current journal errors
+	if output, err := exec.Command("journalctl", "-u", "asterisk", "-n", "10", "--no-pager").Output(); err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			lineLower := strings.ToLower(line)
+			if strings.Contains(lineLower, "error") || strings.Contains(lineLower, "fail") {
+				errors = append(errors, strings.TrimSpace(line))
+			}
+		}
+	}
+
+	return errors, nil
 }

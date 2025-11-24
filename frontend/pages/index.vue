@@ -42,6 +42,42 @@
 
     <!-- Main Content -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <!-- Asterisk Errors Alert -->
+      <div v-if="asteriskErrors.length > 0" class="mb-6">
+        <div class="bg-red-100 dark:bg-red-900 border-l-4 border-red-500 p-4 rounded-lg">
+          <div class="flex items-start">
+            <div class="flex-shrink-0">
+              <span class="text-2xl">⚠️</span>
+            </div>
+            <div class="ml-3 flex-1">
+              <h3 class="text-lg font-medium text-red-800 dark:text-red-200">
+                Asterisk Service Errors
+              </h3>
+              <div class="mt-2 text-sm text-red-700 dark:text-red-300">
+                <p class="mb-2">The Asterisk service has encountered errors:</p>
+                <ul class="list-disc list-inside space-y-1 max-h-40 overflow-y-auto">
+                  <li v-for="(error, index) in asteriskErrors.slice(0, 5)" :key="index" class="font-mono text-xs">
+                    {{ error.context }}: {{ error.message?.substring(0, 100) }}{{ error.message?.length > 100 ? '...' : '' }}
+                  </li>
+                </ul>
+                <button 
+                  @click="showErrorDetails = !showErrorDetails"
+                  class="mt-2 text-red-600 dark:text-red-400 underline text-sm"
+                >
+                  {{ showErrorDetails ? 'Hide Details' : 'Show Details' }}
+                </button>
+              </div>
+              <div v-if="showErrorDetails" class="mt-4 p-3 bg-gray-900 rounded text-white font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto">
+                <div v-for="(error, index) in asteriskErrors" :key="'detail-' + index" class="mb-4">
+                  <div class="text-yellow-400">{{ error.timestamp }} - {{ error.context }}</div>
+                  <pre class="whitespace-pre-wrap text-gray-300">{{ error.message }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Status Cards -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div class="card">
@@ -144,6 +180,8 @@ const colorMode = useColorMode()
 
 const status = ref<any>(null)
 const loading = ref(false)
+const asteriskErrors = ref<any[]>([])
+const showErrorDetails = ref(false)
 
 const toggleLocale = () => {
   locale.value = locale.value === 'en' ? 'fa' : 'en'
@@ -181,10 +219,28 @@ const fetchStatus = async () => {
   try {
     const response = await api.getStatus()
     status.value = response.status
+    
+    // Fetch Asterisk errors if service is not running
+    if (response.status?.asterisk !== 'running') {
+      await fetchAsteriskErrors()
+    } else {
+      asteriskErrors.value = []
+    }
   } catch (error) {
     console.error('Error fetching status:', error)
   }
   loading.value = false
+}
+
+const fetchAsteriskErrors = async () => {
+  try {
+    const response = await api.get('/asterisk/errors')
+    if (response.errors && response.errors.length > 0) {
+      asteriskErrors.value = response.errors
+    }
+  } catch (error) {
+    console.error('Error fetching Asterisk errors:', error)
+  }
 }
 
 onMounted(async () => {
