@@ -64,9 +64,12 @@ class ExtensionController extends Controller
             'secret' => 'required|string|min:8',
             'enabled' => 'boolean',
             'context' => 'string',
-            'transport' => 'string|in:udp,tcp,tls',
+            'transport' => 'string|in:udp,tcp,tls,transport-udp,transport-tcp,transport-tls',
             'codecs' => 'nullable|array',
+            'codecs.*' => 'string|in:ulaw,alaw,g722,g729,opus,gsm,ilbc,speex,h264,vp8',
             'max_contacts' => 'integer|min:1|max:10',
+            'direct_media' => 'string|in:yes,no',
+            'qualify_frequency' => 'integer|min:0|max:3600',
             'caller_id' => 'nullable|string',
             'voicemail_enabled' => 'boolean',
             'notes' => 'nullable|string',
@@ -74,6 +77,11 @@ class ExtensionController extends Controller
         
         // Hash the secret for storage
         $validated['secret'] = bcrypt($validated['secret']);
+        
+        // Set defaults for new PJSIP options
+        $validated['direct_media'] = $validated['direct_media'] ?? 'no';
+        $validated['qualify_frequency'] = $validated['qualify_frequency'] ?? 60;
+        $validated['codecs'] = $validated['codecs'] ?? ['ulaw', 'alaw', 'g722'];
         
         $extension = Extension::create($validated);
         
@@ -130,9 +138,12 @@ class ExtensionController extends Controller
             'secret' => 'nullable|string|min:8',
             'enabled' => 'boolean',
             'context' => 'string',
-            'transport' => 'string|in:udp,tcp,tls',
+            'transport' => 'string|in:udp,tcp,tls,transport-udp,transport-tcp,transport-tls',
             'codecs' => 'nullable|array',
+            'codecs.*' => 'string|in:ulaw,alaw,g722,g729,opus,gsm,ilbc,speex,h264,vp8',
             'max_contacts' => 'integer|min:1|max:10',
+            'direct_media' => 'string|in:yes,no',
+            'qualify_frequency' => 'integer|min:0|max:3600',
             'caller_id' => 'nullable|string',
             'voicemail_enabled' => 'boolean',
             'notes' => 'nullable|string',
