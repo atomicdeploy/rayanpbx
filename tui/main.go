@@ -125,6 +125,7 @@ const (
 	voipPhoneControlScreen
 	voipPhoneProvisionScreen
 	voipManualIPScreen
+	voipDiscoveryScreen
 )
 
 type model struct {
@@ -172,7 +173,9 @@ type model struct {
 	
 	// VoIP phone management
 	phoneManager       *PhoneManager
+	phoneDiscovery     *PhoneDiscovery
 	voipPhones         []PhoneInfo
+	discoveredPhones   []DiscoveredPhone
 	selectedPhoneIdx   int
 	voipControlMenu    []string
 	voipPhoneOutput    string
@@ -275,8 +278,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 			// Handle VoIP-specific keys first
 			switch msg.String() {
-			case "m", "c", "r", "p":
+			case "m", "c", "r", "p", "d":
 				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle VoIP discovery screen
+		if m.currentScreen == voipDiscoveryScreen {
+			switch msg.String() {
+			case "s", "l", "r", "a":
+				m.handleVoIPDiscoveryKeyPress(msg.String())
+				return m, nil
+			case "up", "k":
+				if m.selectedPhoneIdx > 0 {
+					m.selectedPhoneIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedPhoneIdx < len(m.discoveredPhones)-1 {
+					m.selectedPhoneIdx++
+				}
 				return m, nil
 			}
 		}
@@ -575,11 +597,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipPhoneControlScreen || 
-				           m.currentScreen == voipPhoneProvisionScreen || m.currentScreen == voipManualIPScreen {
+				           m.currentScreen == voipPhoneProvisionScreen || m.currentScreen == voipManualIPScreen ||
+				           m.currentScreen == voipDiscoveryScreen {
 					// Handle VoIP phone screen back navigation
 					if m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 						m.currentScreen = voipPhoneDetailsScreen
-					} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipManualIPScreen {
+					} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipManualIPScreen || 
+					           m.currentScreen == voipDiscoveryScreen {
 						m.currentScreen = voipPhonesScreen
 						m.inputMode = false
 					}
@@ -690,6 +714,8 @@ func (m model) View() string {
 		s += m.renderVoIPPhoneProvision()
 	case voipManualIPScreen:
 		s += m.renderVoIPManualIP()
+	case voipDiscoveryScreen:
+		s += m.renderVoIPDiscovery()
 	}
 
 	// Footer with emojis

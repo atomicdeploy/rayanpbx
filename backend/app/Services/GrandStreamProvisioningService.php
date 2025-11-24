@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http;
 
 /**
  * GrandStream Phone Provisioning Service
@@ -199,16 +200,375 @@ class GrandStreamProvisioningService
      */
     public function discoverPhones($network = '192.168.1.0/24')
     {
-        Log::info("Discovering GrandStream phones on network: $network");
+        Log::info("Discovering phones on network: $network");
+        
+        $devices = [];
+        
+        // Try LLDP discovery first
+        try {
+            $lldpDevices = $this->discoverViaLLDP();
+            $devices = array_merge($devices, $lldpDevices);
+        } catch (\Exception $e) {
+            Log::warning("LLDP discovery failed: " . $e->getMessage());
+        }
+        
+        // Fallback to nmap scanning
+        try {
+            $nmapDevices = $this->discoverViaNmap($network);
+            $devices = array_merge($devices, $nmapDevices);
+        } catch (\Exception $e) {
+            Log::warning("Nmap discovery failed: " . $e->getMessage());
+        }
+        
+        // Deduplicate by MAC or IP
+        $devices = $this->deduplicateDevices($devices);
         
         // Get registered phones from Asterisk
         $registeredPhones = $this->getRegisteredPhonesFromAsterisk();
         
         return [
             'status' => 'success',
+            'count' => count($devices),
+            'devices' => $devices,
             'phones' => $registeredPhones,
             'network' => $network,
         ];
+    }
+    
+    /**
+     * Discover phones via LLDP protocol
+     */
+    protected function discoverViaLLDP()
+    {
+        $devices = [];
+        
+        // Try lldpctl command (requires lldpd package)
+        $output = [];
+        $returnCode = 0;
+        exec('lldpctl -f keyvalue 2>&1', $output, $returnCode);
+        
+        if ($returnCode !== 0) {
+            throw new \Exception("LLDP discovery requires lldpd to be installed");
+        }
+        
+        $devices = $this->parseLLDPCtlOutput(implode("\n", $output));
+        
+        return $devices;
+    }
+    
+    /**
+     * Parse lldpctl keyvalue output
+     */
+    protected function parseLLDPCtlOutput($output)
+    {
+        $devices = [];
+        $phoneMap = [];
+        
+        $lines = explode("\n", $output);
+        $currentInterface = null;
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) {
+                continue;
+            }
+            
+            $parts = explode('=', $line, 2);
+            if (count($parts) !== 2) {
+                continue;
+            }
+            
+            list($key, $value) = $parts;
+            
+            // Extract interface name
+            if (strpos($key, 'lldp.') === 0) {
+                preg_match('/lldp\.([^.]+)\./', $key, $matches);
+                if (!empty($matches[1])) {
+                    $currentInterface = $matches[1];
+                }
+            }
+            
+            if ($currentInterface === null) {
+                continue;
+            }
+            
+            // Initialize phone entry if needed
+            if (!isset($phoneMap[$currentInterface])) {
+                $phoneMap[$currentInterface] = [
+                    'discovery_type' => 'lldp',
+                    'last_seen' => now()->toISOString(),
+                ];
+            }
+            
+            $phone = &$phoneMap[$currentInterface];
+            
+            // Parse LLDP fields
+            if (strpos($key, '.chassis.mac') !== false) {
+                $phone['mac'] = $value;
+            } elseif (strpos($key, '.chassis.name') !== false) {
+                $phone['hostname'] = $value;
+            } elseif (strpos($key, '.port.descr') !== false) {
+                $phone['port_id'] = $value;
+            } elseif (strpos($key, '.mgmt-ip') !== false) {
+                $phone['ip'] = $value;
+            } elseif (strpos($key, '.chassis.descr') !== false) {
+                // Parse vendor/model from system description
+                $vendorModel = $this->parseSystemDescription($value);
+                $phone['vendor'] = $vendorModel['vendor'];
+                $phone['model'] = $vendorModel['model'];
+            }
+        }
+        
+        // Filter for VoIP phones
+        foreach ($phoneMap as $phone) {
+            if ($this->isVoIPPhone($phone)) {
+                $devices[] = $phone;
+            }
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Discover phones via nmap network scanning
+     */
+    protected function discoverViaNmap($network)
+    {
+        $devices = [];
+        
+        // Validate network CIDR notation
+        if (!$this->isValidCIDR($network)) {
+            throw new \Exception("Invalid network CIDR notation");
+        }
+        
+        // Check if nmap is available
+        exec('which nmap 2>&1', $output, $returnCode);
+        if ($returnCode !== 0) {
+            throw new \Exception("Nmap is not installed");
+        }
+        
+        // Scan for common VoIP ports
+        $output = [];
+        $cmd = sprintf(
+            'nmap -sS -p 80,443,5060,5061 --open -T4 -oG - %s 2>&1',
+            escapeshellarg($network)
+        );
+        exec($cmd, $output, $returnCode);
+        
+        if ($returnCode !== 0) {
+            throw new \Exception("Nmap scan failed");
+        }
+        
+        $devices = $this->parseNmapOutput(implode("\n", $output));
+        
+        return $devices;
+    }
+    
+    /**
+     * Validate CIDR notation for network address
+     */
+    protected function isValidCIDR($cidr)
+    {
+        // Check format: IP/mask
+        if (!preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $cidr)) {
+            return false;
+        }
+        
+        list($ip, $mask) = explode('/', $cidr);
+        
+        // Validate IP address
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        
+        // Validate mask (0-32)
+        $mask = (int)$mask;
+        if ($mask < 0 || $mask > 32) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Parse nmap greppable output
+     */
+    protected function parseNmapOutput($output)
+    {
+        $devices = [];
+        $lines = explode("\n", $output);
+        
+        foreach ($lines as $line) {
+            if (strpos($line, 'Host:') !== 0) {
+                continue;
+            }
+            
+            // Parse: Host: 192.168.1.100 ()  Status: Up
+            preg_match('/Host:\s+(\S+)/', $line, $matches);
+            if (empty($matches[1])) {
+                continue;
+            }
+            
+            $ip = $matches[1];
+            
+            // Check for VoIP-related ports
+            if (strpos($line, '80/open') === false && 
+                strpos($line, '443/open') === false && 
+                strpos($line, '5060/open') === false) {
+                continue;
+            }
+            
+            $device = [
+                'ip' => $ip,
+                'discovery_type' => 'nmap',
+                'last_seen' => now()->toISOString(),
+                'online' => true,
+            ];
+            
+            // Try to detect vendor via HTTP
+            try {
+                $vendorModel = $this->detectVendorViaHTTP($ip);
+                $device['vendor'] = $vendorModel['vendor'];
+                $device['model'] = $vendorModel['model'] ?? 'Unknown';
+            } catch (\Exception $e) {
+                // Ignore detection errors
+            }
+            
+            $devices[] = $device;
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Parse system description to extract vendor and model
+     */
+    protected function parseSystemDescription($description)
+    {
+        $description = strtolower($description);
+        $vendor = '';
+        $model = '';
+        
+        // Check for GrandStream
+        if (strpos($description, 'grandstream') !== false) {
+            $vendor = 'GrandStream';
+            if (preg_match('/gxp\d+[a-z]*/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Yealink
+        elseif (strpos($description, 'yealink') !== false) {
+            $vendor = 'Yealink';
+            if (preg_match('/sip-t\d+[a-z]*/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Polycom
+        elseif (strpos($description, 'polycom') !== false) {
+            $vendor = 'Polycom';
+            if (preg_match('/(soundpoint|vvx\d+[a-z]*)/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Cisco
+        elseif (strpos($description, 'cisco') !== false) {
+            $vendor = 'Cisco';
+            if (preg_match('/(cp-\d+[a-z]*|spa\d+[a-z]*)/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        
+        return ['vendor' => $vendor, 'model' => $model];
+    }
+    
+    /**
+     * Detect vendor via HTTP headers/content
+     */
+    protected function detectVendorViaHTTP($ip)
+    {
+        try {
+            $response = Http::timeout(3)->get("http://{$ip}/");
+            
+            // Check Server header
+            $server = $response->header('Server');
+            if ($server && strpos(strtolower($server), 'grandstream') !== false) {
+                return ['vendor' => 'GrandStream'];
+            }
+            if ($server && strpos(strtolower($server), 'yealink') !== false) {
+                return ['vendor' => 'Yealink'];
+            }
+            
+            // Check body content
+            $body = strtolower($response->body());
+            if (strpos($body, 'grandstream') !== false) {
+                return ['vendor' => 'GrandStream'];
+            }
+            if (strpos($body, 'yealink') !== false) {
+                return ['vendor' => 'Yealink'];
+            }
+            if (strpos($body, 'polycom') !== false) {
+                return ['vendor' => 'Polycom'];
+            }
+        } catch (\Exception $e) {
+            // HTTP detection failed
+        }
+        
+        return ['vendor' => 'Unknown'];
+    }
+    
+    /**
+     * Check if device is likely a VoIP phone
+     */
+    protected function isVoIPPhone($device)
+    {
+        $voipVendors = ['grandstream', 'yealink', 'polycom', 'cisco', 'snom', 'panasonic', 'fanvil'];
+        
+        // Check vendor
+        if (!empty($device['vendor'])) {
+            $vendorLower = strtolower($device['vendor']);
+            foreach ($voipVendors as $v) {
+                if (strpos($vendorLower, $v) !== false) {
+                    return true;
+                }
+            }
+        }
+        
+        // Check hostname
+        if (!empty($device['hostname'])) {
+            $hostLower = strtolower($device['hostname']);
+            foreach ($voipVendors as $v) {
+                if (strpos($hostLower, $v) !== false) {
+                    return true;
+                }
+            }
+        }
+        
+        // Check if model is set
+        if (!empty($device['model'])) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Deduplicate devices by MAC or IP
+     */
+    protected function deduplicateDevices($devices)
+    {
+        $seen = [];
+        $result = [];
+        
+        foreach ($devices as $device) {
+            $key = $device['mac'] ?? $device['ip'] ?? null;
+            
+            if ($key && !isset($seen[$key])) {
+                $seen[$key] = true;
+                $result[] = $device;
+            }
+        }
+        
+        return $result;
     }
 
     /**
@@ -313,54 +673,99 @@ class GrandStreamProvisioningService
     {
         $username = $credentials['username'] ?? 'admin';
         $password = $credentials['password'] ?? '';
-        
+
         try {
-            $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
-            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode != 200) {
-                throw new \Exception("HTTP error: {$httpCode}");
-            }
-            
-            // Parse response (could be JSON or XML)
-            $data = json_decode($response, true);
-            if (!$data) {
-                // Try XML parsing
-                $xml = simplexml_load_string($response);
-                if ($xml) {
-                    $data = json_decode(json_encode($xml), true);
+            /*
+                // TODO: merge and remove
+                $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation");
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
+                curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+            */
+
+            // GrandStream phones expose status API at /cgi-bin/api-sys_operation
+            $response = Http::timeout(5)
+                ->withBasicAuth($username, $password)
+                ->get("http://{$ip}/cgi-bin/api-sys_operation");
+
+            if ($response->successful()) {
+                // Prefer JSON; fall back to XML if necessary
+                $data = $response->json();
+
+                if (!$data) {
+                    $xml = @simplexml_load_string($response->body());
+                    $data = $xml ? json_decode(json_encode($xml), true) : [];
                 }
+
+                return [
+                    'status' => 'online',
+                    'ip' => $ip,
+                    'model' => $data['model'] ?? 'Unknown',
+                    'firmware' => $data['firmware'] ?? 'Unknown',
+                    'mac' => $data['mac'] ?? 'Unknown',
+                    'uptime' => $data['uptime'] ?? 'Unknown',
+                    'registered' => $data['registered'] ?? true,
+                    'last_update' => now()->toIso8601String(),
+                ];
             }
-            
+
+            // Non-2xx => host might be up but API is not available/authorized
             return [
-                'status' => 'online',
+                'status' => 'reachable',
                 'ip' => $ip,
-                'model' => $data['model'] ?? 'Unknown',
-                'firmware' => $data['firmware'] ?? 'Unknown',
-                'mac' => $data['mac'] ?? 'Unknown',
-                'uptime' => $data['uptime'] ?? 'Unknown',
-                'registered' => true,
-                'last_update' => now()->toIso8601String(),
+                'message' => 'Phone is reachable but status API not available',
             ];
-        } catch (\Exception $e) {
-            Log::error("Failed to get phone status", [
+        } catch (\Throwable $e) {
+            Log::error('Failed to get phone status', [
                 'ip' => $ip,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return [
                 'status' => 'offline',
                 'ip' => $ip,
+                'status' => 'error',
                 'error' => $e->getMessage(),
+                'message' => 'Failed to get phone status: ' . $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Ping a host to check if it's reachable
+     */
+    public function pingHost($ip, $timeout = 2)
+    {
+        // Validate IP address
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+
+        $output = [];
+        $returnCode = 0;
+
+        // Use system ping command
+        $cmd = sprintf('ping -c 1 -W %d %s 2>&1', (int)$timeout, escapeshellarg($ip));
+        exec($cmd, $output, $returnCode);
+
+        return $returnCode === 0;
+    }
+
+    /**
+     * Check reachability of multiple phones
+     */
+    public function checkPhoneReachability($phones)
+    {
+        foreach ($phones as &$phone) {
+            $phone['online'] = $this->pingHost($phone['ip']);
+        }
+
+        return $phones;
     }
 
     /**

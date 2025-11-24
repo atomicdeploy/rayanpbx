@@ -41,8 +41,11 @@ print_header() {
 }
 
 # Parse arguments for interactive mode and backup flag
+# Collect pass-through arguments for install.sh (like -v, --verbose, --steps=...)
 INTERACTIVE=false
 CREATE_BACKUP=false
+PASSTHROUGH_ARGS=()
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -i|--confirm)
@@ -61,8 +64,9 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            # Pass through all other arguments
-            break
+            # Collect all other arguments to pass through to install.sh
+            PASSTHROUGH_ARGS+=("$1")
+            shift
             ;;
     esac
 done
@@ -122,11 +126,11 @@ if [ "$CREATE_BACKUP" = true ]; then
     INSTALL_ARGS="$INSTALL_ARGS --backup"
 fi
 
-# Execute install.sh with --upgrade and pass through all original arguments
+# Execute install.sh with --upgrade and pass through collected arguments
 if ! cd "$REPO_ROOT" 2>/dev/null; then
     echo -e "${RED}Error: Cannot access repository root: $REPO_ROOT${RESET}"
     exit 1
 fi
 
-exec "$INSTALL_SCRIPT" $INSTALL_ARGS "$@"
+exec "$INSTALL_SCRIPT" $INSTALL_ARGS "${PASSTHROUGH_ARGS[@]}"
 

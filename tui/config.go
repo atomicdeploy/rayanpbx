@@ -26,15 +26,16 @@ func init() {
 
 // Config holds the application configuration
 type Config struct {
-	DBHost     string
-	DBPort     string
-	DBDatabase string
-	DBUsername string
-	DBPassword string
-	APIBaseURL string
-	JWTSecret  string
-	AppEnv     string
-	AppDebug   bool
+	DBHost        string
+	DBPort        string
+	DBDatabase    string
+	DBUsername    string
+	DBPassword    string
+	APIBaseURL    string
+	JWTSecret     string
+	AppEnv        string
+	AppDebug      bool
+	NetworkSubnet string
 }
 
 // LoadConfig loads configuration from multiple .env file paths in priority order.
@@ -93,15 +94,16 @@ func LoadConfig() (*Config, error) {
 	}
 
 	config := &Config{
-		DBHost:     getEnv("DB_HOST", "127.0.0.1"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBDatabase: getEnv("DB_DATABASE", "rayanpbx"),
-		DBUsername: getEnv("DB_USERNAME", "rayanpbx"),
-		DBPassword: getEnv("DB_PASSWORD", ""),
-		APIBaseURL: getEnv("API_BASE_URL", "http://localhost:8000"),
-		JWTSecret:  getEnv("JWT_SECRET", ""),
-		AppEnv:     getEnv("APP_ENV", "production"),
-		AppDebug:   getEnv("APP_DEBUG", "false") == "true",
+		DBHost:        getEnv("DB_HOST", "127.0.0.1"),
+		DBPort:        getEnv("DB_PORT", "3306"),
+		DBDatabase:    getEnv("DB_DATABASE", "rayanpbx"),
+		DBUsername:    getEnv("DB_USERNAME", "rayanpbx"),
+		DBPassword:    getEnv("DB_PASSWORD", ""),
+		APIBaseURL:    getEnv("API_BASE_URL", "http://localhost:8000"),
+		JWTSecret:     getEnv("JWT_SECRET", ""),
+		AppEnv:        getEnv("APP_ENV", "production"),
+		AppDebug:      getEnv("APP_DEBUG", "false") == "true",
+		NetworkSubnet: getEnv("NETWORK_SUBNET", "192.168.1.0/24"),
 	}
 
 	return config, nil

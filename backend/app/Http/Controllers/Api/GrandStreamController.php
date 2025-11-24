@@ -319,4 +319,40 @@ class GrandStreamController extends Controller
             ],
         ]);
     }
+    
+    /**
+     * Ping a phone to check if it's reachable
+     */
+    public function pingPhone(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+        ]);
+        
+        $online = $this->provisioningService->pingHost($request->ip);
+        
+        return response()->json([
+            'success' => true,
+            'ip' => $request->ip,
+            'online' => $online,
+        ]);
+    }
+    
+    /**
+     * Check reachability of multiple phones
+     */
+    public function checkReachability(Request $request)
+    {
+        $request->validate([
+            'phones' => 'required|array',
+            'phones.*.ip' => 'required|ip',
+        ]);
+        
+        $phones = $this->provisioningService->checkPhoneReachability($request->phones);
+        
+        return response()->json([
+            'success' => true,
+            'phones' => $phones,
+        ]);
+    }
 }
