@@ -1045,6 +1045,11 @@ PACKAGES=(
     redis-server
     cron
     net-tools
+    lldpd
+    nmap
+    tcpdump
+    jq
+    avahi-utils
 )
 
 print_info "Installing essential packages..."
@@ -1077,6 +1082,36 @@ for package in "${PACKAGES[@]}"; do
                 print_success "✓ $package"
             fi
         fi
+    fi
+done
+
+# Enable and start lldpd service for VoIP phone discovery
+print_verbose "Configuring lldpd service for VoIP phone discovery..."
+if dpkg-query -W -f='${Status}' lldpd 2>/dev/null | grep -q "install ok installed"; then
+    if ! systemctl is-enabled lldpd > /dev/null 2>&1; then
+        print_verbose "Enabling lldpd service..."
+        systemctl enable lldpd > /dev/null 2>&1 || print_warning "Failed to enable lldpd service"
+    fi
+    if ! systemctl is-active lldpd > /dev/null 2>&1; then
+        print_verbose "Starting lldpd service..."
+        systemctl start lldpd > /dev/null 2>&1 || print_warning "Failed to start lldpd service"
+    fi
+    print_success "lldpd service configured for VoIP phone discovery"
+fi
+
+# Install optional SIP testing tools
+print_verbose "Installing optional SIP testing tools..."
+SIP_TOOLS=(pjsua sipsak sipp)
+for tool in "${SIP_TOOLS[@]}"; do
+    if ! command -v "$tool" > /dev/null 2>&1; then
+        print_verbose "Installing $tool..."
+        if $PKG_MGR install -y "$tool" > /dev/null 2>&1; then
+            print_success "✓ $tool (SIP testing tool)"
+        else
+            print_verbose "$tool not available in repositories (optional)"
+        fi
+    else
+        echo -e "${DIM}   ✓ $tool (already installed)${RESET}"
     fi
 done
 
