@@ -480,8 +480,8 @@ const showOfflineHelp = async (ext: any) => {
 const fetchDiagnostics = async (extensionId: number) => {
   loadingDiagnostics.value = true
   try {
-    const response = await api.get(`/extensions/${extensionId}/diagnostics`)
-    diagnosticsData.value = response.data
+    const response = await api.apiFetch(`/extensions/${extensionId}/diagnostics`)
+    diagnosticsData.value = response
   } catch (error) {
     console.error('Failed to fetch diagnostics:', error)
     diagnosticsData.value = null
@@ -494,7 +494,7 @@ const refreshDiagnostics = async () => {
   if (selectedExtension.value) {
     await fetchDiagnostics(selectedExtension.value.id)
     // Also refresh the extension list to get updated status
-    await loadExtensions()
+    await fetchExtensions()
   }
 }
 
