@@ -660,10 +660,11 @@ const toggleExtension = async (ext: any) => {
       // Show feedback to user
       const status = response.extension.enabled ? 'enabled' : 'disabled'
       console.log(`Extension ${ext.extension_number} ${status}`)
+      
+      // Optionally refresh live status from Asterisk after toggle
+      // This updates registration status which may change after enable/disable
+      enrichWithLiveStatus()
     }
-    
-    // Refresh extension list to get updated status
-    await fetchExtensions()
   } catch (error) {
     console.error('Error toggling extension:', error)
     alert(`Failed to toggle extension ${ext.extension_number}`)

@@ -1934,6 +1934,7 @@ func (m *model) toggleExtension() {
 				m.successMsg = fmt.Sprintf("Extension %s enabled (reload failed)", ext.ExtensionNumber)
 			} else {
 				m.successMsg = fmt.Sprintf("Extension %s enabled - registration now possible!", ext.ExtensionNumber)
+				m.errorMsg = "" // Clear error only on success
 			}
 		}
 	} else {
@@ -1948,11 +1949,10 @@ func (m *model) toggleExtension() {
 				m.successMsg = fmt.Sprintf("Extension %s disabled (reload failed)", ext.ExtensionNumber)
 			} else {
 				m.successMsg = fmt.Sprintf("Extension %s disabled - registration blocked!", ext.ExtensionNumber)
+				m.errorMsg = "" // Clear error only on success
 			}
 		}
 	}
-	
-	m.errorMsg = ""
 }
 
 // renderEditExtension renders the extension edit form
