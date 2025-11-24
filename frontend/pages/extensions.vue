@@ -33,9 +33,9 @@
             class="input flex-1"
           />
           <select v-model="statusFilter" class="input w-48">
-            <option value="">All Status</option>
-            <option value="registered">Registered</option>
-            <option value="offline">Offline</option>
+            <option value="">{{ $t('extensions.allStatus') }}</option>
+            <option value="registered">{{ $t('status.registered') }}</option>
+            <option value="offline">{{ $t('status.offline') }}</option>
           </select>
         </div>
 
@@ -222,7 +222,7 @@
         <div class="relative card max-w-2xl w-full">
           <div class="flex justify-between items-start mb-4">
             <h2 class="text-2xl font-bold text-red-600">
-              Extension {{ selectedExtension?.extension_number }} is Offline
+              {{ $t('extensions.offlineTitle', { number: selectedExtension?.extension_number }) }}
             </h2>
             <button @click="offlineHelpModal = false" class="text-gray-500 hover:text-gray-700">
               ✕
@@ -332,9 +332,9 @@ const filteredExtensions = computed(() => {
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(ext => 
-      ext.extension_number.toLowerCase().includes(query) ||
-      ext.name.toLowerCase().includes(query) ||
-      ext.email?.toLowerCase().includes(query)
+      String(ext.extension_number || '').toLowerCase().includes(query) ||
+      String(ext.name || '').toLowerCase().includes(query) ||
+      String(ext.email || '').toLowerCase().includes(query)
     )
   }
 
@@ -405,9 +405,11 @@ const enableExtension = async (ext: any) => {
   try {
     await api.updateExtension(ext.id, { ...ext, enabled: true })
     offlineHelpModal.value = false
+    alert(t('extensions.enableSuccess', { number: ext.extension_number }))
     // WebSocket will trigger refresh
   } catch (error) {
     console.error('Error enabling extension:', error)
+    alert(t('extensions.enableError', { number: ext.extension_number }))
   }
 }
 
