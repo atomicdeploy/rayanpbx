@@ -40,6 +40,7 @@
 │ 🖥️  Asterisk Console   │  Interactive CLI from web UI       │
 │ 📊 Live Monitoring    │  Real-time call & system status    │
 │ ⚙️  Config Management │  CLI/TUI/Web .env management       │
+│ 🧪 SIP Testing Suite  │  Comprehensive extension testing   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -141,9 +142,44 @@ The installer supports several command-line options:
 # Show version
 ./install.sh --version
 
+# List all available installation steps
+./install.sh --list-steps
+
 # Install with verbose output (recommended for debugging)
 sudo ./install.sh --verbose
+
+# Run only specific steps (for upgrades or partial installations)
+sudo ./install.sh --steps=backend,frontend,tui
+
+# Skip certain steps (e.g., skip Asterisk installation)
+sudo ./install.sh --skip=asterisk,asterisk-ami
+
+# Automatic upgrade mode (no prompts)
+sudo ./install.sh --upgrade
+
+# Create backup before updates
+sudo ./install.sh --upgrade --backup
 ```
+
+#### Step-Based Installation
+
+For faster upgrades or when you only need to update specific components:
+
+```bash
+# Update only the backend API
+sudo ./install.sh --steps=source,env-config,backend,systemd
+
+# Update only the frontend
+sudo ./install.sh --steps=source,env-config,frontend,pm2
+
+# Update only the TUI
+sudo ./install.sh --steps=source,tui,pm2
+
+# Install without Asterisk (development environment)
+sudo ./install.sh --skip=asterisk,asterisk-ami
+```
+
+**Important:** When using `--steps` or `--skip`, ensure all dependencies are already installed. See [INSTALL_STEPS_GUIDE.md](INSTALL_STEPS_GUIDE.md) for detailed dependency information.
 
 For detailed information about command-line options, see [COMMAND_LINE_OPTIONS.md](COMMAND_LINE_OPTIONS.md).
 
@@ -298,6 +334,8 @@ go build -o rayanpbx-tui main.go config.go
 │  🌐 CORS Configuration:  CORS_CONFIGURATION.md     │
 │  📝 Command Options:     COMMAND_LINE_OPTIONS.md   │
 │  ⚙️  Config Management:  ENV_MANAGEMENT.md         │
+│  🧪 SIP Testing Guide:   SIP_TESTING_GUIDE.md      │
+│  📡 PJSIP Setup:         PJSIP_SETUP_GUIDE.md      │
 ╰─────────────────────────────────────────────────────╯
 ```
 

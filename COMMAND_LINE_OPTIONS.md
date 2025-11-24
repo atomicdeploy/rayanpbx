@@ -25,6 +25,119 @@ Display usage information, requirements, examples, and available options.
 - Usage examples
 - Links to documentation and support
 
+### List Steps (`--list-steps`)
+
+Display all available installation steps with their identifiers.
+
+```bash
+./install.sh --list-steps
+```
+
+**Output:**
+```
+Available Installation Steps:
+
+   1. updates              Checking for Updates
+   2. system-verification  System Verification
+   3. package-manager      Package Manager Setup
+   ...
+  23. complete             Installation Complete
+
+Usage Examples:
+  # Run only specific steps:
+  sudo ./install.sh --steps=backend,frontend,tui
+  
+  # Skip certain steps:
+  sudo ./install.sh --skip=asterisk,asterisk-ami
+```
+
+### Run Specific Steps (`--steps=STEPS`)
+
+Run only the specified installation steps (comma-separated). Steps will always run in their defined order regardless of the order specified.
+
+```bash
+sudo ./install.sh --steps=backend,frontend,tui
+```
+
+**When to use:**
+- Upgrading specific components without full reinstallation
+- Faster installation when dependencies are already met
+- CI/CD pipelines that only need certain components
+- Development environments with selective components
+
+**Important:** Ensure all dependencies are already installed. See [INSTALL_STEPS_GUIDE.md](INSTALL_STEPS_GUIDE.md) for dependency information.
+
+**Examples:**
+```bash
+# Update backend only (requires: PHP, Composer, database already installed)
+sudo ./install.sh --steps=source,env-config,backend,systemd
+
+# Update frontend only (requires: Node.js already installed)
+sudo ./install.sh --steps=source,env-config,frontend,pm2
+
+# Update TUI only (requires: Go already installed)
+sudo ./install.sh --steps=source,tui,pm2
+
+# Install backend and frontend without Asterisk
+sudo ./install.sh --steps=system-update,dependencies,database,php,composer,nodejs,source,env-config,backend,frontend,pm2,systemd
+```
+
+### Skip Steps (`--skip=STEPS`)
+
+Skip specified installation steps (comma-separated).
+
+```bash
+sudo ./install.sh --skip=asterisk,asterisk-ami
+```
+
+**When to use:**
+- Skip time-consuming steps like Asterisk compilation
+- Development environments that don't need all components
+- Testing specific configurations
+
+**Examples:**
+```bash
+# Skip Asterisk installation (saves ~30 minutes)
+sudo ./install.sh --skip=asterisk,asterisk-ami
+
+# Skip GitHub CLI (optional component)
+sudo ./install.sh --skip=github-cli
+
+# Skip updates check
+sudo ./install.sh --skip=updates
+```
+
+### CI Mode (`--ci`)
+
+Enable CI/CD mode which skips root checks and runs non-interactively.
+
+```bash
+./install.sh --ci --steps=backend,frontend
+```
+
+**When to use:**
+- GitHub Actions or other CI/CD pipelines
+- Automated testing environments
+- Non-interactive installations
+
+**What it does:**
+- Skips root privilege check (for containerized environments)
+- Assumes non-interactive mode
+- Suitable for automated environments
+
+### Backup (`-b`, `--backup`)
+
+Create backup before updates (.env and backend/storage).
+
+```bash
+sudo ./install.sh --backup --upgrade
+```
+
+**When to use:**
+- Before major upgrades
+- When you want to preserve configuration and data
+- Production environments
+
 ### Upgrade (`-u`, `--upgrade`)
 
 Automatically apply updates without prompting for confirmation when updates are available.
@@ -127,6 +240,38 @@ This will eventually allow you to simulate the installation process without maki
 sudo ./install.sh
 ```
 
+### List Available Steps
+
+```bash
+./install.sh --list-steps
+```
+
+### Step-Based Installation
+
+#### Update Only Backend
+```bash
+# Assumes PHP, Composer, and database are already installed
+sudo ./install.sh --steps=source,env-config,backend,systemd
+```
+
+#### Update Only Frontend
+```bash
+# Assumes Node.js is already installed
+sudo ./install.sh --steps=source,env-config,frontend,pm2
+```
+
+#### Update Only TUI
+```bash
+# Assumes Go is already installed
+sudo ./install.sh --steps=source,tui,pm2
+```
+
+#### Install Without Asterisk
+```bash
+# Useful for development environments
+sudo ./install.sh --skip=asterisk,asterisk-ami
+```
+
 ### Installation with Debugging
 
 If you encounter issues during installation, use verbose mode to see detailed information:
@@ -152,6 +297,14 @@ sudo ./install.sh --upgrade
 
 This will automatically pull updates without prompting for confirmation.
 
+### Automatic Upgrade with Backup
+
+Create a backup before applying updates:
+
+```bash
+sudo ./install.sh --upgrade --backup
+```
+
 ### Combined Flags
 
 You can combine multiple flags for different behaviors:
@@ -162,6 +315,21 @@ sudo ./install.sh --upgrade --verbose
 
 # Or using short flags
 sudo ./install.sh -u -v
+
+# Update backend only with verbose output
+sudo ./install.sh --steps=backend --verbose
+
+# Install without Asterisk, with backup
+sudo ./install.sh --skip=asterisk,asterisk-ami --backup
+```
+
+### CI/CD Mode
+
+For automated testing and CI/CD pipelines:
+
+```bash
+# Run specific steps in CI mode
+./install.sh --ci --steps=backend,frontend,tui --verbose
 ```
 
 ### Getting Help
@@ -240,7 +408,12 @@ If you encounter issues even with verbose mode enabled:
 ### v2.0.0
 - Added command-line options support
 - Added `--help`, `--version`, `--verbose`, `--dry-run` flags
+- Added `--steps`, `--skip`, `--list-steps`, `--ci`, `--backup`, `--upgrade` flags
+- Implemented step-based installation system with 23 identifiable steps
+- Added dependency warnings for selective step execution
 - Improved error handling and reporting
 - Fixed potential silent failures in banner display
 - Added comprehensive verbose logging throughout the script
 - Added error trap handler for better debugging
+- Created INSTALL_STEPS_GUIDE.md for dependency documentation
+- Updated CI/CD pipeline to test step functionality

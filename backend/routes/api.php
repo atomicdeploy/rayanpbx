@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\GrandStreamController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\PjsipConfigController;
 use App\Http\Controllers\Api\ConfigController;
+use App\Http\Controllers\Api\SipTestController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -128,6 +129,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/config/{key}', [ConfigController::class, 'update']);
     Route::delete('/config/{key}', [ConfigController::class, 'destroy']);
     Route::post('/config/reload', [ConfigController::class, 'reload']);
+    
+    // SIP Testing
+    Route::get('/sip-test/tools', [SipTestController::class, 'checkTools']);
+    Route::post('/sip-test/tools/install', [SipTestController::class, 'installTool']);
+    Route::post('/sip-test/registration', [SipTestController::class, 'testRegistration']);
+    Route::post('/sip-test/call', [SipTestController::class, 'testCall']);
+    Route::post('/sip-test/full', [SipTestController::class, 'testFull']);
+    Route::post('/sip-test/options', [SipTestController::class, 'testOptions']);
 });
 
 // Health check endpoint (public)

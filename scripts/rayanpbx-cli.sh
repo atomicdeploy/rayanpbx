@@ -429,6 +429,116 @@ cmd_diag_health_check() {
     print_success "Health check complete"
 }
 
+# SIP Testing commands
+cmd_sip_test_tools() {
+    print_header "🔧 SIP Testing Tools"
+    
+    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "SIP test suite script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" tools
+}
+
+cmd_sip_test_register() {
+    local extension=$1
+    local password=$2
+    local server=${3:-127.0.0.1}
+    
+    if [ -z "$extension" ] || [ -z "$password" ]; then
+        print_error "Extension and password required"
+        echo "Usage: rayanpbx-cli sip-test register <extension> <password> [server]"
+        exit 2
+    fi
+    
+    print_header "📞 Testing SIP Registration"
+    
+    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "SIP test suite script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" register "$extension" "$password" "$server"
+}
+
+cmd_sip_test_call() {
+    local from_ext=$1
+    local from_pass=$2
+    local to_ext=$3
+    local to_pass=$4
+    local server=${5:-127.0.0.1}
+    
+    if [ -z "$from_ext" ] || [ -z "$from_pass" ] || [ -z "$to_ext" ] || [ -z "$to_pass" ]; then
+        print_error "All parameters required"
+        echo "Usage: rayanpbx-cli sip-test call <from_ext> <from_pass> <to_ext> <to_pass> [server]"
+        exit 2
+    fi
+    
+    print_header "📞 Testing SIP Call"
+    
+    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "SIP test suite script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" call "$from_ext" "$from_pass" "$to_ext" "$to_pass" "$server"
+}
+
+cmd_sip_test_full() {
+    local ext1=$1
+    local pass1=$2
+    local ext2=$3
+    local pass2=$4
+    local server=${5:-127.0.0.1}
+    
+    if [ -z "$ext1" ] || [ -z "$pass1" ] || [ -z "$ext2" ] || [ -z "$pass2" ]; then
+        print_error "All parameters required"
+        echo "Usage: rayanpbx-cli sip-test full <ext1> <pass1> <ext2> <pass2> [server]"
+        exit 2
+    fi
+    
+    print_header "🧪 Running Full SIP Test Suite"
+    
+    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "SIP test suite script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" full "$ext1" "$pass1" "$ext2" "$pass2" "$server"
+}
+
+cmd_sip_test_install() {
+    local tool=$1
+    
+    if [ -z "$tool" ]; then
+        print_error "Tool name required"
+        echo "Usage: rayanpbx-cli sip-test install <tool>"
+        echo "Available tools: pjsua, sipsak, sipp"
+        exit 2
+    fi
+    
+    print_header "📦 Installing SIP Testing Tool"
+    
+    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "SIP test suite script not found"
+        exit 1
+    fi
+    
+    sudo bash "$script_path" install "$tool"
+}
+
+
 # System commands
 cmd_system_update() {
     print_header "${ROCKET} Updating RayanPBX"
@@ -450,6 +560,27 @@ cmd_system_update() {
     
     print_success "Update complete!"
     print_warn "Restart services to apply changes"
+}
+
+cmd_system_upgrade() {
+    print_header "${ROCKET} Upgrading RayanPBX"
+    
+    # Check if upgrade script exists
+    local upgrade_script="$SCRIPT_DIR/upgrade.sh"
+    if [ ! -f "$upgrade_script" ]; then
+        # Try installed path
+        upgrade_script="/opt/rayanpbx/scripts/upgrade.sh"
+    fi
+    
+    if [ ! -f "$upgrade_script" ]; then
+        print_error "Upgrade script not found"
+        print_info "Expected location: $SCRIPT_DIR/upgrade.sh or /opt/rayanpbx/scripts/upgrade.sh"
+        exit 1
+    fi
+    
+    # Execute the upgrade script
+    print_info "Launching upgrade script..."
+    exec sudo bash "$upgrade_script" "$@"
 }
 
 cmd_system_set_mode() {
@@ -864,6 +995,14 @@ cmd_help() {
         echo -e "   ${GREEN}health-check${NC}                      Run system health check"
         echo ""
         
+        echo -e "${CYAN}📞 sip-test${NC} ${DIM}- SIP testing suite${NC}"
+        echo -e "   ${GREEN}tools${NC}                             List available SIP testing tools"
+        echo -e "   ${GREEN}install${NC} <tool>                    Install a SIP testing tool (pjsua/sipsak/sipp)"
+        echo -e "   ${GREEN}register${NC} <ext> <pass> [server]   Test SIP registration"
+        echo -e "   ${GREEN}call${NC} <from> <fpass> <to> <tpass> [srv]  Test call between extensions"
+        echo -e "   ${GREEN}full${NC} <ext1> <pass1> <ext2> <pass2> [srv] Run full test suite"
+        echo ""
+        
         echo -e "${CYAN}⚙️  config${NC} ${DIM}- Configuration management${NC}"
         echo -e "   ${GREEN}get${NC} <KEY>                         Get configuration value"
         echo -e "   ${GREEN}set${NC} <KEY> <VALUE>                 Set configuration value"
@@ -875,6 +1014,7 @@ cmd_help() {
         
         echo -e "${CYAN}🖥️  system${NC} ${DIM}- System operations${NC}"
         echo -e "   ${GREEN}update${NC}                            Update RayanPBX from repository"
+        echo -e "   ${GREEN}upgrade${NC}                           Run system upgrade (calls upgrade script)"
         echo -e "   ${GREEN}set-mode${NC} <mode>                   Set application mode (production/development/local)"
         echo -e "   ${GREEN}toggle-debug${NC}                      Toggle debug mode on/off"
         echo ""
@@ -900,6 +1040,10 @@ cmd_help() {
         echo -e "  ${YELLOW}rayanpbx-cli config set ASTERISK_AMI_PORT 5038${NC}\n"
         echo -e "  ${DIM}# Launch TUI interface${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli tui${NC}\n"
+        echo -e "  ${DIM}# Test SIP registration${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli sip-test register 1001 mypassword${NC}\n"
+        echo -e "  ${DIM}# Test call between extensions${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli sip-test call 1001 pass1 1002 pass2${NC}\n"
         
         echo -e "${MAGENTA}${BOLD}EXIT CODES:${NC}"
         echo -e "  ${GREEN}0${NC}  Success"
@@ -1043,6 +1187,16 @@ main() {
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        sip-test)
+            case "${2:-}" in
+                tools) cmd_sip_test_tools ;;
+                install) cmd_sip_test_install "$3" ;;
+                register) cmd_sip_test_register "$3" "$4" "$5" ;;
+                call) cmd_sip_test_call "$3" "$4" "$5" "$6" "$7" ;;
+                full) cmd_sip_test_full "$3" "$4" "$5" "$6" "$7" ;;
+                *) echo "Unknown sip-test command: ${2:-}"; exit 2 ;;
+            esac
+            ;;
         config)
             case "${2:-}" in
                 get) cmd_config_get "$3" ;;
@@ -1057,6 +1211,7 @@ main() {
         system)
             case "${2:-}" in
                 update) cmd_system_update ;;
+                upgrade) shift; shift; cmd_system_upgrade "$@" ;;
                 set-mode) cmd_system_set_mode "$3" ;;
                 toggle-debug) cmd_system_toggle_debug ;;
                 *) echo "Unknown system command: ${2:-}"; exit 2 ;;

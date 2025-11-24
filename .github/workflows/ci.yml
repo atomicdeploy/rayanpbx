@@ -244,6 +244,11 @@ jobs:
           bash -n install.sh
           echo "✅ Syntax check passed"
       
+      - name: 🧪 Test install.sh step execution
+        run: |
+          chmod +x scripts/test-step-execution.sh
+          ./scripts/test-step-execution.sh
+      
       - name: 🧪 Test install.sh dry-run (non-root checks)
         run: |
           # Test that script properly detects non-root execution
@@ -253,6 +258,27 @@ jobs:
             echo "✅ Root check working correctly"
           else
             echo "❌ Root check failed"
+            exit 1
+          fi
+      
+      - name: 🧪 Test --list-steps flag
+        run: |
+          output=$(./install.sh --list-steps 2>&1)
+          if echo "$output" | grep -q "Available Installation Steps:"; then
+            echo "✅ --list-steps working"
+          else
+            echo "❌ --list-steps failed"
+            exit 1
+          fi
+      
+      - name: 🧪 Test --ci flag
+        run: |
+          # Test CI mode (should skip root check)
+          output=$(timeout 5 ./install.sh --ci --steps=backend --verbose 2>&1 || true)
+          if echo "$output" | grep -q "CI mode enabled"; then
+            echo "✅ --ci flag working"
+          else
+            echo "❌ --ci flag failed"
             exit 1
           fi
       
