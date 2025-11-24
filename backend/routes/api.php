@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\ValidationController;
 use App\Http\Controllers\Api\GrandStreamController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\PjsipConfigController;
+use App\Http\Controllers\Api\ConfigController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -119,6 +120,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/pjsip/config/global', [PjsipConfigController::class, 'getGlobal']);
     Route::post('/pjsip/config/external-media', [PjsipConfigController::class, 'updateExternalMedia']);
     Route::post('/pjsip/config/transport', [PjsipConfigController::class, 'updateTransport']);
+    
+    // Configuration Management
+    Route::get('/config', [ConfigController::class, 'index']);
+    Route::get('/config/{key}', [ConfigController::class, 'show']);
+    Route::post('/config', [ConfigController::class, 'store']);
+    Route::put('/config/{key}', [ConfigController::class, 'update']);
+    Route::delete('/config/{key}', [ConfigController::class, 'destroy']);
+    Route::post('/config/reload', [ConfigController::class, 'reload']);
 });
 
 // Health check endpoint (public)

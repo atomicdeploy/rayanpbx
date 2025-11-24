@@ -681,6 +681,133 @@ cmd_config_list() {
     done
 }
 
+cmd_config_add() {
+    local key=$1
+    local value=$2
+    
+    if [ -z "$key" ] || [ -z "$value" ]; then
+        print_error "Both key and value parameters required"
+        echo "Usage: rayanpbx-cli config add <KEY> <VALUE>"
+        exit 2
+    fi
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Configuration file not found: $ENV_FILE"
+        exit 4
+    fi
+    
+    # Check if key already exists
+    if grep -q "^${key}=" "$ENV_FILE"; then
+        print_error "Key '$key' already exists. Use 'config set' to modify it."
+        exit 1
+    fi
+    
+    # Backup config file using helper from ini-helper.sh
+    local backup
+    backup=$(backup_config "$ENV_FILE")
+    if [ -n "$backup" ]; then
+        print_verbose "Backup: $backup"
+    fi
+    
+    # Add new key
+    echo "${key}=${value}" >> "$ENV_FILE"
+    print_success "Added ${key}=${value}"
+}
+
+cmd_config_remove() {
+    local key=$1
+    
+    if [ -z "$key" ]; then
+        print_error "Key parameter required"
+        echo "Usage: rayanpbx-cli config remove <KEY>"
+        exit 2
+    fi
+    
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error "Configuration file not found: $ENV_FILE"
+        exit 4
+    fi
+    
+    # Check if key exists
+    if ! grep -q "^${key}=" "$ENV_FILE"; then
+        print_warn "Key '$key' not found in configuration"
+        exit 1
+    fi
+    
+    # Backup config file using helper from ini-helper.sh
+    local backup
+    backup=$(backup_config "$ENV_FILE")
+    if [ -n "$backup" ]; then
+        print_verbose "Backup: $backup"
+    fi
+    
+    # Remove the key
+    sed -i "/^${key}=/d" "$ENV_FILE"
+    print_success "Removed ${key}"
+}
+
+cmd_config_reload() {
+    local service=${1:-all}
+    
+    print_header "🔄 Reloading Services"
+    
+    case "$service" in
+        asterisk)
+            print_info "Reloading Asterisk configuration..."
+            if command -v asterisk &> /dev/null; then
+                asterisk -rx "core reload" && print_success "Asterisk reloaded" || print_error "Failed to reload Asterisk"
+            else
+                print_warn "Asterisk not found"
+            fi
+            ;;
+        laravel|backend|api)
+            print_info "Clearing Laravel configuration cache..."
+            if [ -d "$RAYANPBX_ROOT/backend" ]; then
+                cd "$RAYANPBX_ROOT/backend"
+                php artisan config:clear && print_success "Laravel config cleared" || print_error "Failed to clear Laravel config"
+                php artisan cache:clear && print_success "Laravel cache cleared" || print_error "Failed to clear Laravel cache"
+            else
+                print_warn "Backend directory not found"
+            fi
+            ;;
+        frontend|vue|nuxt)
+            print_info "Restarting frontend service..."
+            if systemctl is-active --quiet rayanpbx-frontend; then
+                sudo systemctl restart rayanpbx-frontend && print_success "Frontend restarted" || print_error "Failed to restart frontend"
+            else
+                print_warn "Frontend service not running"
+            fi
+            ;;
+        all)
+            print_info "Reloading all services..."
+            
+            # Reload Asterisk
+            if command -v asterisk &> /dev/null; then
+                asterisk -rx "core reload" && print_success "Asterisk reloaded" || print_error "Failed to reload Asterisk"
+            fi
+            
+            # Clear Laravel caches
+            if [ -d "$RAYANPBX_ROOT/backend" ]; then
+                cd "$RAYANPBX_ROOT/backend"
+                php artisan config:clear && print_success "Laravel config cleared" || print_warn "Failed to clear Laravel config"
+                php artisan cache:clear && print_success "Laravel cache cleared" || print_warn "Failed to clear Laravel cache"
+            fi
+            
+            # Restart frontend if running
+            if systemctl is-active --quiet rayanpbx-frontend 2>/dev/null; then
+                sudo systemctl restart rayanpbx-frontend && print_success "Frontend restarted" || print_warn "Failed to restart frontend"
+            fi
+            
+            print_success "All services reloaded"
+            ;;
+        *)
+            print_error "Unknown service: $service"
+            echo "Valid services: asterisk, laravel (or backend/api), frontend (or vue/nuxt), all"
+            exit 2
+            ;;
+    esac
+}
+
 # TUI launcher
 cmd_tui() {
     local tui_path="$RAYANPBX_ROOT/tui/rayanpbx-tui"
@@ -740,7 +867,10 @@ cmd_help() {
         echo -e "${CYAN}⚙️  config${NC} ${DIM}- Configuration management${NC}"
         echo -e "   ${GREEN}get${NC} <KEY>                         Get configuration value"
         echo -e "   ${GREEN}set${NC} <KEY> <VALUE>                 Set configuration value"
+        echo -e "   ${GREEN}add${NC} <KEY> <VALUE>                 Add new configuration key"
+        echo -e "   ${GREEN}remove${NC} <KEY>                      Remove configuration key"
         echo -e "   ${GREEN}list${NC}                              List all configuration"
+        echo -e "   ${GREEN}reload${NC} [service]                  Reload services (asterisk/laravel/frontend/all)"
         echo ""
         
         echo -e "${CYAN}🖥️  system${NC} ${DIM}- System operations${NC}"
@@ -809,9 +939,19 @@ cmd_help() {
                 echo -e "${YELLOW}rayanpbx-cli config set <KEY> <VALUE>${NC}"
                 echo -e "  Sets or updates a configuration key-value pair."
                 echo -e "  ${DIM}Example: rayanpbx-cli config set ASTERISK_AMI_PORT 5038${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli config add <KEY> <VALUE>${NC}"
+                echo -e "  Adds a new configuration key-value pair (fails if key exists)."
+                echo -e "  ${DIM}Example: rayanpbx-cli config add NEW_FEATURE_FLAG true${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli config remove <KEY>${NC}"
+                echo -e "  Removes a configuration key from .env file."
+                echo -e "  ${DIM}Example: rayanpbx-cli config remove OLD_SETTING${NC}\n"
                 echo -e "${YELLOW}rayanpbx-cli config list${NC}"
                 echo -e "  Lists all configuration key-value pairs."
-                echo -e "  ${DIM}Note: Sensitive values (passwords, secrets) are masked.${NC}"
+                echo -e "  ${DIM}Note: Sensitive values (passwords, secrets) are masked.${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli config reload [SERVICE]${NC}"
+                echo -e "  Reloads configuration for specified service or all services."
+                echo -e "  ${DIM}Services: asterisk, laravel (backend), frontend, all (default)${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli config reload asterisk${NC}"
                 echo ""
                 ;;
             tui)
@@ -907,7 +1047,10 @@ main() {
             case "${2:-}" in
                 get) cmd_config_get "$3" ;;
                 set) cmd_config_set "$3" "$4" ;;
+                add) cmd_config_add "$3" "$4" ;;
+                remove) cmd_config_remove "$3" ;;
                 list) cmd_config_list ;;
+                reload) cmd_config_reload "$3" ;;
                 *) echo "Unknown config command: ${2:-}"; exit 2 ;;
             esac
             ;;
