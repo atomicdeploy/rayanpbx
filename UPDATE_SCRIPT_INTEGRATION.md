@@ -1,10 +1,23 @@
 # Update Script Integration Documentation
 
-This document describes exactly where code from `scripts/update-rayanpbx.sh` was integrated into `install.sh`.
+This document describes exactly where code from the old `scripts/update-rayanpbx.sh` was integrated into `install.sh`.
 
 ## Overview
 
-All functionality from `scripts/update-rayanpbx.sh` has been successfully integrated into `install.sh`. The install script now serves as both an installer and an updater, eliminating code duplication and following DRY (Don't Repeat Yourself) principles.
+All functionality from the old update script has been successfully integrated into `install.sh`. The install script now serves as both an installer and an updater, eliminating code duplication and following DRY (Don't Repeat Yourself) principles.
+
+**Result:** The old `scripts/update-rayanpbx.sh` has been **removed** and replaced with `scripts/upgrade.sh` - a simple wrapper that calls `install.sh --upgrade`.
+
+## New Upgrade Script
+
+The new `scripts/upgrade.sh` is a minimal wrapper that:
+- Validates that install.sh exists
+- Checks for root privileges  
+- Optionally prompts for confirmation with `-i/--confirm` flag
+- Calls `install.sh --upgrade` with all passed arguments
+- The `--upgrade` flag tells install.sh to automatically apply updates without prompting
+
+This follows the DRY principle by having all logic in one place (install.sh) while providing a convenient upgrade command.
 
 ## Code Integration Locations
 
