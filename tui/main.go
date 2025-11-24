@@ -1548,6 +1548,66 @@ func (m model) renderCreateTrunk() string {
 	return menuStyle.Render(content)
 }
 
+// codecsToJSON converts a comma-separated codec string to JSON array format
+// e.g., "ulaw,alaw,g722" becomes '["ulaw","alaw","g722"]'
+func codecsToJSON(codecs string) string {
+	codecList := strings.Split(codecs, ",")
+	var jsonParts []string
+	for _, codec := range codecList {
+		codec = strings.TrimSpace(codec)
+		if codec != "" {
+			jsonParts = append(jsonParts, fmt.Sprintf("\"%s\"", codec))
+		}
+	}
+	return "[" + strings.Join(jsonParts, ",") + "]"
+}
+
+// parseExtensionInputValues parses and validates extension input values
+// Returns: maxContacts, qualifyFreq, codecs, context, transport, directMedia
+func parseExtensionInputValues(inputValues []string) (int, int, string, string, string, string) {
+	// Parse max_contacts
+	maxContacts := DefaultMaxContacts
+	if inputValues[extFieldMaxContacts] != "" {
+		if parsed, err := strconv.Atoi(inputValues[extFieldMaxContacts]); err == nil && parsed > 0 && parsed <= 10 {
+			maxContacts = parsed
+		}
+	}
+	
+	// Parse qualify_frequency
+	qualifyFreq := DefaultQualifyFrequency
+	if inputValues[extFieldQualifyFreq] != "" {
+		if parsed, err := strconv.Atoi(inputValues[extFieldQualifyFreq]); err == nil && parsed >= 0 {
+			qualifyFreq = parsed
+		}
+	}
+	
+	// Get codecs (use default if empty)
+	codecs := inputValues[extFieldCodecs]
+	if codecs == "" {
+		codecs = DefaultCodecs
+	}
+	
+	// Get context (use default if empty)
+	context := inputValues[extFieldContext]
+	if context == "" {
+		context = DefaultExtensionContext
+	}
+	
+	// Get transport (use default if empty)
+	transport := inputValues[extFieldTransport]
+	if transport == "" {
+		transport = DefaultExtensionTransport
+	}
+	
+	// Get direct_media (use default if empty or invalid)
+	directMedia := strings.ToLower(inputValues[extFieldDirectMedia])
+	if directMedia != "yes" && directMedia != "no" {
+		directMedia = DefaultDirectMedia
+	}
+	
+	return maxContacts, qualifyFreq, codecs, context, transport, directMedia
+}
+
 // createExtension creates a new extension in the database with advanced PJSIP options
 func (m *model) createExtension() {
 	// Validate required inputs
@@ -1556,45 +1616,11 @@ func (m *model) createExtension() {
 		return
 	}
 	
-	// Parse max_contacts
-	maxContacts := DefaultMaxContacts
-	if m.inputValues[extFieldMaxContacts] != "" {
-		if parsed, err := strconv.Atoi(m.inputValues[extFieldMaxContacts]); err == nil && parsed > 0 && parsed <= 10 {
-			maxContacts = parsed
-		}
-	}
+	// Parse and validate all extension options
+	maxContacts, qualifyFreq, codecs, context, transport, directMedia := parseExtensionInputValues(m.inputValues)
 	
-	// Parse qualify_frequency
-	qualifyFreq := DefaultQualifyFrequency
-	if m.inputValues[extFieldQualifyFreq] != "" {
-		if parsed, err := strconv.Atoi(m.inputValues[extFieldQualifyFreq]); err == nil && parsed >= 0 {
-			qualifyFreq = parsed
-		}
-	}
-	
-	// Get codecs (use default if empty)
-	codecs := m.inputValues[extFieldCodecs]
-	if codecs == "" {
-		codecs = DefaultCodecs
-	}
-	
-	// Get context (use default if empty)
-	context := m.inputValues[extFieldContext]
-	if context == "" {
-		context = DefaultExtensionContext
-	}
-	
-	// Get transport (use default if empty)
-	transport := m.inputValues[extFieldTransport]
-	if transport == "" {
-		transport = DefaultExtensionTransport
-	}
-	
-	// Get direct_media (use default if empty or invalid)
-	directMedia := strings.ToLower(m.inputValues[extFieldDirectMedia])
-	if directMedia != "yes" && directMedia != "no" {
-		directMedia = DefaultDirectMedia
-	}
+	// Convert codecs to JSON format for database storage
+	codecsJSON := codecsToJSON(codecs)
 
 	// Insert into database with all PJSIP configuration values
 	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, codecs, direct_media, qualify_frequency, created_at, updated_at)
@@ -1607,7 +1633,7 @@ func (m *model) createExtension() {
 		context, 
 		transport, 
 		maxContacts,
-		codecs,
+		codecsJSON,
 		directMedia,
 		qualifyFreq)
 	if err != nil {
@@ -1704,51 +1730,25 @@ func (m *model) editExtension() {
 	oldNumber := ext.ExtensionNumber
 	newNumber := m.inputValues[extFieldNumber]
 	
-	// Parse max_contacts
-	maxContacts := DefaultMaxContacts
-	if m.inputValues[extFieldMaxContacts] != "" {
-		if parsed, err := strconv.Atoi(m.inputValues[extFieldMaxContacts]); err == nil && parsed > 0 && parsed <= 10 {
-			maxContacts = parsed
-		}
-	}
+	// Parse and validate all extension options using helper function
+	maxContacts, qualifyFreq, codecs, context, transport, directMedia := parseExtensionInputValues(m.inputValues)
 	
-	// Parse qualify_frequency
-	qualifyFreq := DefaultQualifyFrequency
-	if m.inputValues[extFieldQualifyFreq] != "" {
-		if parsed, err := strconv.Atoi(m.inputValues[extFieldQualifyFreq]); err == nil && parsed >= 0 {
-			qualifyFreq = parsed
-		}
-	}
-	
-	// Get codecs (use current value if empty)
-	codecs := m.inputValues[extFieldCodecs]
-	if codecs == "" {
+	// Use existing values if new ones are empty (for edit mode)
+	if m.inputValues[extFieldCodecs] == "" && ext.Codecs != "" {
 		codecs = ext.Codecs
-		if codecs == "" {
-			codecs = DefaultCodecs
-		}
 	}
-	
-	// Get context
-	context := m.inputValues[extFieldContext]
-	if context == "" {
+	if m.inputValues[extFieldContext] == "" && ext.Context != "" {
 		context = ext.Context
 	}
-	
-	// Get transport
-	transport := m.inputValues[extFieldTransport]
-	if transport == "" {
+	if m.inputValues[extFieldTransport] == "" && ext.Transport != "" {
 		transport = ext.Transport
 	}
-	
-	// Get direct_media
-	directMedia := strings.ToLower(m.inputValues[extFieldDirectMedia])
-	if directMedia != "yes" && directMedia != "no" {
+	if m.inputValues[extFieldDirectMedia] == "" && ext.DirectMedia != "" {
 		directMedia = ext.DirectMedia
-		if directMedia == "" {
-			directMedia = DefaultDirectMedia
-		}
 	}
+	
+	// Convert codecs to JSON format for database storage
+	codecsJSON := codecsToJSON(codecs)
 	
 	// Build update query with all PJSIP options
 	var query string
@@ -1758,12 +1758,12 @@ func (m *model) editExtension() {
 		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, context = ?, transport = ?, 
 		         codecs = ?, direct_media = ?, max_contacts = ?, qualify_frequency = ?, updated_at = NOW() WHERE id = ?`
 		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword],
-			context, transport, codecs, directMedia, maxContacts, qualifyFreq, ext.ID}
+			context, transport, codecsJSON, directMedia, maxContacts, qualifyFreq, ext.ID}
 	} else {
 		query = `UPDATE extensions SET extension_number = ?, name = ?, context = ?, transport = ?, 
 		         codecs = ?, direct_media = ?, max_contacts = ?, qualify_frequency = ?, updated_at = NOW() WHERE id = ?`
 		args = []interface{}{newNumber, m.inputValues[extFieldName],
-			context, transport, codecs, directMedia, maxContacts, qualifyFreq, ext.ID}
+			context, transport, codecsJSON, directMedia, maxContacts, qualifyFreq, ext.ID}
 	}
 	
 	_, err := m.db.Exec(query, args...)

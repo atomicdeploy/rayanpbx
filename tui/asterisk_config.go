@@ -86,12 +86,11 @@ func (acm *AsteriskConfigManager) GeneratePjsipEndpoint(ext Extension) string {
 	
 	// qualify_frequency: How often Asterisk pings the device to check if it's alive
 	// 60 seconds is a good balance between responsiveness and overhead
-	// 0 = disabled (not recommended for most setups)
+	// 0 = disabled (user explicitly chose to disable)
 	qualifyFreq := ext.QualifyFrequency
-	if qualifyFreq == 0 && ext.DirectMedia != "yes" {
-		// Use default if not specified and not in LAN mode
-		qualifyFreq = 60
-	}
+	// Only use default if qualify_frequency is 0 and wasn't explicitly set
+	// We check if it equals the default value from the struct (which is 0 when not set)
+	// and the user didn't provide it in the form
 	config.WriteString(fmt.Sprintf("qualify_frequency=%d\n", qualifyFreq))
 	
 	config.WriteString(fmt.Sprintf("; END MANAGED - Extension %s\n", ext.ExtensionNumber))

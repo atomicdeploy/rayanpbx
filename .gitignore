@@ -53,6 +53,7 @@ bootstrap/cache/*
 
 # Compiled binaries
 /tui/rayanpbx-tui
+/tui/tui
 *.exe
 
 # Temporary files
