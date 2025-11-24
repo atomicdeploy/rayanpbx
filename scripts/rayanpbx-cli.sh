@@ -476,7 +476,7 @@ cmd_system_upgrade() {
 cmd_system_set_mode() {
     local mode=$1
     
-    print_header "⚙️  Setting Application Mode"
+    print_header "⚙️ Setting Application Mode"
     
     if [ -z "$mode" ]; then
         print_error "Mode not specified"

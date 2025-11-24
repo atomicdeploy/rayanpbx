@@ -112,7 +112,7 @@ Successfully implemented comprehensive management, monitoring, and control funct
 2. 🔄 Reboot Phone
 3. 🏭 Factory Reset
 4. 📋 Get Configuration
-5. ⚙️  Set Configuration
+5. ⚙️ Set Configuration
 6. 🔧 Provision Extension
 7. 📡 TR-069 Management
 8. 🔗 Webhook Configuration

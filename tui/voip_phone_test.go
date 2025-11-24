@@ -280,7 +280,7 @@ func TestInitVoIPControlMenu(t *testing.T) {
 		"🔄 Reboot Phone",
 		"🏭 Factory Reset",
 		"📋 Get Configuration",
-		"⚙️  Set Configuration",
+		"⚙️ Set Configuration",
 		"🔧 Provision Extension",
 		"📡 TR-069 Management",
 		"🔗 Webhook Configuration",
