@@ -37,6 +37,26 @@ Comma-separated list of additional allowed origins:
 CORS_ALLOWED_ORIGINS=https://rayanpbx.example.com,http://192.168.1.100:3000,https://another-domain.com
 ```
 
+#### CORS_ALLOWED_ORIGINS_PATTERNS
+Comma-separated list of allowed origin patterns (regex) for flexible origin matching:
+```bash
+# Example: Allow any IP/hostname on port 3000 (useful for development)
+CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/.*:3000$/
+
+# Example: Allow subdomains
+CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/(.*\.)?example\.com(:\d+)?$/
+
+# Example: Multiple patterns
+CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/.*:3000$/,/^https?:\/\/(.*\.)?example\.com$/
+```
+
+**Use Cases for Patterns:**
+- **Development**: Allow access from any IP address on the same port (e.g., `http://172.20.10.99:3000`, `http://hp-server:3000`)
+- **Dynamic IPs**: Match multiple IP addresses without hardcoding each one
+- **Subdomains**: Allow all subdomains of a specific domain
+
+**Security Note:** Patterns are powerful but should be used carefully. In production, prefer specific origins in `CORS_ALLOWED_ORIGINS` over broad patterns.
+
 ### Advanced Configuration
 
 For advanced CORS configuration, edit `backend/config/cors.php`:
@@ -49,9 +69,14 @@ return [
     // Allowed HTTP methods
     'allowed_methods' => ['*'],
 
-    // Allowed origins
+    // Allowed origins (exact matches)
     'allowed_origins' => [
         // ... configured origins
+    ],
+
+    // Allowed origin patterns (regex)
+    'allowed_origins_patterns' => [
+        // Example: '/^https?:\/\/.*:3000$/'
     ],
 
     // Allowed headers
@@ -160,12 +185,35 @@ FRONTEND_URL=https://rayanpbx.company.com
 CORS_ALLOWED_ORIGINS=https://admin.company.com,https://rayanpbx-mobile.company.com
 ```
 
+### Development with Dynamic IPs
+
+For development environments where you need to access the frontend from multiple IPs or hostnames:
+
+```bash
+# Allow any IP/hostname on port 3000 (development only)
+CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/.*:3000$/
+```
+
+This allows access from:
+- `http://localhost:3000`
+- `http://172.20.10.99:3000`
+- `http://hp-server:3000`
+- `http://192.168.1.100:3000`
+- Any other IP or hostname on port 3000
+
+**Warning:** Do not use broad patterns like this in production!
+
 ## Security Considerations
 
 1. **Only Add Trusted Origins** - Never use `*` for allowed origins in production
 2. **Use HTTPS in Production** - Always use HTTPS URLs for production origins
 3. **Credentials Support** - `supports_credentials: true` allows cookies and authorization headers
 4. **Preflight Caching** - Currently set to 0 (no cache) for flexibility
+5. **Pattern Security** - Use `allowed_origins_patterns` carefully:
+   - Patterns use regex matching and can be powerful
+   - Broad patterns like `/^https?:\/\/.*$/` would allow ANY origin (never use this!)
+   - Test patterns thoroughly to ensure they only match intended origins
+   - In production, prefer explicit origins over patterns when possible
 
 ## Troubleshooting
 
@@ -175,9 +223,12 @@ CORS_ALLOWED_ORIGINS=https://admin.company.com,https://rayanpbx-mobile.company.c
 
 **Solutions:**
 1. Check that `FRONTEND_URL` is set correctly
-2. Verify the frontend URL is in `CORS_ALLOWED_ORIGINS`
+2. Verify the frontend URL is in `CORS_ALLOWED_ORIGINS` or matches a pattern in
+   `CORS_ALLOWED_ORIGINS_PATTERNS`
 3. Check browser console for the exact origin being used
-4. Clear browser cache and restart development servers
+4. For development with dynamic IPs, use
+   `CORS_ALLOWED_ORIGINS_PATTERNS=/^https?:\/\/.*:3000$/`
+5. Clear browser cache and restart development servers
 
 ### Preflight Request Failing
 
