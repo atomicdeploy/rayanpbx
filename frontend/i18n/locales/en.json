@@ -62,7 +62,11 @@
     "deleteConfirm": "Are you sure you want to delete this extension?",
     "created": "Extension created successfully",
     "updated": "Extension updated successfully",
-    "deleted": "Extension deleted successfully"
+    "deleted": "Extension deleted successfully",
+    "allStatus": "All Status",
+    "offlineTitle": "Extension {number} is Offline",
+    "enableSuccess": "Extension {number} enabled successfully",
+    "enableError": "Failed to enable extension {number}"
   },
   "trunks": {
     "title": "Trunks",

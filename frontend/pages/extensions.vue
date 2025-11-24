@@ -24,90 +24,137 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="card">
+        <!-- Search and Filter Controls -->
+        <div v-if="!loading && extensions.length > 0" class="mb-4 flex gap-4">
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="$t('common.search') + '...'"
+            class="input flex-1"
+          />
+          <select v-model="statusFilter" class="input w-48">
+            <option value="">{{ $t('extensions.allStatus') }}</option>
+            <option value="registered">{{ $t('status.registered') }}</option>
+            <option value="offline">{{ $t('status.offline') }}</option>
+          </select>
+        </div>
+
         <div v-if="loading" class="text-center py-8">
           {{ $t('common.loading') }}
         </div>
 
-        <div v-else-if="extensions.length === 0" class="text-center py-8 text-gray-600 dark:text-gray-400">
+        <div v-else-if="filteredExtensions.length === 0 && extensions.length === 0" class="text-center py-8 text-gray-600 dark:text-gray-400">
           No extensions configured. Click "Add Extension" to get started.
         </div>
 
-        <table v-else class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead class="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ $t('extensions.number') }}
-              </th>
-              <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ $t('extensions.name') }}
-              </th>
-              <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ $t('extensions.status') }}
-              </th>
-              <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ $t('extensions.enabled') }}
-              </th>
-              <th class="px-6 py-3 text-end text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ $t('extensions.actions') }}
-              </th>
-            </tr>
-          </thead>
-          <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            <tr v-for="ext in extensions" :key="ext.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
-              <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                <div class="flex items-center space-x-2">
-                  <span>{{ ext.extension_number }}</span>
-                  <!-- HD Badge if using 16kHz+ codec -->
-                  <span v-if="ext.hd_codec" 
-                    class="px-2 py-0.5 text-xs font-bold rounded bg-gradient-to-r from-green-400 to-green-600 text-white shadow-sm"
-                    :title="`HD Audio - ${ext.codec_info || '16kHz+'}`">
-                    🎵 HD
-                  </span>
-                </div>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm">
-                <div>
-                  <div class="font-medium">{{ ext.name }}</div>
-                  <!-- Show IP address if registered -->
-                  <div v-if="ext.ip_address" class="text-xs text-gray-500 dark:text-gray-400">
-                    📍 {{ ext.ip_address }}:{{ ext.port }}
-                  </div>
-                </div>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm">
-                <div class="flex items-center space-x-2">
-                  <!-- Live registration indicator -->
-                  <span v-if="ext.registered" class="relative flex h-2 w-2">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                  </span>
-                  <span v-else class="inline-flex rounded-full h-2 w-2 bg-gray-400"></span>
-                  
-                  <span :class="statusClass(ext.status)">
-                    {{ ext.registered ? '🟢 Registered' : '⚫ Offline' }}
-                  </span>
-                  
-                  <!-- Show latency if available -->
-                  <span v-if="ext.latency_ms" class="text-xs text-gray-500" :title="`Qualify latency: ${ext.latency_ms}ms`">
-                    ({{ ext.latency_ms }}ms)
-                  </span>
-                </div>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm">
-                <span v-if="ext.enabled" class="text-green-600">✓</span>
-                <span v-else class="text-red-600">✗</span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-end text-sm font-medium space-x-2">
-                <button @click="editExtension(ext)" class="text-blue-600 hover:text-blue-900">
-                  ✏️
-                </button>
-                <button @click="deleteExtension(ext)" class="text-red-600 hover:text-red-900">
-                  🗑️
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else-if="filteredExtensions.length === 0" class="text-center py-8 text-gray-600 dark:text-gray-400">
+          No extensions match your search criteria.
+        </div>
+
+        <div v-else class="overflow-x-auto">
+          <div class="max-h-[600px] overflow-y-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+                <tr>
+                  <th 
+                    @click="sortBy('extension_number')"
+                    class="px-3 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 w-32"
+                  >
+                    <div class="flex items-center space-x-1">
+                      <span>{{ $t('extensions.number') }}</span>
+                      <span v-if="sortField === 'extension_number'">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+                    </div>
+                  </th>
+                  <th 
+                    @click="sortBy('name')"
+                    class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <div class="flex items-center space-x-1">
+                      <span>{{ $t('extensions.name') }}</span>
+                      <span v-if="sortField === 'name'">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+                    </div>
+                  </th>
+                  <th 
+                    @click="sortBy('status')"
+                    class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <div class="flex items-center space-x-1">
+                      <span>{{ $t('extensions.status') }}</span>
+                      <span v-if="sortField === 'status'">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+                    </div>
+                  </th>
+                  <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    {{ $t('extensions.enabled') }}
+                  </th>
+                  <th class="px-6 py-3 text-end text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    {{ $t('extensions.actions') }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                <tr v-for="ext in filteredExtensions" :key="ext.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td class="px-3 py-4 whitespace-nowrap text-sm font-medium w-32">
+                    <div class="flex items-center space-x-2">
+                      <span>{{ ext.extension_number }}</span>
+                      <!-- HD Badge if using 16kHz+ codec -->
+                      <span v-if="ext.hd_codec" 
+                        class="px-2 py-0.5 text-xs font-bold rounded bg-gradient-to-r from-green-400 to-green-600 text-white shadow-sm"
+                        :title="`HD Audio - ${ext.codec_info || '16kHz+'}`">
+                        🎵 HD
+                      </span>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <div>
+                      <div class="font-medium">{{ ext.name }}</div>
+                      <!-- Show IP address if registered -->
+                      <div v-if="ext.ip_address" class="text-xs text-gray-500 dark:text-gray-400">
+                        📍 {{ ext.ip_address }}:{{ ext.port }}
+                      </div>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <div class="flex items-center space-x-2">
+                      <!-- Live registration indicator -->
+                      <span v-if="ext.registered" class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                      </span>
+                      <span v-else class="inline-flex rounded-full h-2 w-2 bg-gray-400"></span>
+                      
+                      <button
+                        @click="ext.registered ? null : showOfflineHelp(ext)"
+                        :class="[
+                          statusClass(ext.status),
+                          !ext.registered ? 'cursor-pointer hover:underline' : ''
+                        ]"
+                      >
+                        {{ ext.registered ? '🟢 Registered' : '⚫ Offline' }}
+                      </button>
+                      
+                      <!-- Show latency if available -->
+                      <span v-if="ext.latency_ms" class="text-xs text-gray-500" :title="`Qualify latency: ${ext.latency_ms}ms`">
+                        ({{ ext.latency_ms }}ms)
+                      </span>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <span v-if="ext.enabled" class="text-green-600">✓</span>
+                    <span v-else class="text-red-600">✗</span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-end text-sm font-medium space-x-2">
+                    <button @click="editExtension(ext)" class="text-blue-600 hover:text-blue-900">
+                      ✏️
+                    </button>
+                    <button @click="deleteExtension(ext)" class="text-red-600 hover:text-red-900">
+                      🗑️
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -167,6 +214,81 @@
         </div>
       </div>
     </div>
+
+    <!-- Offline Help Modal -->
+    <div v-if="offlineHelpModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="offlineHelpModal = false">
+      <div class="flex items-center justify-center min-h-screen px-4">
+        <div class="fixed inset-0 bg-black opacity-50"></div>
+        <div class="relative card max-w-2xl w-full">
+          <div class="flex justify-between items-start mb-4">
+            <h2 class="text-2xl font-bold text-red-600">
+              {{ $t('extensions.offlineTitle', { number: selectedExtension?.extension_number }) }}
+            </h2>
+            <button @click="offlineHelpModal = false" class="text-gray-500 hover:text-gray-700">
+              ✕
+            </button>
+          </div>
+
+          <div class="space-y-4 text-gray-700 dark:text-gray-300">
+            <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-2">⚠️ Troubleshooting Steps:</h3>
+              <ol class="list-decimal list-inside space-y-2 text-sm">
+                <li>Check if the SIP device is powered on and connected to the network</li>
+                <li>Verify network connectivity between the device and PBX server</li>
+                <li>Confirm the extension credentials are correctly configured on the device:
+                  <ul class="list-disc list-inside ml-6 mt-1">
+                    <li>Extension Number: <strong>{{ selectedExtension?.extension_number }}</strong></li>
+                    <li>Server: Check your server IP/hostname</li>
+                    <li>Password: Verify the secret matches</li>
+                  </ul>
+                </li>
+                <li>Check if the extension is enabled: 
+                  <span v-if="selectedExtension?.enabled" class="text-green-600 font-semibold">✓ Enabled</span>
+                  <span v-else class="text-red-600 font-semibold">✗ Disabled - Enable it to allow registration</span>
+                </li>
+                <li>Review firewall rules (ports 5060 UDP for SIP, 10000-20000 UDP for RTP)</li>
+                <li>Check Asterisk logs for registration errors using the Console page</li>
+              </ol>
+            </div>
+
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-2">💡 Quick Actions:</h3>
+              <div class="space-y-2">
+                <button 
+                  @click="editExtension(selectedExtension)"
+                  class="btn btn-primary w-full"
+                >
+                  Edit Extension Configuration
+                </button>
+                <button 
+                  v-if="!selectedExtension?.enabled"
+                  @click="enableExtension(selectedExtension)"
+                  class="btn bg-green-600 hover:bg-green-700 text-white w-full"
+                >
+                  Enable This Extension
+                </button>
+                <NuxtLink 
+                  to="/console"
+                  class="btn btn-secondary w-full block text-center"
+                >
+                  View Asterisk Console Logs
+                </NuxtLink>
+              </div>
+            </div>
+
+            <div class="text-sm text-gray-600 dark:text-gray-400">
+              <p><strong>Note:</strong> After making changes, the device may need to be restarted or re-registered manually.</p>
+            </div>
+          </div>
+
+          <div class="flex justify-end mt-6">
+            <button @click="offlineHelpModal = false" class="btn btn-secondary">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -182,6 +304,16 @@ const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
 
+// Sorting and filtering state
+const searchQuery = ref('')
+const statusFilter = ref('')
+const sortField = ref('extension_number')
+const sortDirection = ref<'asc' | 'desc'>('asc')
+
+// Offline help modal
+const offlineHelpModal = ref(false)
+const selectedExtension = ref<any>(null)
+
 const form = ref({
   id: null,
   extension_number: '',
@@ -190,6 +322,55 @@ const form = ref({
   secret: '',
   enabled: true,
   notes: '',
+})
+
+// Computed property for filtered and sorted extensions
+const filteredExtensions = computed(() => {
+  let result = [...extensions.value]
+
+  // Apply search filter
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    result = result.filter(ext => 
+      String(ext.extension_number || '').toLowerCase().includes(query) ||
+      String(ext.name || '').toLowerCase().includes(query) ||
+      String(ext.email || '').toLowerCase().includes(query)
+    )
+  }
+
+  // Apply status filter
+  if (statusFilter.value) {
+    result = result.filter(ext => {
+      if (statusFilter.value === 'registered') {
+        return ext.registered === true
+      } else if (statusFilter.value === 'offline') {
+        return ext.registered !== true
+      }
+      return true
+    })
+  }
+
+  // Apply sorting
+  result.sort((a, b) => {
+    let aVal = a[sortField.value]
+    let bVal = b[sortField.value]
+
+    // Special handling for status field
+    if (sortField.value === 'status') {
+      aVal = a.registered ? 'registered' : 'offline'
+      bVal = b.registered ? 'registered' : 'offline'
+    }
+
+    // Handle null/undefined values
+    if (aVal == null) aVal = ''
+    if (bVal == null) bVal = ''
+
+    // String comparison
+    const comparison = String(aVal).localeCompare(String(bVal))
+    return sortDirection.value === 'asc' ? comparison : -comparison
+  })
+
+  return result
 })
 
 const statusClass = (status: string) => {
@@ -201,6 +382,34 @@ const statusClass = (status: string) => {
       return 'text-red-600'
     default:
       return 'text-yellow-600'
+  }
+}
+
+const sortBy = (field: string) => {
+  if (sortField.value === field) {
+    // Toggle direction if same field
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // New field, default to ascending
+    sortField.value = field
+    sortDirection.value = 'asc'
+  }
+}
+
+const showOfflineHelp = (ext: any) => {
+  selectedExtension.value = ext
+  offlineHelpModal.value = true
+}
+
+const enableExtension = async (ext: any) => {
+  try {
+    await api.updateExtension(ext.id, { ...ext, enabled: true })
+    offlineHelpModal.value = false
+    alert(t('extensions.enableSuccess', { number: ext.extension_number }))
+    // WebSocket will trigger refresh
+  } catch (error) {
+    console.error('Error enabling extension:', error)
+    alert(t('extensions.enableError', { number: ext.extension_number }))
   }
 }
 
@@ -276,6 +485,7 @@ const editExtension = (ext: any) => {
   }
   editMode.value = true
   showModal.value = true
+  offlineHelpModal.value = false
 }
 
 const deleteExtension = async (ext: any) => {
