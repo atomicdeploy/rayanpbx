@@ -76,6 +76,11 @@ const (
 	DefaultSIPPort = "5060"
 )
 
+// Default paths
+const (
+	SipTestScriptPath = "../scripts/sip-test-suite.sh"
+)
+
 // Default extension values
 const (
 	DefaultExtensionContext   = "from-internal"
@@ -1665,8 +1670,7 @@ func (m *model) handleSipTestMenuSelection() {
 	case 0: // Check Available Tools
 		m.currentScreen = sipTestToolsScreen
 		// Run the tools check command
-		scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
-		cmd := exec.Command("bash", scriptPath, "tools")
+		cmd := exec.Command("bash", SipTestScriptPath, "tools")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			m.sipTestOutput = fmt.Sprintf("Error checking tools: %v", err)
@@ -1866,8 +1870,7 @@ func (m *model) executeSipTestRegister() {
 		server = "127.0.0.1"
 	}
 
-	scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
-	cmd := exec.Command("bash", scriptPath, "register", ext, pass, server)
+	cmd := exec.Command("bash", SipTestScriptPath, "register", ext, pass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -1897,8 +1900,7 @@ func (m *model) executeSipTestCall() {
 		server = "127.0.0.1"
 	}
 
-	scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
-	cmd := exec.Command("bash", scriptPath, "call", fromExt, fromPass, toExt, toPass, server)
+	cmd := exec.Command("bash", SipTestScriptPath, "call", fromExt, fromPass, toExt, toPass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -1928,8 +1930,7 @@ func (m *model) executeSipTestFull() {
 		server = "127.0.0.1"
 	}
 
-	scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
-	cmd := exec.Command("bash", scriptPath, "full", ext1, pass1, ext2, pass2, server)
+	cmd := exec.Command("bash", SipTestScriptPath, "full", ext1, pass1, ext2, pass2, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
