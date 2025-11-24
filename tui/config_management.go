@@ -570,8 +570,9 @@ func viewConfigInput(m model, isAdd bool) string {
 		value := m.inputValues[i]
 		if field == "Value" && i < m.inputCursor {
 			// Show masked value for previous field if it looks sensitive
-			if strings.Contains(strings.ToLower(m.inputValues[0]), "password") ||
-			   strings.Contains(strings.ToLower(m.inputValues[0]), "secret") {
+			// Use a temporary ConfigManager to check sensitivity
+			cm := &ConfigManager{}
+			if cm.isSensitive(m.inputValues[0]) {
 				value = strings.Repeat("*", len(value))
 			}
 		}
