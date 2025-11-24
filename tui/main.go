@@ -236,6 +236,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📞 Reload Dialplan",
 			"🔁 Reload All Modules",
 			"👥 Show PJSIP Endpoints",
+			"🚦 Show PJSIP Transports",
 			"📡 Show Active Channels",
 			"📋 Show Registrations",
 			"🔙 Back to Main Menu",
@@ -1655,6 +1656,11 @@ func (m *model) createExtension() {
 		QualifyFrequency: qualifyFreq,
 	}
 
+	// Ensure transport configuration exists before writing extension config
+	if err := m.configManager.EnsureTransportConfig(); err != nil {
+		m.errorMsg = fmt.Sprintf("Warning: Failed to ensure transport config: %v", err)
+	}
+
 	// Generate and write PJSIP configuration
 	config := m.configManager.GeneratePjsipEndpoint(ext)
 	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
@@ -2182,7 +2188,15 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP endpoints retrieved"
 		}
-	case 8: // Show Active Channels
+	case 8: // Show PJSIP Transports
+		output, err := m.asteriskManager.ShowTransports()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to show transports: %v", err)
+		} else {
+			m.asteriskOutput = output
+			m.successMsg = "PJSIP transports retrieved"
+		}
+	case 9: // Show Active Channels
 		output, err := m.asteriskManager.ShowChannels()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show channels: %v", err)
@@ -2190,7 +2204,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Active channels retrieved"
 		}
-	case 9: // Show Registrations
+	case 10: // Show Registrations
 		output, err := m.asteriskManager.ShowPeers()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show registrations: %v", err)
@@ -2198,7 +2212,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 10: // Back to Main Menu
+	case 11: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
 	}

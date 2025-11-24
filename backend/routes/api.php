@@ -91,6 +91,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/asterisk/channel/rtp', [AsteriskStatusController::class, 'getRTPStats']);
     Route::post('/asterisk/trunk/status', [AsteriskStatusController::class, 'getTrunkStatus']);
     Route::get('/asterisk/status/complete', [AsteriskStatusController::class, 'getCompleteStatus']);
+    Route::get('/asterisk/transports', [AsteriskStatusController::class, 'getTransports']);
+    Route::post('/asterisk/reload', [AsteriskStatusController::class, 'reloadPjsip']);
+    Route::post('/asterisk/restart', [AsteriskStatusController::class, 'restartAsterisk']);
     
     // Configuration Validation & Testing
     Route::post('/validate/pjsip', [ValidationController::class, 'validatePjsip']);

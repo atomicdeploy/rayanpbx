@@ -4,15 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\AsteriskStatusService;
+use App\Adapters\AsteriskAdapter;
 use Illuminate\Http\Request;
 
 class AsteriskStatusController extends Controller
 {
     private AsteriskStatusService $asteriskStatus;
+    private AsteriskAdapter $asterisk;
 
-    public function __construct(AsteriskStatusService $asteriskStatus)
+    public function __construct(AsteriskStatusService $asteriskStatus, AsteriskAdapter $asterisk)
     {
         $this->asteriskStatus = $asteriskStatus;
+        $this->asterisk = $asterisk;
     }
 
     /**
@@ -115,5 +118,53 @@ class AsteriskStatusController extends Controller
             'summary' => $summary,
             'endpoints' => $endpoints,
         ]);
+    }
+
+    /**
+     * Get all PJSIP transports
+     */
+    public function getTransports()
+    {
+        $transports = $this->asterisk->getTransports();
+
+        return response()->json([
+            'success' => true,
+            'transports' => $transports,
+            'count' => count($transports),
+        ]);
+    }
+
+    /**
+     * Reload PJSIP configuration
+     */
+    public function reloadPjsip()
+    {
+        $result = $this->asterisk->reload();
+
+        return response()->json([
+            'success' => $result,
+            'message' => $result ? 'PJSIP configuration reloaded successfully' : 'Failed to reload PJSIP',
+        ]);
+    }
+
+    /**
+     * Restart Asterisk service
+     */
+    public function restartAsterisk()
+    {
+        try {
+            $output = shell_exec("sudo systemctl restart asterisk 2>&1");
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Asterisk service restarted successfully',
+                'output' => $output,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to restart Asterisk: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

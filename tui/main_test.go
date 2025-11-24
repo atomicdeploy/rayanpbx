@@ -316,8 +316,8 @@ func TestAsteriskMenuNavigation(t *testing.T) {
 		t.Fatal("asteriskMenu is empty")
 	}
 	
-	// Verify menu has expected number of items (11 in this case)
-	expectedMenuItems := 11
+	// Verify menu has expected number of items (12 now including Show Transports)
+	expectedMenuItems := 12
 	if menuLength != expectedMenuItems {
 		t.Errorf("Expected %d menu items, got %d", expectedMenuItems, menuLength)
 	}

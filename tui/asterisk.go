@@ -158,6 +158,11 @@ func (am *AsteriskManager) ShowPeers() (string, error) {
 	return am.ExecuteCLICommand("pjsip show registrations")
 }
 
+// ShowTransports displays PJSIP transports
+func (am *AsteriskManager) ShowTransports() (string, error) {
+	return am.ExecuteCLICommand("pjsip show transports")
+}
+
 // ShowDialplan displays dialplan
 func (am *AsteriskManager) ShowDialplan() (string, error) {
 	return am.ExecuteCLICommand("dialplan show")
