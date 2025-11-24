@@ -40,6 +40,7 @@
 │ 🖥️  Asterisk Console   │  Interactive CLI from web UI       │
 │ 📊 Live Monitoring    │  Real-time call & system status    │
 │ ⚙️  Config Management │  CLI/TUI/Web .env management       │
+│ 🧪 SIP Testing Suite  │  Comprehensive extension testing   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -298,6 +299,8 @@ go build -o rayanpbx-tui main.go config.go
 │  🌐 CORS Configuration:  CORS_CONFIGURATION.md     │
 │  📝 Command Options:     COMMAND_LINE_OPTIONS.md   │
 │  ⚙️  Config Management:  ENV_MANAGEMENT.md         │
+│  🧪 SIP Testing Guide:   SIP_TESTING_GUIDE.md      │
+│  📡 PJSIP Setup:         PJSIP_SETUP_GUIDE.md      │
 ╰─────────────────────────────────────────────────────╯
 ```
 
