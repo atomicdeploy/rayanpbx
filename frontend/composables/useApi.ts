@@ -35,6 +35,19 @@ export const useApi = () => {
   return {
     apiFetch,
     
+    // Generic GET request
+    async get(endpoint: string) {
+      return apiFetch(endpoint)
+    },
+    
+    // Generic POST request
+    async post(endpoint: string, data: any = {}) {
+      return apiFetch(endpoint, {
+        method: 'POST',
+        body: data,
+      })
+    },
+    
     // Extensions
     async getExtensions() {
       return apiFetch('/extensions')
