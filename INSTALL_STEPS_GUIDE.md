@@ -114,7 +114,11 @@ Requires: All applications already built
 
 For CI/CD environments, use:
 ```bash
-./install.sh --ci --steps=<required-steps> --verbose
+# Example: Run backend and frontend tests
+./install.sh --ci --steps=backend,frontend,tui --verbose
+
+# Example: Run only backend setup
+./install.sh --ci --steps=source,env-config,backend --verbose
 ```
 
 The `--ci` flag:
