@@ -659,7 +659,14 @@ const toggleExtension = async (ext: any) => {
       
       // Show feedback to user
       const status = response.extension.enabled ? 'enabled' : 'disabled'
-      console.log(`Extension ${ext.extension_number} ${status}`)
+      
+      // Check for configuration errors
+      if (response.error || !response.config_write_success || !response.reload_success) {
+        const errorMsg = response.error || 'Configuration update failed'
+        alert(`Extension ${ext.extension_number} ${status} in database, but: ${errorMsg}`)
+      } else {
+        console.log(`Extension ${ext.extension_number} ${status} successfully`)
+      }
       
       // Optionally refresh live status from Asterisk after toggle
       // This updates registration status which may change after enable/disable

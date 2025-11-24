@@ -1918,23 +1918,30 @@ func (m *model) toggleExtension() {
 	// Update in-memory state
 	m.extensions[m.selectedExtensionIdx].Enabled = newEnabled
 	
-	// Generate updated PJSIP configuration based on enabled state
-	ext.Enabled = newEnabled
+	// Create a copy with updated enabled state for config generation
+	updatedExt := ext
+	updatedExt.Enabled = newEnabled
 	
 	if newEnabled {
 		// Extension is being enabled - write PJSIP config
-		config := m.configManager.GeneratePjsipEndpoint(ext)
+		config := m.configManager.GeneratePjsipEndpoint(updatedExt)
 		if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
 			m.errorMsg = fmt.Sprintf("Extension toggled in DB but failed to write config: %v", err)
 			m.successMsg = fmt.Sprintf("Extension %s enabled (config write failed)", ext.ExtensionNumber)
 		} else {
-			// Reload Asterisk to apply changes
-			if err := m.configManager.ReloadAsterisk(); err != nil {
-				m.errorMsg = fmt.Sprintf("Config written but Asterisk reload failed: %v", err)
-				m.successMsg = fmt.Sprintf("Extension %s enabled (reload failed)", ext.ExtensionNumber)
+			// Regenerate dialplan for all enabled extensions
+			if err := m.regenerateDialplan(); err != nil {
+				m.errorMsg = fmt.Sprintf("PJSIP config written but dialplan update failed: %v", err)
+				m.successMsg = fmt.Sprintf("Extension %s enabled (dialplan failed)", ext.ExtensionNumber)
 			} else {
-				m.successMsg = fmt.Sprintf("Extension %s enabled - registration now possible!", ext.ExtensionNumber)
-				m.errorMsg = "" // Clear error only on success
+				// Reload Asterisk to apply changes
+				if err := m.configManager.ReloadAsterisk(); err != nil {
+					m.errorMsg = fmt.Sprintf("Config written but Asterisk reload failed: %v", err)
+					m.successMsg = fmt.Sprintf("Extension %s enabled (reload failed)", ext.ExtensionNumber)
+				} else {
+					m.successMsg = fmt.Sprintf("Extension %s enabled - registration now possible!", ext.ExtensionNumber)
+					m.errorMsg = "" // Clear error only on success
+				}
 			}
 		}
 	} else {
@@ -1943,16 +1950,55 @@ func (m *model) toggleExtension() {
 			m.errorMsg = fmt.Sprintf("Extension disabled in DB but failed to remove config: %v", err)
 			m.successMsg = fmt.Sprintf("Extension %s disabled (config removal failed)", ext.ExtensionNumber)
 		} else {
-			// Reload Asterisk to apply changes
-			if err := m.configManager.ReloadAsterisk(); err != nil {
-				m.errorMsg = fmt.Sprintf("Config removed but Asterisk reload failed: %v", err)
-				m.successMsg = fmt.Sprintf("Extension %s disabled (reload failed)", ext.ExtensionNumber)
+			// Regenerate dialplan for all enabled extensions (this extension will be excluded)
+			if err := m.regenerateDialplan(); err != nil {
+				m.errorMsg = fmt.Sprintf("PJSIP config removed but dialplan update failed: %v", err)
+				m.successMsg = fmt.Sprintf("Extension %s disabled (dialplan failed)", ext.ExtensionNumber)
 			} else {
-				m.successMsg = fmt.Sprintf("Extension %s disabled - registration blocked!", ext.ExtensionNumber)
-				m.errorMsg = "" // Clear error only on success
+				// Reload Asterisk to apply changes
+				if err := m.configManager.ReloadAsterisk(); err != nil {
+					m.errorMsg = fmt.Sprintf("Config removed but Asterisk reload failed: %v", err)
+					m.successMsg = fmt.Sprintf("Extension %s disabled (reload failed)", ext.ExtensionNumber)
+				} else {
+					m.successMsg = fmt.Sprintf("Extension %s disabled - registration blocked!", ext.ExtensionNumber)
+					m.errorMsg = "" // Clear error only on success
+				}
 			}
 		}
 	}
+}
+
+// regenerateDialplan regenerates the internal dialplan for all enabled extensions
+func (m *model) regenerateDialplan() error {
+	// Fetch all enabled extensions from database
+	query := `SELECT id, extension_number, name, COALESCE(secret, ''), COALESCE(email, ''), 
+	          enabled, COALESCE(context, 'from-internal'), COALESCE(transport, 'transport-udp'), 
+	          COALESCE(caller_id, ''), COALESCE(max_contacts, 1), COALESCE(voicemail_enabled, 0),
+	          COALESCE(codecs, '["ulaw","alaw","g722"]'), COALESCE(direct_media, 'no'), COALESCE(qualify_frequency, 60)
+	          FROM extensions WHERE enabled = 1 ORDER BY extension_number`
+	rows, err := m.db.Query(query)
+	if err != nil {
+		return fmt.Errorf("failed to query extensions: %v", err)
+	}
+	defer rows.Close()
+
+	var enabledExtensions []Extension
+	for rows.Next() {
+		var ext Extension
+		var codecsJSON string
+		if err := rows.Scan(&ext.ID, &ext.ExtensionNumber, &ext.Name, &ext.Secret, &ext.Email,
+			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled,
+			&codecsJSON, &ext.DirectMedia, &ext.QualifyFrequency); err != nil {
+			continue
+		}
+		enabledExtensions = append(enabledExtensions, ext)
+	}
+
+	// Generate dialplan configuration
+	dialplanConfig := m.configManager.GenerateInternalDialplan(enabledExtensions)
+	
+	// Write dialplan to file
+	return m.configManager.WriteDialplanConfig(dialplanConfig, "RayanPBX Internal Extensions")
 }
 
 // renderEditExtension renders the extension edit form
