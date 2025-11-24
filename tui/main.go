@@ -108,6 +108,11 @@ const (
 	configManagementScreen
 	configEditScreen
 	configAddScreen
+	voipPhonesScreen
+	voipPhoneDetailsScreen
+	voipPhoneControlScreen
+	voipPhoneProvisionScreen
+	voipManualIPScreen
 )
 
 type model struct {
@@ -150,6 +155,15 @@ type model struct {
 	asteriskManager *AsteriskManager
 	asteriskMenu    []string
 	asteriskOutput  string
+	
+	// VoIP phone management
+	phoneManager       *PhoneManager
+	voipPhones         []PhoneInfo
+	selectedPhoneIdx   int
+	voipControlMenu    []string
+	voipPhoneOutput    string
+	currentPhoneStatus *PhoneStatus
+	phoneCredentials   map[string]map[string]string
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -170,6 +184,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		menuItems: []string{
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
+			"📞 VoIP Phones Management",
 			"⚙️  Asterisk Management",
 			"🔍 Diagnostics & Debugging",
 			"📊 System Status",
@@ -229,6 +244,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return updateConfigEdit(msg, m)
 		}
 		
+		// Handle VoIP phone screens
+		if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneDetailsScreen || 
+		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+			// Handle VoIP-specific keys first
+			switch msg.String() {
+			case "m", "c", "r", "p":
+				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle VoIP manual IP screen with input mode
+		if m.currentScreen == voipManualIPScreen && m.inputMode {
+			return m.handleInputMode(msg)
+		}
+		
 		// Handle input mode for creation forms
 		if m.inputMode {
 			return m.handleInputMode(msg)
@@ -263,6 +294,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
 				}
+			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+				// Handle VoIP phone navigation
+				m.handleVoIPPhonesKeyPress("up")
 			} else if m.cursor > 0 {
 				m.cursor--
 			}
@@ -293,6 +327,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
 				}
+			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+				// Handle VoIP phone navigation
+				m.handleVoIPPhonesKeyPress("down")
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
 			}
@@ -347,34 +384,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
 				case 2:
+					// VoIP Phones Management
+					m.initVoIPPhonesScreen()
+				case 3:
 					m.currentScreen = asteriskMenuScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 3:
+				case 4:
 					m.currentScreen = diagnosticsMenuScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 4:
-					m.currentScreen = statusScreen
 				case 5:
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 6:
+					m.currentScreen = logsScreen
+				case 7:
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 7:
+				case 8:
 					m.currentScreen = configManagementScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 8:
+				case 9:
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 9:
+				case 10:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -391,6 +431,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
 				m.handleSystemSettingsAction()
+			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+				// Handle VoIP phone enter key
+				m.handleVoIPPhonesKeyPress("enter")
 			}
 
 		case "esc":
@@ -425,6 +468,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == configAddScreen || m.currentScreen == configEditScreen {
 					m.currentScreen = configManagementScreen
 					m.inputMode = false
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipPhoneControlScreen || 
+				           m.currentScreen == voipPhoneProvisionScreen || m.currentScreen == voipManualIPScreen {
+					// Handle VoIP phone screen back navigation
+					if m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
+						m.currentScreen = voipPhoneDetailsScreen
+					} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipManualIPScreen {
+						m.currentScreen = voipPhonesScreen
+						m.inputMode = false
+					}
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == voipPhonesScreen {
+					m.currentScreen = mainMenu
+					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
@@ -505,6 +564,16 @@ func (m model) View() string {
 		s += viewConfigInput(m, true)
 	case configEditScreen:
 		s += viewConfigInput(m, false)
+	case voipPhonesScreen:
+		s += m.renderVoIPPhones()
+	case voipPhoneDetailsScreen:
+		s += m.renderVoIPPhoneDetails()
+	case voipPhoneControlScreen:
+		s += m.renderVoIPPhoneControl()
+	case voipPhoneProvisionScreen:
+		s += m.renderVoIPPhoneProvision()
+	case voipManualIPScreen:
+		s += m.renderVoIPManualIP()
 	}
 
 	// Footer with emojis
@@ -1035,6 +1104,10 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeDiagTestRouting()
 			} else if m.currentScreen == diagPortTestScreen {
 				m.executeDiagPortTest()
+			} else if m.currentScreen == voipManualIPScreen {
+				m.executeManualIPAdd()
+			} else if m.currentScreen == voipPhoneProvisionScreen {
+				m.executeVoIPProvision()
 			}
 		}
 
