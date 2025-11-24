@@ -61,6 +61,12 @@ const (
 	extFieldNumber = iota
 	extFieldName
 	extFieldPassword
+	extFieldCodecs
+	extFieldContext
+	extFieldTransport
+	extFieldDirectMedia
+	extFieldMaxContacts
+	extFieldQualifyFreq
 )
 
 // Field indices for trunk creation form
@@ -86,6 +92,9 @@ const (
 	DefaultExtensionContext   = "from-internal"
 	DefaultExtensionTransport = "transport-udp"
 	DefaultMaxContacts        = 1
+	DefaultQualifyFrequency   = 60
+	DefaultCodecs             = "ulaw,alaw,g722"
+	DefaultDirectMedia        = "no"
 )
 
 type screen int
@@ -115,6 +124,7 @@ const (
 	editExtensionScreen
 	deleteExtensionScreen
 	extensionDetailsScreen
+	extensionInfoScreen
 	systemSettingsScreen
 	configManagementScreen
 	configEditScreen
@@ -124,6 +134,7 @@ const (
 	voipPhoneControlScreen
 	voipPhoneProvisionScreen
 	voipManualIPScreen
+	voipDiscoveryScreen
 )
 
 type model struct {
@@ -171,7 +182,9 @@ type model struct {
 	
 	// VoIP phone management
 	phoneManager       *PhoneManager
+	phoneDiscovery     *PhoneDiscovery
 	voipPhones         []PhoneInfo
+	discoveredPhones   []DiscoveredPhone
 	selectedPhoneIdx   int
 	voipControlMenu    []string
 	voipPhoneOutput    string
@@ -226,6 +239,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📞 Reload Dialplan",
 			"🔁 Reload All Modules",
 			"👥 Show PJSIP Endpoints",
+			"🚦 Show PJSIP Transports",
 			"📡 Show Active Channels",
 			"📋 Show Registrations",
 			"🔙 Back to Main Menu",
@@ -274,8 +288,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 			// Handle VoIP-specific keys first
 			switch msg.String() {
-			case "m", "c", "r", "p":
+			case "m", "c", "r", "p", "d":
 				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle VoIP discovery screen
+		if m.currentScreen == voipDiscoveryScreen {
+			switch msg.String() {
+			case "s", "l", "r", "a":
+				m.handleVoIPDiscoveryKeyPress(msg.String())
+				return m, nil
+			case "up", "k":
+				if m.selectedPhoneIdx > 0 {
+					m.selectedPhoneIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.selectedPhoneIdx < len(m.discoveredPhones)-1 {
+					m.selectedPhoneIdx++
+				}
 				return m, nil
 			}
 		}
@@ -390,6 +423,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
 				if m.selectedExtensionIdx < len(m.extensions) {
 					m.currentScreen = deleteExtensionScreen
+				}
+			}
+		
+		case "i":
+			// Info/diagnostics button - show extension info
+			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
+				if m.selectedExtensionIdx < len(m.extensions) {
+					m.currentScreen = extensionInfoScreen
+				}
+			}
+		
+		case "r":
+			// Reload Asterisk PJSIP
+			if m.currentScreen == extensionInfoScreen {
+				cyan := color.New(color.FgCyan)
+				green := color.New(color.FgGreen)
+				cyan.Println("\n🔄 Reloading Asterisk PJSIP...")
+				if _, err := m.asteriskManager.ExecuteCLICommand("pjsip reload"); err != nil {
+					m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
+				} else {
+					green.Println("✅ PJSIP reloaded successfully")
+					m.successMsg = "PJSIP reloaded successfully"
+				}
+			}
+		
+		case "t":
+			// Run SIP test suite
+			if m.currentScreen == extensionInfoScreen && m.selectedExtensionIdx < len(m.extensions) {
+				m.currentScreen = sipTestRegisterScreen
+				m.inputMode = true
+				ext := m.extensions[m.selectedExtensionIdx]
+				m.inputFields = []string{"Extension Number", "Password", "Server (optional)"}
+				m.inputValues = []string{ext.ExtensionNumber, "", "127.0.0.1"}
+				m.inputCursor = 0
+			}
+		
+		case "s":
+			// Enable SIP debugging
+			if m.currentScreen == extensionInfoScreen {
+				cyan := color.New(color.FgCyan)
+				green := color.New(color.FgGreen)
+				cyan.Println("\n🔍 Enabling SIP debugging...")
+				if err := m.diagnosticsManager.EnableSIPDebug(); err != nil {
+					m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
+				} else {
+					green.Println("✅ SIP debugging enabled")
+					m.successMsg = "SIP debugging enabled - check Asterisk console"
 				}
 			}
 		
@@ -508,6 +588,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
+				} else if m.currentScreen == extensionInfoScreen {
+					m.currentScreen = extensionsScreen
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else if m.currentScreen == deleteExtensionScreen {
 					m.currentScreen = extensionsScreen
 					m.errorMsg = ""
@@ -523,11 +607,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipPhoneControlScreen || 
-				           m.currentScreen == voipPhoneProvisionScreen || m.currentScreen == voipManualIPScreen {
+				           m.currentScreen == voipPhoneProvisionScreen || m.currentScreen == voipManualIPScreen ||
+				           m.currentScreen == voipDiscoveryScreen {
 					// Handle VoIP phone screen back navigation
 					if m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 						m.currentScreen = voipPhoneDetailsScreen
-					} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipManualIPScreen {
+					} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipManualIPScreen || 
+					           m.currentScreen == voipDiscoveryScreen {
 						m.currentScreen = voipPhonesScreen
 						m.inputMode = false
 					}
@@ -616,6 +702,8 @@ func (m model) View() string {
 		s += m.renderEditExtension()
 	case deleteExtensionScreen:
 		s += m.renderDeleteExtension()
+	case extensionInfoScreen:
+		s += m.renderExtensionInfo()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
 	case systemSettingsScreen:
@@ -636,6 +724,8 @@ func (m model) View() string {
 		s += m.renderVoIPPhoneProvision()
 	case voipManualIPScreen:
 		s += m.renderVoIPManualIP()
+	case voipDiscoveryScreen:
+		s += m.renderVoIPDiscovery()
 	}
 
 	// Footer with emojis
@@ -715,7 +805,7 @@ func (m model) renderExtensions() string {
 		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete")
+	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete, 'i' for info/diagnostics")
 
 	return menuStyle.Render(content)
 }
@@ -1236,12 +1326,32 @@ func (m *model) executeCommand(command string) {
 	m.errorMsg = "Note: Command execution is simulated in TUI. Please run in terminal."
 }
 
-// initCreateExtension initializes the extension creation form
+// initCreateExtension initializes the extension creation form with advanced PJSIP options
 func (m *model) initCreateExtension() {
 	m.currentScreen = createExtensionScreen
 	m.inputMode = true
-	m.inputFields = []string{"Extension Number", "Name", "Password"}
-	m.inputValues = []string{"", "", ""}
+	m.inputFields = []string{
+		"Extension Number",
+		"Name",
+		"Password",
+		"Codecs (ulaw,alaw,g722)",
+		"Context",
+		"Transport",
+		"Direct Media (yes/no)",
+		"Max Contacts",
+		"Qualify Frequency (sec)",
+	}
+	m.inputValues = []string{
+		"",                          // Extension Number
+		"",                          // Name
+		"",                          // Password
+		DefaultCodecs,               // Codecs
+		DefaultExtensionContext,     // Context
+		DefaultExtensionTransport,   // Transport
+		DefaultDirectMedia,          // Direct Media
+		fmt.Sprintf("%d", DefaultMaxContacts),     // Max Contacts
+		fmt.Sprintf("%d", DefaultQualifyFrequency), // Qualify Frequency
+	}
 	m.inputCursor = 0
 	m.errorMsg = ""
 	m.successMsg = ""
@@ -1258,7 +1368,7 @@ func (m *model) initCreateTrunk() {
 	m.successMsg = ""
 }
 
-// initEditExtension initializes the extension edit form
+// initEditExtension initializes the extension edit form with advanced PJSIP options
 func (m *model) initEditExtension() {
 	if m.selectedExtensionIdx >= len(m.extensions) {
 		return
@@ -1267,9 +1377,48 @@ func (m *model) initEditExtension() {
 	ext := m.extensions[m.selectedExtensionIdx]
 	m.currentScreen = editExtensionScreen
 	m.inputMode = true
-	m.inputFields = []string{"Extension Number", "Name", "Password"}
+	m.inputFields = []string{
+		"Extension Number",
+		"Name",
+		"Password",
+		"Codecs (ulaw,alaw,g722)",
+		"Context",
+		"Transport",
+		"Direct Media (yes/no)",
+		"Max Contacts",
+		"Qualify Frequency (sec)",
+	}
+	
+	// Get codecs string, default if empty
+	codecs := ext.Codecs
+	if codecs == "" {
+		codecs = DefaultCodecs
+	}
+	
+	// Get direct_media, default if empty
+	directMedia := ext.DirectMedia
+	if directMedia == "" {
+		directMedia = DefaultDirectMedia
+	}
+	
+	// Get qualify frequency, default if zero
+	qualifyFreq := ext.QualifyFrequency
+	if qualifyFreq == 0 {
+		qualifyFreq = DefaultQualifyFrequency
+	}
+	
 	// Pre-fill with current values (password will be empty for security)
-	m.inputValues = []string{ext.ExtensionNumber, ext.Name, ""}
+	m.inputValues = []string{
+		ext.ExtensionNumber,
+		ext.Name,
+		"", // Password empty for security
+		codecs,
+		ext.Context,
+		ext.Transport,
+		directMedia,
+		fmt.Sprintf("%d", ext.MaxContacts),
+		fmt.Sprintf("%d", qualifyFreq),
+	}
 	m.inputCursor = 0
 	m.errorMsg = ""
 	m.successMsg = ""
@@ -1348,9 +1497,22 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderCreateExtension renders the extension creation form
+// renderCreateExtension renders the extension creation form with advanced PJSIP options
 func (m model) renderCreateExtension() string {
 	content := infoStyle.Render("📱 Create New Extension") + "\n\n"
+	
+	// Help descriptions for each field
+	fieldHelp := map[int]string{
+		extFieldNumber:      "Unique extension number (e.g., 100, 101)",
+		extFieldName:        "Display name for the extension",
+		extFieldPassword:    "SIP authentication password (min 8 chars)",
+		extFieldCodecs:      "Audio codecs: ulaw (US), alaw (EU), g722 (HD)",
+		extFieldContext:     "Dialplan context (from-internal recommended)",
+		extFieldTransport:   "SIP transport (transport-udp recommended)",
+		extFieldDirectMedia: "Allow direct RTP (no=NAT-safe, yes=LAN only)",
+		extFieldMaxContacts: "Max simultaneous registrations (1-10)",
+		extFieldQualifyFreq: "Seconds between keep-alive checks (0=disabled)",
+	}
 
 	for i, field := range m.inputFields {
 		cursor := "  "
@@ -1365,14 +1527,25 @@ func (m model) renderCreateExtension() string {
 			value = helpStyle.Render("<enter value>")
 		} else if field == "Password" {
 			// Use fixed mask to not reveal password length (security best practice)
-			// This prevents potential attackers from guessing password complexity
 			value = "********"
 		}
 
 		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+		
+		// Show help for selected field
+		if i == m.inputCursor {
+			if help, ok := fieldHelp[i]; ok {
+				content += helpStyle.Render(fmt.Sprintf("   💡 %s", help)) + "\n"
+			}
+		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Fill in all fields and press Enter on the last field to create")
+	content += "\n" + helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	content += "\n" + helpStyle.Render("📖 PJSIP Configuration Guide:")
+	content += "\n" + helpStyle.Render("   • Codecs: g722 = HD audio (16kHz), ulaw/alaw = standard (8kHz)")
+	content += "\n" + helpStyle.Render("   • Direct Media: 'no' is recommended for NAT/firewall setups")
+	content += "\n" + helpStyle.Render("   • Qualify: Asterisk pings the device to check if it's online")
+	content += "\n\n" + helpStyle.Render("💡 Press ↑/↓ to navigate, Enter on last field to create, ESC to cancel")
 
 	return menuStyle.Render(content)
 }
@@ -1402,20 +1575,94 @@ func (m model) renderCreateTrunk() string {
 	return menuStyle.Render(content)
 }
 
-// createExtension creates a new extension in the database
+// codecsToJSON converts a comma-separated codec string to JSON array format
+// e.g., "ulaw,alaw,g722" becomes '["ulaw","alaw","g722"]'
+func codecsToJSON(codecs string) string {
+	codecList := strings.Split(codecs, ",")
+	var jsonParts []string
+	for _, codec := range codecList {
+		codec = strings.TrimSpace(codec)
+		if codec != "" {
+			jsonParts = append(jsonParts, fmt.Sprintf("\"%s\"", codec))
+		}
+	}
+	return "[" + strings.Join(jsonParts, ",") + "]"
+}
+
+// parseExtensionInputValues parses and validates extension input values
+// Returns: maxContacts, qualifyFreq, codecs, context, transport, directMedia
+func parseExtensionInputValues(inputValues []string) (int, int, string, string, string, string) {
+	// Parse max_contacts
+	maxContacts := DefaultMaxContacts
+	if inputValues[extFieldMaxContacts] != "" {
+		if parsed, err := strconv.Atoi(inputValues[extFieldMaxContacts]); err == nil && parsed > 0 && parsed <= 10 {
+			maxContacts = parsed
+		}
+	}
+	
+	// Parse qualify_frequency
+	qualifyFreq := DefaultQualifyFrequency
+	if inputValues[extFieldQualifyFreq] != "" {
+		if parsed, err := strconv.Atoi(inputValues[extFieldQualifyFreq]); err == nil && parsed >= 0 {
+			qualifyFreq = parsed
+		}
+	}
+	
+	// Get codecs (use default if empty)
+	codecs := inputValues[extFieldCodecs]
+	if codecs == "" {
+		codecs = DefaultCodecs
+	}
+	
+	// Get context (use default if empty)
+	context := inputValues[extFieldContext]
+	if context == "" {
+		context = DefaultExtensionContext
+	}
+	
+	// Get transport (use default if empty)
+	transport := inputValues[extFieldTransport]
+	if transport == "" {
+		transport = DefaultExtensionTransport
+	}
+	
+	// Get direct_media (use default if empty or invalid)
+	directMedia := strings.ToLower(inputValues[extFieldDirectMedia])
+	if directMedia != "yes" && directMedia != "no" {
+		directMedia = DefaultDirectMedia
+	}
+	
+	return maxContacts, qualifyFreq, codecs, context, transport, directMedia
+}
+
+// createExtension creates a new extension in the database with advanced PJSIP options
 func (m *model) createExtension() {
-	// Validate inputs using field constants
+	// Validate required inputs
 	if m.inputValues[extFieldNumber] == "" || m.inputValues[extFieldName] == "" || m.inputValues[extFieldPassword] == "" {
-		m.errorMsg = "All fields are required"
+		m.errorMsg = "Extension number, name, and password are required"
 		return
 	}
+	
+	// Parse and validate all extension options
+	maxContacts, qualifyFreq, codecs, context, transport, directMedia := parseExtensionInputValues(m.inputValues)
+	
+	// Convert codecs to JSON format for database storage
+	codecsJSON := codecsToJSON(codecs)
 
-	// Insert into database with default configuration values
-	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, created_at, updated_at)
-			  VALUES (?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`
+	// Insert into database with all PJSIP configuration values
+	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, codecs, direct_media, qualify_frequency, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, NOW(), NOW())`
 
-	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword],
-		DefaultExtensionContext, DefaultExtensionTransport, DefaultMaxContacts)
+	_, err := m.db.Exec(query, 
+		m.inputValues[extFieldNumber], 
+		m.inputValues[extFieldName], 
+		m.inputValues[extFieldPassword],
+		context, 
+		transport, 
+		maxContacts,
+		codecsJSON,
+		directMedia,
+		qualifyFreq)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
 		return
@@ -1423,13 +1670,21 @@ func (m *model) createExtension() {
 
 	// Create extension object for config generation
 	ext := Extension{
-		ExtensionNumber: m.inputValues[extFieldNumber],
-		Name:            m.inputValues[extFieldName],
-		Secret:          m.inputValues[extFieldPassword],
-		Context:         DefaultExtensionContext,
-		Transport:       DefaultExtensionTransport,
-		Enabled:         true,
-		MaxContacts:     DefaultMaxContacts,
+		ExtensionNumber:  m.inputValues[extFieldNumber],
+		Name:             m.inputValues[extFieldName],
+		Secret:           m.inputValues[extFieldPassword],
+		Context:          context,
+		Transport:        transport,
+		Enabled:          true,
+		MaxContacts:      maxContacts,
+		Codecs:           codecs,
+		DirectMedia:      directMedia,
+		QualifyFrequency: qualifyFreq,
+	}
+
+	// Ensure transport configuration exists before writing extension config
+	if err := m.configManager.EnsureTransportConfig(); err != nil {
+		m.errorMsg = fmt.Sprintf("Warning: Failed to ensure transport config: %v", err)
 	}
 
 	// Generate and write PJSIP configuration
@@ -1490,7 +1745,7 @@ func (m *model) createTrunk() {
 	m.currentScreen = trunksScreen
 }
 
-// editExtension updates an existing extension
+// editExtension updates an existing extension with advanced PJSIP options
 func (m *model) editExtension() {
 	if m.selectedExtensionIdx >= len(m.extensions) {
 		m.errorMsg = "No extension selected"
@@ -1507,16 +1762,40 @@ func (m *model) editExtension() {
 	oldNumber := ext.ExtensionNumber
 	newNumber := m.inputValues[extFieldNumber]
 	
-	// Build update query - only update password if provided
+	// Parse and validate all extension options using helper function
+	maxContacts, qualifyFreq, codecs, context, transport, directMedia := parseExtensionInputValues(m.inputValues)
+	
+	// Use existing values if new ones are empty (for edit mode)
+	if m.inputValues[extFieldCodecs] == "" && ext.Codecs != "" {
+		codecs = ext.Codecs
+	}
+	if m.inputValues[extFieldContext] == "" && ext.Context != "" {
+		context = ext.Context
+	}
+	if m.inputValues[extFieldTransport] == "" && ext.Transport != "" {
+		transport = ext.Transport
+	}
+	if m.inputValues[extFieldDirectMedia] == "" && ext.DirectMedia != "" {
+		directMedia = ext.DirectMedia
+	}
+	
+	// Convert codecs to JSON format for database storage
+	codecsJSON := codecsToJSON(codecs)
+	
+	// Build update query with all PJSIP options
 	var query string
 	var args []interface{}
 	
 	if m.inputValues[extFieldPassword] != "" {
-		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, updated_at = NOW() WHERE id = ?`
-		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword], ext.ID}
+		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, context = ?, transport = ?, 
+		         codecs = ?, direct_media = ?, max_contacts = ?, qualify_frequency = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword],
+			context, transport, codecsJSON, directMedia, maxContacts, qualifyFreq, ext.ID}
 	} else {
-		query = `UPDATE extensions SET extension_number = ?, name = ?, updated_at = NOW() WHERE id = ?`
-		args = []interface{}{newNumber, m.inputValues[extFieldName], ext.ID}
+		query = `UPDATE extensions SET extension_number = ?, name = ?, context = ?, transport = ?, 
+		         codecs = ?, direct_media = ?, max_contacts = ?, qualify_frequency = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName],
+			context, transport, codecsJSON, directMedia, maxContacts, qualifyFreq, ext.ID}
 	}
 	
 	_, err := m.db.Exec(query, args...)
@@ -1530,9 +1809,15 @@ func (m *model) editExtension() {
 		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
 	}
 	
-	// Update extension object
+	// Update extension object with all new values
 	ext.ExtensionNumber = newNumber
 	ext.Name = m.inputValues[extFieldName]
+	ext.Context = context
+	ext.Transport = transport
+	ext.Codecs = codecs
+	ext.DirectMedia = directMedia
+	ext.MaxContacts = maxContacts
+	ext.QualifyFrequency = qualifyFreq
 	if m.inputValues[extFieldPassword] != "" {
 		ext.Secret = m.inputValues[extFieldPassword]
 	}
@@ -1672,6 +1957,104 @@ func (m model) renderDeleteExtension() string {
 	
 	content += helpStyle.Render("Press 'y' to confirm, ESC to cancel")
 
+	return menuStyle.Render(content)
+}
+
+// renderExtensionInfo displays detailed info and diagnostics for selected extension
+func (m model) renderExtensionInfo() string {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		return "Error: No extension selected"
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	content := titleStyle.Render(fmt.Sprintf("📞 Extension Info & Diagnostics: %s", ext.ExtensionNumber)) + "\n\n"
+	
+	// Extension details
+	content += infoStyle.Render("📋 Extension Details:") + "\n"
+	content += fmt.Sprintf("  • Number: %s\n", successStyle.Render(ext.ExtensionNumber))
+	content += fmt.Sprintf("  • Name: %s\n", ext.Name)
+	content += fmt.Sprintf("  • Status: %s\n", func() string {
+		if ext.Enabled {
+			return successStyle.Render("✅ Enabled")
+		}
+		return errorStyle.Render("❌ Disabled")
+	}())
+	content += "\n"
+	
+	// Real-time Asterisk status
+	content += infoStyle.Render("🔍 Real-time Registration Status:") + "\n"
+	
+	// Get endpoint status from Asterisk
+	endpointOutput, err := m.asteriskManager.ExecuteCLICommand(fmt.Sprintf("pjsip show endpoint %s", ext.ExtensionNumber))
+	if err != nil {
+		content += errorStyle.Render(fmt.Sprintf("  ❌ Error querying Asterisk: %v\n", err))
+	} else if strings.Contains(endpointOutput, "Unable to find") || strings.Contains(endpointOutput, "No such") {
+		content += errorStyle.Render("  ❌ Endpoint not found in Asterisk\n")
+		content += "  💡 Tip: Try reloading Asterisk configuration\n"
+	} else {
+		// Parse status
+		if strings.Contains(endpointOutput, "Unavailable") {
+			content += errorStyle.Render("  ⚫ Status: Offline/Not Registered\n")
+		} else if strings.Contains(endpointOutput, "Contact:") {
+			content += successStyle.Render("  🟢 Status: Registered\n")
+			// Extract contact info
+			lines := strings.Split(endpointOutput, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.Contains(line, "Contact:") || strings.Contains(line, "Status:") {
+					content += fmt.Sprintf("  %s\n", line)
+				}
+			}
+		} else {
+			content += "  ⚠️  Status: Unknown\n"
+		}
+	}
+	content += "\n"
+	
+	// SIP Client Setup Guide
+	content += infoStyle.Render("📱 SIP Client Setup Guide:") + "\n"
+	content += "  Configure your SIP phone/softphone with these settings:\n\n"
+	content += successStyle.Render("  Required Configuration:\n")
+	content += fmt.Sprintf("    • Extension/Username: %s\n", ext.ExtensionNumber)
+	content += fmt.Sprintf("    • Password: %s\n", "(your configured secret)")
+	content += fmt.Sprintf("    • SIP Server: %s\n", "(your PBX server IP or hostname)")
+	content += "    • Port: 5060 (default)\n"
+	content += "    • Transport: UDP (default)\n\n"
+	
+	content += infoStyle.Render("  Popular SIP Clients:\n")
+	content += "    • MicroSIP (Windows): https://www.microsip.org/\n"
+	content += "    • Linphone (Cross-platform): https://www.linphone.org/\n"
+	content += "    • GrandStream phones: Enterprise hardware phones\n"
+	content += "    • Yealink phones: Enterprise hardware phones\n\n"
+	
+	// Test call instructions
+	content += infoStyle.Render("🧪 Testing Instructions:") + "\n"
+	content += "  1. Register your SIP client with the above credentials\n"
+	content += "  2. Check registration status (should show 'Registered')\n"
+	content += "  3. Place a test call to another extension\n"
+	content += "  4. Verify two-way audio works correctly\n\n"
+	
+	// Troubleshooting tips
+	content += infoStyle.Render("🔧 Troubleshooting:") + "\n"
+	content += "  If registration fails:\n"
+	content += "    • Verify credentials match database\n"
+	content += "    • Check network connectivity to PBX\n"
+	content += "    • Ensure port 5060 is not blocked by firewall\n"
+	content += "    • Check Asterisk logs: /var/log/asterisk/full\n"
+	content += "    • Enable SIP debug: pjsip set logger on\n\n"
+	
+	if !ext.Enabled {
+		content += errorStyle.Render("  ⚠️  IMPORTANT: Extension is disabled!\n")
+		content += "  Enable it first before attempting registration.\n\n"
+	}
+	
+	// Quick actions
+	content += infoStyle.Render("⚡ Quick Actions:") + "\n"
+	content += "  • Press 'r' to reload Asterisk PJSIP\n"
+	content += "  • Press 't' to run SIP test suite\n"
+	content += "  • Press 's' to enable SIP debugging\n"
+	content += "  • Press ESC to go back\n"
+	
 	return menuStyle.Render(content)
 }
 
@@ -1831,7 +2214,15 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP endpoints retrieved"
 		}
-	case 8: // Show Active Channels
+	case 8: // Show PJSIP Transports
+		output, err := m.asteriskManager.ShowTransports()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to show transports: %v", err)
+		} else {
+			m.asteriskOutput = output
+			m.successMsg = "PJSIP transports retrieved"
+		}
+	case 9: // Show Active Channels
 		output, err := m.asteriskManager.ShowChannels()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show channels: %v", err)
@@ -1839,7 +2230,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Active channels retrieved"
 		}
-	case 9: // Show Registrations
+	case 10: // Show Registrations
 		output, err := m.asteriskManager.ShowPeers()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show registrations: %v", err)
@@ -1847,7 +2238,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 10: // Back to Main Menu
+	case 11: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
 	}

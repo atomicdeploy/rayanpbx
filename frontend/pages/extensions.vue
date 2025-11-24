@@ -123,11 +123,10 @@
                       <span v-else class="inline-flex rounded-full h-2 w-2 bg-gray-400"></span>
                       
                       <button
-                        @click="ext.registered ? null : showOfflineHelp(ext)"
-                        :class="[
-                          statusClass(ext.status),
-                          !ext.registered ? 'cursor-pointer hover:underline' : ''
-                        ]"
+                        @click="showOfflineHelp(ext)"
+                        class="cursor-pointer hover:underline"
+                        :class="statusClass(ext.status)"
+                        :title="ext.registered ? 'Click for diagnostics and setup guide' : 'Click for setup and troubleshooting'"
                       >
                         {{ ext.registered ? '🟢 Registered' : '⚫ Offline' }}
                       </button>
@@ -162,44 +161,138 @@
     <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="showModal = false">
       <div class="flex items-center justify-center min-h-screen px-4">
         <div class="fixed inset-0 bg-black opacity-50"></div>
-        <div class="relative card max-w-2xl w-full">
+        <div class="relative card max-w-3xl w-full max-h-[90vh] overflow-y-auto">
           <h2 class="text-2xl font-bold mb-6">
             {{ editMode ? $t('extensions.edit') : $t('extensions.add') }}
           </h2>
 
           <form @submit.prevent="saveExtension" class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="label">{{ $t('extensions.number') }}</label>
-                <input v-model="form.extension_number" type="text" class="input" required :disabled="editMode" />
+            <!-- Basic Information -->
+            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-4">
+              <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">📱 Basic Information</h3>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="label">{{ $t('extensions.number') }}</label>
+                  <input v-model="form.extension_number" type="text" class="input" required :disabled="editMode" placeholder="e.g., 101" />
+                </div>
+                <div>
+                  <label class="label">{{ $t('extensions.name') }}</label>
+                  <input v-model="form.name" type="text" class="input" required placeholder="e.g., John Doe" />
+                </div>
               </div>
-              <div>
-                <label class="label">{{ $t('extensions.name') }}</label>
-                <input v-model="form.name" type="text" class="input" required />
+
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="label">{{ $t('extensions.email') }}</label>
+                  <input v-model="form.email" type="email" class="input" placeholder="john@example.com" />
+                </div>
+                <div>
+                  <label class="label">{{ $t('extensions.password') }}</label>
+                  <input v-model="form.secret" type="password" class="input" :required="!editMode" placeholder="Min 8 characters" />
+                </div>
+              </div>
+
+              <div class="flex items-center space-x-4">
+                <label class="flex items-center space-x-2">
+                  <input v-model="form.enabled" type="checkbox" class="rounded" />
+                  <span class="text-sm">{{ $t('extensions.enabled') }}</span>
+                </label>
+                <label class="flex items-center space-x-2">
+                  <input v-model="form.voicemail_enabled" type="checkbox" class="rounded" />
+                  <span class="text-sm">Enable Voicemail</span>
+                </label>
               </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="label">{{ $t('extensions.email') }}</label>
-                <input v-model="form.email" type="email" class="input" />
+            <!-- Advanced PJSIP Configuration -->
+            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 space-y-4">
+              <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-blue-700 dark:text-blue-300">⚙️ Advanced PJSIP Configuration</h3>
+                <button type="button" @click="showAdvanced = !showAdvanced" class="text-blue-600 hover:text-blue-800 text-sm">
+                  {{ showAdvanced ? 'Hide Advanced' : 'Show Advanced' }}
+                </button>
               </div>
-              <div>
-                <label class="label">{{ $t('extensions.password') }}</label>
-                <input v-model="form.secret" type="password" class="input" :required="!editMode" />
+              
+              <div v-show="showAdvanced" class="space-y-4">
+                <!-- Codec Selection -->
+                <div>
+                  <label class="label flex items-center">
+                    🎵 Audio Codecs
+                    <span class="ml-2 text-xs text-gray-500">(Higher = better quality, more bandwidth)</span>
+                  </label>
+                  <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mt-2">
+                    <label v-for="codec in availableCodecs" :key="codec.id" 
+                           class="flex items-center space-x-2 p-2 border rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800"
+                           :class="{ 'bg-blue-100 dark:bg-blue-800 border-blue-500': form.codecs?.includes(codec.id) }">
+                      <input type="checkbox" :value="codec.id" v-model="form.codecs" class="rounded" />
+                      <div>
+                        <span class="text-sm font-medium">{{ codec.name }}</span>
+                        <span v-if="codec.hd" class="ml-1 px-1 py-0.5 text-xs bg-green-500 text-white rounded">HD</span>
+                        <div class="text-xs text-gray-500">{{ codec.desc }}</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="label">📍 Context</label>
+                    <select v-model="form.context" class="input">
+                      <option value="from-internal">from-internal (Recommended)</option>
+                      <option value="internal">internal</option>
+                      <option value="default">default</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Dialplan context for calls from this extension</p>
+                  </div>
+                  <div>
+                    <label class="label">🔌 Transport</label>
+                    <select v-model="form.transport" class="input">
+                      <option value="transport-udp">UDP (Recommended)</option>
+                      <option value="transport-tcp">TCP</option>
+                      <option value="transport-tls">TLS (Secure)</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">SIP signaling transport protocol</p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4">
+                  <div>
+                    <label class="label">🔄 Direct Media</label>
+                    <select v-model="form.direct_media" class="input">
+                      <option value="no">No (NAT-safe, recommended)</option>
+                      <option value="yes">Yes (LAN only)</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Allow RTP to flow directly between endpoints</p>
+                  </div>
+                  <div>
+                    <label class="label">📞 Max Contacts</label>
+                    <input v-model.number="form.max_contacts" type="number" min="1" max="10" class="input" />
+                    <p class="text-xs text-gray-500 mt-1">Simultaneous registrations (1-10)</p>
+                  </div>
+                  <div>
+                    <label class="label">⏱️ Qualify Frequency</label>
+                    <input v-model.number="form.qualify_frequency" type="number" min="0" max="3600" class="input" />
+                    <p class="text-xs text-gray-500 mt-1">Keep-alive interval in seconds (0=disabled)</p>
+                  </div>
+                </div>
+
+                <!-- Info Box -->
+                <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded p-3 text-sm">
+                  <p class="font-semibold text-yellow-800 dark:text-yellow-300">💡 Configuration Tips:</p>
+                  <ul class="list-disc list-inside text-yellow-700 dark:text-yellow-400 mt-1 space-y-1">
+                    <li><strong>G.722</strong> provides HD audio (16kHz) - great for softphones</li>
+                    <li><strong>Direct Media = No</strong> is safer for NAT/firewall setups</li>
+                    <li><strong>Qualify Frequency = 60</strong> helps detect offline devices</li>
+                    <li>Use <strong>remove_existing=yes</strong> to avoid stale registrations (applied automatically)</li>
+                  </ul>
+                </div>
               </div>
             </div>
 
-            <div>
-              <label class="flex items-center space-x-2">
-                <input v-model="form.enabled" type="checkbox" class="rounded" />
-                <span class="text-sm">{{ $t('extensions.enabled') }}</span>
-              </label>
-            </div>
-
+            <!-- Notes -->
             <div>
               <label class="label">{{ $t('extensions.notes') }}</label>
-              <textarea v-model="form.notes" class="input" rows="3"></textarea>
+              <textarea v-model="form.notes" class="input" rows="2" placeholder="Optional notes about this extension"></textarea>
             </div>
 
             <div class="flex justify-end space-x-4">
@@ -215,69 +308,141 @@
       </div>
     </div>
 
-    <!-- Offline Help Modal -->
-    <div v-if="offlineHelpModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="offlineHelpModal = false">
+    <!-- Offline Help Modal / Diagnostics Modal -->
+    <div v-if="offlineHelpModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="offlineHelpModal = false" role="dialog" aria-modal="true" aria-labelledby="diagnostics-modal-title">
       <div class="flex items-center justify-center min-h-screen px-4">
-        <div class="fixed inset-0 bg-black opacity-50"></div>
-        <div class="relative card max-w-2xl w-full">
+        <div class="fixed inset-0 bg-black opacity-50" aria-hidden="true"></div>
+        <div class="relative card max-w-4xl w-full max-h-[90vh] overflow-y-auto" role="document">
           <div class="flex justify-between items-start mb-4">
-            <h2 class="text-2xl font-bold text-red-600">
-              {{ $t('extensions.offlineTitle', { number: selectedExtension?.extension_number }) }}
+            <h2 id="diagnostics-modal-title" class="text-2xl font-bold" :class="selectedExtension?.registered ? 'text-green-600' : 'text-red-600'">
+              {{ selectedExtension?.registered ? '✓' : '⚠️' }} Extension {{ selectedExtension?.extension_number }} 
+              {{ selectedExtension?.registered ? 'Diagnostics' : 'Setup & Troubleshooting' }}
             </h2>
-            <button @click="offlineHelpModal = false" class="text-gray-500 hover:text-gray-700">
+            <button @click="offlineHelpModal = false" class="text-gray-500 hover:text-gray-700" aria-label="Close diagnostics modal">
               ✕
             </button>
           </div>
 
           <div class="space-y-4 text-gray-700 dark:text-gray-300">
-            <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
-              <h3 class="font-semibold mb-2">⚠️ Troubleshooting Steps:</h3>
+            <!-- Registration Status -->
+            <div v-if="diagnosticsData" class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-2 flex items-center">
+                <span v-if="diagnosticsData.registration_status?.registered" class="text-green-600">🟢 Registered</span>
+                <span v-else class="text-red-600">⚫ Offline</span>
+                <span class="ml-2">- Real-time Status</span>
+              </h3>
+              <div v-if="diagnosticsData.registration_status?.registered && diagnosticsData.registration_status?.details" class="text-sm space-y-1">
+                <p v-if="diagnosticsData.registration_status.details.contacts?.[0]">
+                  <strong>Contact:</strong> {{ diagnosticsData.registration_status.details.contacts[0].uri }}
+                </p>
+                <p v-if="diagnosticsData.registration_status.details.contacts?.[0]?.expires">
+                  <strong>Expires:</strong> {{ diagnosticsData.registration_status.details.contacts[0].expires }} seconds
+                </p>
+              </div>
+            </div>
+
+            <!-- SIP Client Setup Guide -->
+            <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-3">📱 SIP Client Setup Guide</h3>
+              <div v-if="diagnosticsData?.setup_guide" class="space-y-2 text-sm">
+                <p class="font-medium">Configure your SIP phone/softphone with these credentials:</p>
+                <div class="bg-white dark:bg-gray-800 p-3 rounded border">
+                  <table class="w-full">
+                    <tr><td class="font-semibold pr-4">Extension/Username:</td><td>{{ diagnosticsData.setup_guide.extension }}</td></tr>
+                    <tr><td class="font-semibold pr-4">Password:</td><td>(your configured secret)</td></tr>
+                    <tr><td class="font-semibold pr-4">SIP Server:</td><td>{{ diagnosticsData.setup_guide.server }}</td></tr>
+                    <tr><td class="font-semibold pr-4">Port:</td><td>{{ diagnosticsData.setup_guide.port }}</td></tr>
+                    <tr><td class="font-semibold pr-4">Transport:</td><td>{{ diagnosticsData.setup_guide.transport }}</td></tr>
+                  </table>
+                </div>
+              </div>
+              
+              <div v-if="diagnosticsData?.sip_clients" class="mt-3">
+                <p class="font-medium mb-2">Popular SIP Clients:</p>
+                <ul class="text-sm space-y-1">
+                  <li v-for="client in diagnosticsData.sip_clients.slice(0, 5)" :key="client.name">
+                    <strong>{{ client.name }}</strong> ({{ client.platform }}) - {{ client.description }}
+                    <a :href="client.url" target="_blank" class="text-blue-600 hover:underline ml-1">↗</a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Test Instructions -->
+            <div v-if="diagnosticsData?.test_instructions" class="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-3">🧪 Testing & Validation Steps</h3>
               <ol class="list-decimal list-inside space-y-2 text-sm">
-                <li>Check if the SIP device is powered on and connected to the network</li>
-                <li>Verify network connectivity between the device and PBX server</li>
-                <li>Confirm the extension credentials are correctly configured on the device:
-                  <ul class="list-disc list-inside ml-6 mt-1">
-                    <li>Extension Number: <strong>{{ selectedExtension?.extension_number }}</strong></li>
-                    <li>Server: Check your server IP/hostname</li>
-                    <li>Password: Verify the secret matches</li>
-                  </ul>
+                <li v-for="instruction in diagnosticsData.test_instructions" :key="instruction.step">
+                  <strong>{{ instruction.action }}:</strong> {{ instruction.description }}
                 </li>
-                <li>Check if the extension is enabled: 
-                  <span v-if="selectedExtension?.enabled" class="text-green-600 font-semibold">✓ Enabled</span>
-                  <span v-else class="text-red-600 font-semibold">✗ Disabled - Enable it to allow registration</span>
-                </li>
-                <li>Review firewall rules (ports 5060 UDP for SIP, 10000-20000 UDP for RTP)</li>
-                <li>Check Asterisk logs for registration errors using the Console page</li>
               </ol>
             </div>
 
+            <!-- Troubleshooting -->
+            <div v-if="diagnosticsData?.troubleshooting?.length > 0" class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-2">🔧 Troubleshooting</h3>
+              <ul class="space-y-2 text-sm">
+                <li v-for="(tip, index) in diagnosticsData.troubleshooting" :key="index" 
+                    :class="{
+                      'text-red-700 dark:text-red-400': tip.severity === 'error',
+                      'text-yellow-700 dark:text-yellow-400': tip.severity === 'warning',
+                      'text-blue-700 dark:text-blue-400': tip.severity === 'info'
+                    }">
+                  <strong>{{ tip.message }}:</strong> {{ tip.solution }}
+                </li>
+              </ul>
+            </div>
+
+            <!-- Status Indicators Guide -->
+            <div class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 class="font-semibold mb-2">📊 Status Indicators Guide</h3>
+              <ul class="text-sm space-y-1">
+                <li><span class="text-green-600 font-bold">🟢 Registered</span> - Extension is online and ready to make/receive calls</li>
+                <li><span class="text-red-600 font-bold">⚫ Offline</span> - Extension is not registered, check device and credentials</li>
+                <li><span class="font-bold">📍 IP:Port</span> - Shows the network location of the registered device</li>
+              </ul>
+            </div>
+
+            <!-- Quick Actions -->
             <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-              <h3 class="font-semibold mb-2">💡 Quick Actions:</h3>
-              <div class="space-y-2">
+              <h3 class="font-semibold mb-3">⚡ Quick Actions</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <button 
                   @click="editExtension(selectedExtension)"
-                  class="btn btn-primary w-full"
+                  class="btn btn-primary"
                 >
-                  Edit Extension Configuration
+                  📝 Edit Extension
                 </button>
                 <button 
                   v-if="!selectedExtension?.enabled"
                   @click="enableExtension(selectedExtension)"
-                  class="btn bg-green-600 hover:bg-green-700 text-white w-full"
+                  class="btn bg-green-600 hover:bg-green-700 text-white"
                 >
-                  Enable This Extension
+                  ✅ Enable Extension
+                </button>
+                <button 
+                  @click="refreshDiagnostics"
+                  :disabled="loadingDiagnostics"
+                  class="btn btn-secondary"
+                >
+                  {{ loadingDiagnostics ? '⏳ Loading...' : '🔄 Refresh Status' }}
                 </button>
                 <NuxtLink 
                   to="/console"
-                  class="btn btn-secondary w-full block text-center"
+                  class="btn btn-secondary block text-center"
                 >
-                  View Asterisk Console Logs
+                  🖥️ View Console
                 </NuxtLink>
               </div>
             </div>
 
-            <div class="text-sm text-gray-600 dark:text-gray-400">
-              <p><strong>Note:</strong> After making changes, the device may need to be restarted or re-registered manually.</p>
+            <!-- API Reference -->
+            <div v-if="diagnosticsData?.api_endpoints" class="text-xs text-gray-600 dark:text-gray-400">
+              <p><strong>API Endpoints:</strong></p>
+              <ul class="list-disc list-inside">
+                <li>Verify: <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">{{ diagnosticsData.api_endpoints.verify }}</code></li>
+                <li>Endpoints: <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">{{ diagnosticsData.api_endpoints.endpoints }}</code></li>
+              </ul>
             </div>
           </div>
 
@@ -303,6 +468,7 @@ const loading = ref(false)
 const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
+const showAdvanced = ref(false)
 
 // Sorting and filtering state
 const searchQuery = ref('')
@@ -313,15 +479,35 @@ const sortDirection = ref<'asc' | 'desc'>('asc')
 // Offline help modal
 const offlineHelpModal = ref(false)
 const selectedExtension = ref<any>(null)
+const diagnosticsData = ref<any>(null)
+const loadingDiagnostics = ref(false)
+
+// Available audio codecs with descriptions
+const availableCodecs = [
+  { id: 'ulaw', name: 'μ-law', desc: '8kHz (US)', hd: false },
+  { id: 'alaw', name: 'A-law', desc: '8kHz (EU)', hd: false },
+  { id: 'g722', name: 'G.722', desc: '16kHz', hd: true },
+  { id: 'g729', name: 'G.729', desc: '8kHz (low BW)', hd: false },
+  { id: 'opus', name: 'Opus', desc: '48kHz', hd: true },
+  { id: 'gsm', name: 'GSM', desc: '8kHz', hd: false },
+]
 
 const form = ref({
-  id: null,
+  id: null as number | null,
   extension_number: '',
   name: '',
   email: '',
   secret: '',
   enabled: true,
+  voicemail_enabled: false,
   notes: '',
+  // Advanced PJSIP options
+  codecs: ['ulaw', 'alaw', 'g722'] as string[],
+  context: 'from-internal',
+  transport: 'transport-udp',
+  direct_media: 'no',
+  max_contacts: 1,
+  qualify_frequency: 60,
 })
 
 // Computed property for filtered and sorted extensions
@@ -396,9 +582,33 @@ const sortBy = (field: string) => {
   }
 }
 
-const showOfflineHelp = (ext: any) => {
+const showOfflineHelp = async (ext: any) => {
   selectedExtension.value = ext
   offlineHelpModal.value = true
+  
+  // Fetch diagnostics data
+  await fetchDiagnostics(ext.id)
+}
+
+const fetchDiagnostics = async (extensionId: number) => {
+  loadingDiagnostics.value = true
+  try {
+    const response = await api.apiFetch(`/extensions/${extensionId}/diagnostics`)
+    diagnosticsData.value = response
+  } catch (error) {
+    console.error('Failed to fetch diagnostics:', error)
+    diagnosticsData.value = null
+  } finally {
+    loadingDiagnostics.value = false
+  }
+}
+
+const refreshDiagnostics = async () => {
+  if (selectedExtension.value) {
+    await fetchDiagnostics(selectedExtension.value.id)
+    // Also refresh the extension list to get updated status
+    await fetchExtensions()
+  }
 }
 
 const enableExtension = async (ext: any) => {
@@ -481,9 +691,18 @@ const editExtension = (ext: any) => {
     email: ext.email || '',
     secret: '',
     enabled: ext.enabled,
+    voicemail_enabled: ext.voicemail_enabled || false,
     notes: ext.notes || '',
+    // Load advanced PJSIP options
+    codecs: ext.codecs || ['ulaw', 'alaw', 'g722'],
+    context: ext.context || 'from-internal',
+    transport: ext.transport || 'transport-udp',
+    direct_media: ext.direct_media || 'no',
+    max_contacts: ext.max_contacts || 1,
+    qualify_frequency: ext.qualify_frequency || 60,
   }
   editMode.value = true
+  showAdvanced.value = true // Show advanced options when editing
   showModal.value = true
   offlineHelpModal.value = false
 }
@@ -524,9 +743,18 @@ const resetForm = () => {
     email: '',
     secret: '',
     enabled: true,
+    voicemail_enabled: false,
     notes: '',
+    // Reset advanced PJSIP options to defaults
+    codecs: ['ulaw', 'alaw', 'g722'],
+    context: 'from-internal',
+    transport: 'transport-udp',
+    direct_media: 'no',
+    max_contacts: 1,
+    qualify_frequency: 60,
   }
   editMode.value = false
+  showAdvanced.value = false
 }
 
 onMounted(async () => {

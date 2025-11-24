@@ -19,6 +19,8 @@ class Extension extends Model
         'transport',
         'codecs',
         'max_contacts',
+        'direct_media',
+        'qualify_frequency',
         'caller_id',
         'voicemail_enabled',
         'notes',
@@ -28,6 +30,7 @@ class Extension extends Model
         'enabled' => 'boolean',
         'voicemail_enabled' => 'boolean',
         'codecs' => 'array',
+        'qualify_frequency' => 'integer',
     ];
 
     protected $hidden = [

@@ -26,15 +26,16 @@ func init() {
 
 // Config holds the application configuration
 type Config struct {
-	DBHost     string
-	DBPort     string
-	DBDatabase string
-	DBUsername string
-	DBPassword string
-	APIBaseURL string
-	JWTSecret  string
-	AppEnv     string
-	AppDebug   bool
+	DBHost        string
+	DBPort        string
+	DBDatabase    string
+	DBUsername    string
+	DBPassword    string
+	APIBaseURL    string
+	JWTSecret     string
+	AppEnv        string
+	AppDebug      bool
+	NetworkSubnet string
 }
 
 // LoadConfig loads configuration from multiple .env file paths in priority order.
@@ -93,15 +94,16 @@ func LoadConfig() (*Config, error) {
 	}
 
 	config := &Config{
-		DBHost:     getEnv("DB_HOST", "127.0.0.1"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBDatabase: getEnv("DB_DATABASE", "rayanpbx"),
-		DBUsername: getEnv("DB_USERNAME", "rayanpbx"),
-		DBPassword: getEnv("DB_PASSWORD", ""),
-		APIBaseURL: getEnv("API_BASE_URL", "http://localhost:8000"),
-		JWTSecret:  getEnv("JWT_SECRET", ""),
-		AppEnv:     getEnv("APP_ENV", "production"),
-		AppDebug:   getEnv("APP_DEBUG", "false") == "true",
+		DBHost:        getEnv("DB_HOST", "127.0.0.1"),
+		DBPort:        getEnv("DB_PORT", "3306"),
+		DBDatabase:    getEnv("DB_DATABASE", "rayanpbx"),
+		DBUsername:    getEnv("DB_USERNAME", "rayanpbx"),
+		DBPassword:    getEnv("DB_PASSWORD", ""),
+		APIBaseURL:    getEnv("API_BASE_URL", "http://localhost:8000"),
+		JWTSecret:     getEnv("JWT_SECRET", ""),
+		AppEnv:        getEnv("APP_ENV", "production"),
+		AppDebug:      getEnv("APP_DEBUG", "false") == "true",
+		NetworkSubnet: getEnv("NETWORK_SUBNET", "192.168.1.0/24"),
 	}
 
 	return config, nil
@@ -196,19 +198,22 @@ func PrintBanner() {
 
 // Extension represents a SIP extension
 type Extension struct {
-	ID              int
-	ExtensionNumber string
-	Name            string
-	Secret          string
-	Email           string
-	Enabled         bool
-	Context         string
-	Transport       string
-	CallerID        string
-	MaxContacts     int
+	ID               int
+	ExtensionNumber  string
+	Name             string
+	Secret           string
+	Email            string
+	Enabled          bool
+	Context          string
+	Transport        string
+	CallerID         string
+	MaxContacts      int
 	VoicemailEnabled bool
-	CreatedAt       string
-	UpdatedAt       string
+	Codecs           string // Comma-separated list of codecs (e.g., "ulaw,alaw,g722")
+	DirectMedia      string // "yes" or "no"
+	QualifyFrequency int    // Seconds between qualify checks
+	CreatedAt        string
+	UpdatedAt        string
 }
 
 // Trunk represents a SIP trunk
@@ -221,11 +226,13 @@ type Trunk struct {
 	Priority int
 }
 
-// GetExtensions fetches extensions from database
+// GetExtensions fetches extensions from database including advanced PJSIP options
+// Note: codecs are stored as JSON in the database but handled as comma-separated string in TUI
 func GetExtensions(db *sql.DB) ([]Extension, error) {
 	query := `SELECT id, extension_number, name, COALESCE(secret, ''), COALESCE(email, ''), 
 	          enabled, COALESCE(context, 'from-internal'), COALESCE(transport, 'transport-udp'), 
-	          COALESCE(caller_id, ''), COALESCE(max_contacts, 1), COALESCE(voicemail_enabled, 0)
+	          COALESCE(caller_id, ''), COALESCE(max_contacts, 1), COALESCE(voicemail_enabled, 0),
+	          COALESCE(codecs, '["ulaw","alaw","g722"]'), COALESCE(direct_media, 'no'), COALESCE(qualify_frequency, 60)
 	          FROM extensions ORDER BY extension_number`
 	rows, err := db.Query(query)
 	if err != nil {
@@ -236,14 +243,33 @@ func GetExtensions(db *sql.DB) ([]Extension, error) {
 	var extensions []Extension
 	for rows.Next() {
 		var ext Extension
+		var codecsJSON string
 		if err := rows.Scan(&ext.ID, &ext.ExtensionNumber, &ext.Name, &ext.Secret, &ext.Email,
-			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled); err != nil {
+			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled,
+			&codecsJSON, &ext.DirectMedia, &ext.QualifyFrequency); err != nil {
 			continue
 		}
+		// Convert JSON array to comma-separated string for TUI display
+		ext.Codecs = parseCodecsJSON(codecsJSON)
 		extensions = append(extensions, ext)
 	}
 
 	return extensions, nil
+}
+
+// parseCodecsJSON converts a JSON array of codecs to a comma-separated string
+func parseCodecsJSON(codecsJSON string) string {
+	// If it's already a comma-separated string (old format), return as-is
+	if !strings.HasPrefix(codecsJSON, "[") {
+		return codecsJSON
+	}
+	
+	// Parse JSON array
+	codecsJSON = strings.TrimPrefix(codecsJSON, "[")
+	codecsJSON = strings.TrimSuffix(codecsJSON, "]")
+	codecsJSON = strings.ReplaceAll(codecsJSON, "\"", "")
+	codecsJSON = strings.ReplaceAll(codecsJSON, " ", "")
+	return codecsJSON
 }
 
 // GetTrunks fetches trunks from database

@@ -136,16 +136,119 @@ class GrandStreamController extends Controller
      */
     public function getPhoneStatus(Request $request, $mac)
     {
-        $ip = $request->input('ip');
-        $credentials = $request->input('credentials', []);
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
 
-        $status = $this->provisioningService->getPhoneStatus($ip, $credentials);
+        $status = $this->provisioningService->getPhoneStatus(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
 
         return response()->json([
-            'success' => true,
+            'success' => isset($status['status']) && $status['status'] === 'online',
             'mac' => $mac,
             'status' => $status,
         ]);
+    }
+
+    /**
+     * Reboot phone
+     */
+    public function rebootPhone(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->rebootPhone(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Factory reset phone
+     */
+    public function factoryResetPhone(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->factoryResetPhone(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Get phone configuration
+     */
+    public function getPhoneConfig(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->getPhoneConfig(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Set phone configuration
+     */
+    public function setPhoneConfig(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'config' => 'required|array',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->setPhoneConfig(
+            $request->input('ip'),
+            $request->input('config'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Provision extension to phone via direct HTTP
+     */
+    public function provisionExtensionDirect(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'extension_id' => 'required|integer|exists:extensions,id',
+            'account_number' => 'nullable|integer|min:1|max:6',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $extension = Extension::findOrFail($request->extension_id);
+        
+        $result = $this->provisioningService->provisionExtensionToPhone(
+            $request->input('ip'),
+            $extension->toArray(),
+            $request->input('account_number', 1),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
     }
 
     /**
@@ -214,6 +317,42 @@ class GrandStreamController extends Controller
                 'step_4' => 'Set Firmware Server Path (optional)',
                 'step_5' => 'Click Update to provision',
             ],
+        ]);
+    }
+    
+    /**
+     * Ping a phone to check if it's reachable
+     */
+    public function pingPhone(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+        ]);
+        
+        $online = $this->provisioningService->pingHost($request->ip);
+        
+        return response()->json([
+            'success' => true,
+            'ip' => $request->ip,
+            'online' => $online,
+        ]);
+    }
+    
+    /**
+     * Check reachability of multiple phones
+     */
+    public function checkReachability(Request $request)
+    {
+        $request->validate([
+            'phones' => 'required|array',
+            'phones.*.ip' => 'required|ip',
+        ]);
+        
+        $phones = $this->provisioningService->checkPhoneReachability($request->phones);
+        
+        return response()->json([
+            'success' => true,
+            'phones' => $phones,
         ]);
     }
 }
