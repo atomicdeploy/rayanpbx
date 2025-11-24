@@ -24,7 +24,7 @@ echo ""
 
 # Test 2: Version flag
 echo "Test 2: Testing --version flag..."
-output=$("$INSTALL_SCRIPT" --version 2>&1 | sed 's/\x1b\[[0-9;]*m//g' || true)
+output=$("$INSTALL_SCRIPT" --version 2>&1 | sed 's/\x1b\[[0-9;]*[mGKH]//g' || true)
 if [[ "$output" == *"RayanPBX Installation Script v"* ]]; then
     echo "✅ Version flag working"
 else
@@ -118,8 +118,9 @@ echo "📝 Step Dependencies:"
 echo "   - backend requires: database, php, composer, source, env-config"
 echo "   - frontend requires: nodejs, source, env-config"
 echo "   - tui requires: go, source"
-echo "   - systemd requires: backend, frontend, tui (for service files)"
-echo "   - health-check requires: systemd (for services to check)"
+echo "   - pm2 requires: nodejs, frontend, tui (for PM2 processes)"
+echo "   - systemd requires: backend (for systemd service)"
+echo "   - health-check requires: systemd, pm2 (for services to check)"
 echo ""
 echo "⚠️  Note: When running specific steps, ensure dependencies are met"
 echo "   or have been installed previously."

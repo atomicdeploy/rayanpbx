@@ -122,11 +122,20 @@ initialize_steps() {
     # Remove skipped steps if any
     if [ -n "$SKIP_STEPS" ]; then
         IFS=',' read -ra SKIPPED_STEPS <<< "$SKIP_STEPS"
-        for skip_id in "${SKIPPED_STEPS[@]}"; do
-            STEPS_TO_RUN=("${STEPS_TO_RUN[@]/$skip_id}")
+        local temp_steps=()
+        for step_id in "${STEPS_TO_RUN[@]}"; do
+            local skip_this=false
+            for skip_id in "${SKIPPED_STEPS[@]}"; do
+                if [ "$step_id" == "$skip_id" ]; then
+                    skip_this=true
+                    break
+                fi
+            done
+            if [ "$skip_this" == false ]; then
+                temp_steps+=("$step_id")
+            fi
         done
-        # Remove empty elements
-        STEPS_TO_RUN=("${STEPS_TO_RUN[@]}")
+        STEPS_TO_RUN=("${temp_steps[@]}")
         print_verbose "Skipping steps: ${SKIPPED_STEPS[*]}"
         
         # Warn if critical steps are skipped
@@ -766,7 +775,7 @@ else
 fi
 
 # Check for git updates
-next_step "Checking for Updates" "updates" || exit 0
+next_step "Checking for Updates" "updates" || true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 print_verbose "Script directory: $SCRIPT_DIR"
 
@@ -906,7 +915,7 @@ else
 fi
 
 # Check Ubuntu version
-next_step "System Verification" "system-verification" || exit 0
+next_step "System Verification" "system-verification" || true
 print_verbose "Checking Ubuntu version..."
 print_verbose "Reading OS release information..."
 if [ "$VERBOSE" = true ]; then
@@ -928,7 +937,7 @@ fi
 print_verbose "System verification complete"
 
 # Install nala if not present
-next_step "Package Manager Setup" "package-manager" || exit 0
+next_step "Package Manager Setup" "package-manager" || true
 print_verbose "Checking for nala package manager..."
 if ! command -v nala &> /dev/null; then
     print_progress "Installing nala package manager..."
@@ -963,7 +972,7 @@ else
 fi
 
 # System update
-next_step "System Update" "system-update" || exit 0
+next_step "System Update" "system-update" || true
 print_progress "Updating package lists and upgrading system..."
 
 # Determine which package manager to use
@@ -1015,7 +1024,7 @@ fi
 print_success "System updated"
 
 # Install dependencies
-next_step "Essential Dependencies" "dependencies" || exit 0
+next_step "Essential Dependencies" "dependencies" || true
 PACKAGES=(
     software-properties-common
     curl
@@ -1071,7 +1080,7 @@ for package in "${PACKAGES[@]}"; do
 done
 
 # Install GitHub CLI
-next_step "GitHub CLI Installation" "github-cli" || exit 0
+next_step "GitHub CLI Installation" "github-cli" || true
 print_verbose "Checking for GitHub CLI..."
 if ! check_installed "gh" "GitHub CLI"; then
     print_progress "Installing GitHub CLI..."
@@ -1182,7 +1191,7 @@ EOF
 }
 
 # MySQL/MariaDB Installation
-next_step "Database Setup (MySQL/MariaDB)" "database" || exit 0
+next_step "Database Setup (MySQL/MariaDB)" "database" || true
 print_verbose "Checking for MySQL/MariaDB..."
 if ! command -v mysql &> /dev/null; then
     print_progress "Installing MariaDB..."
@@ -1345,7 +1354,7 @@ else
 fi
 
 # PHP 8.3 Installation
-next_step "PHP 8.3 Installation" "php" || exit 0
+next_step "PHP 8.3 Installation" "php" || true
 print_verbose "Checking for PHP 8.3..."
 if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
     print_progress "Installing PHP 8.3 and extensions..."
@@ -1430,7 +1439,7 @@ else
 fi
 
 # Composer Installation
-next_step "Composer Installation" "composer" || exit 0
+next_step "Composer Installation" "composer" || true
 print_verbose "Checking for Composer..."
 if ! check_installed "composer" "Composer"; then
     print_progress "Installing Composer..."
@@ -1462,7 +1471,7 @@ composer --version | head -n 1
 print_verbose "Composer location: $(which composer)"
 
 # Node.js 24 Installation
-next_step "Node.js 24 Installation" "nodejs" || exit 0
+next_step "Node.js 24 Installation" "nodejs" || true
 print_verbose "Checking for Node.js 24..."
 if ! command -v node &> /dev/null || ! node -v | grep -q "v24"; then
     print_progress "Installing Node.js 24..."
@@ -1541,7 +1550,7 @@ pm2 -v
 print_verbose "PM2 location: $(which pm2)"
 
 # Go 1.23 Installation
-next_step "Go 1.23 Installation" "go" || exit 0
+next_step "Go 1.23 Installation" "go" || true
 print_verbose "Checking for Go..."
 if ! check_installed "go" "Go"; then
     print_progress "Installing Go 1.23..."
@@ -1571,7 +1580,7 @@ print_verbose "Go location: $(which go)"
 print_verbose "GOPATH: $(go env GOPATH 2>/dev/null || echo 'not set')"
 
 # Asterisk 22 Installation
-next_step "Asterisk 22 Installation" "asterisk" || exit 0
+next_step "Asterisk 22 Installation" "asterisk" || true
 SKIP_ASTERISK=""
 
 if command -v asterisk &> /dev/null; then
@@ -1664,7 +1673,7 @@ if [ -z "$SKIP_ASTERISK" ]; then
 fi
 
 # Configure Asterisk AMI (using INI helper)
-next_step "Asterisk AMI Configuration" "asterisk-ami" || exit 0
+next_step "Asterisk AMI Configuration" "asterisk-ami" || true
 print_info "Configuring Asterisk Manager Interface..."
 
 # Source INI helper script
@@ -1702,7 +1711,7 @@ else
 fi
 
 # Clone/Update RayanPBX Repository
-next_step "RayanPBX Source Code" "source" || exit 0
+next_step "RayanPBX Source Code" "source" || true
 cd /opt
 
 if [ -d "rayanpbx" ]; then
@@ -1747,7 +1756,7 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
 fi
 
 # Setup unified .env file
-next_step "Environment Configuration" "env-config" || exit 0
+next_step "Environment Configuration" "env-config" || true
 if [ ! -f ".env" ]; then
     print_progress "Creating unified environment configuration..."
     cp .env.example .env
@@ -1792,7 +1801,7 @@ print_verbose "Backend .env synchronized with root .env"
 print_success "Backend environment configured"
 
 # Backend Setup
-next_step "Backend API Setup" "backend" || exit 0
+next_step "Backend API Setup" "backend" || true
 print_progress "Installing backend dependencies..."
 cd /opt/rayanpbx/backend
 composer install --no-dev --optimize-autoloader 2>&1 | grep -E "(Installing|Generating)" || true
@@ -1875,7 +1884,7 @@ print_success "Ownership and permissions configured"
 print_success "Backend configured successfully"
 
 # Frontend Setup
-next_step "Frontend Web UI Setup" "frontend" || exit 0
+next_step "Frontend Web UI Setup" "frontend" || true
 print_progress "Installing frontend dependencies..."
 cd /opt/rayanpbx/frontend
 npm install 2>&1 | grep -E "(added|up to date)" | tail -1
@@ -1900,7 +1909,7 @@ fi
 print_success "Frontend built successfully"
 
 # TUI Setup
-next_step "TUI (Terminal UI) Build" "tui" || exit 0
+next_step "TUI (Terminal UI) Build" "tui" || true
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
 
@@ -1941,7 +1950,7 @@ else
 fi
 
 # PM2 Ecosystem Configuration
-next_step "PM2 Process Management Setup" "pm2" || exit 0
+next_step "PM2 Process Management Setup" "pm2" || true
 cat > /opt/rayanpbx/ecosystem.config.js << 'EOF'
 module.exports = {
   apps: [
@@ -1974,7 +1983,7 @@ EOF
 print_success "PM2 ecosystem configured"
 
 # Systemd Services
-next_step "Systemd Services Configuration" "systemd" || exit 0
+next_step "Systemd Services Configuration" "systemd" || true
 
 # Backend API service
 cat > /etc/systemd/system/rayanpbx-api.service << 'EOF'
@@ -2026,7 +2035,7 @@ su - www-data -s /bin/bash -c "cd /opt/rayanpbx && pm2 start ecosystem.config.js
 su - www-data -s /bin/bash -c "pm2 save"
 
 # Setup Cron Jobs
-next_step "Cron Jobs Setup" "cron" || exit 0
+next_step "Cron Jobs Setup" "cron" || true
 print_info "Configuring cron jobs..."
 
 # Laravel scheduler
@@ -2035,7 +2044,7 @@ print_info "Configuring cron jobs..."
 print_success "Cron jobs configured"
 
 # Verify services with comprehensive health checks
-next_step "Service Verification & Health Checks" "health-check" || exit 0
+next_step "Service Verification & Health Checks" "health-check" || true
 print_info "Performing comprehensive health checks on all services..."
 echo ""
 
@@ -2117,7 +2126,7 @@ else
 fi
 
 # Final Banner
-next_step "Installation Complete! 🎉" "complete" || exit 0
+next_step "Installation Complete! 🎉" "complete" || true
 
 clear
 print_banner
