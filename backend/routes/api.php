@@ -65,7 +65,11 @@ Route::prefix('grandstream/webhook')->group(function () {
     Route::match(['get', 'post'], '/auto-provision-finish', [GrandStreamWebhookController::class, 'autoProvisionFinish']);
     
     // Generic event handler
-    Route::match(['get', 'post'], '/{event}', [GrandStreamWebhookController::class, 'handleEvent']);
+    Route::match(['get', 'post'], '/{event}', function ($event) {
+        // Convert kebab-case to snake_case
+        $event_snake = str_replace('-', '_', $event);
+        return app(\App\Http\Controllers\Api\GrandStreamWebhookController::class)->handleEvent($event_snake);
+    });
 });
 
 // Get Action URL configuration (public for phone setup)
