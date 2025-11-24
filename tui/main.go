@@ -105,6 +105,9 @@ const (
 	deleteExtensionScreen
 	extensionDetailsScreen
 	systemSettingsScreen
+	configManagementScreen
+	configEditScreen
+	configAddScreen
 )
 
 type model struct {
@@ -172,6 +175,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📊 System Status",
 			"📋 Logs Viewer",
 			"📖 CLI Usage Guide",
+			"🔧 Configuration Management",
 			"⚙️  System Settings",
 			"❌ Exit",
 		},
@@ -216,6 +220,15 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle config management screens
+		if m.currentScreen == configManagementScreen {
+			return updateConfigManagement(msg, m)
+		} else if m.currentScreen == configAddScreen {
+			return updateConfigAdd(msg, m)
+		} else if m.currentScreen == configEditScreen {
+			return updateConfigEdit(msg, m)
+		}
+		
 		// Handle input mode for creation forms
 		if m.inputMode {
 			return m.handleInputMode(msg)
@@ -354,9 +367,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
 				case 7:
+					m.currentScreen = configManagementScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+				case 8:
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 8:
+				case 9:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -397,6 +415,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.asteriskOutput = ""
 				} else if m.currentScreen == deleteExtensionScreen {
 					m.currentScreen = extensionsScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == configManagementScreen {
+					m.currentScreen = mainMenu
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == configAddScreen || m.currentScreen == configEditScreen {
+					m.currentScreen = configManagementScreen
+					m.inputMode = false
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
@@ -471,6 +499,12 @@ func (m model) View() string {
 		s += m.renderCreateTrunk()
 	case systemSettingsScreen:
 		s += m.renderSystemSettings()
+	case configManagementScreen:
+		s += viewConfigManagement(m)
+	case configAddScreen:
+		s += viewConfigInput(m, true)
+	case configEditScreen:
+		s += viewConfigInput(m, false)
 	}
 
 	// Footer with emojis
