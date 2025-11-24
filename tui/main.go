@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -101,6 +102,11 @@ const (
 	diagTestTrunkScreen
 	diagTestRoutingScreen
 	diagPortTestScreen
+	sipTestMenuScreen
+	sipTestToolsScreen
+	sipTestRegisterScreen
+	sipTestCallScreen
+	sipTestFullScreen
 	editExtensionScreen
 	deleteExtensionScreen
 	extensionDetailsScreen
@@ -137,6 +143,8 @@ type model struct {
 	diagnosticsManager *DiagnosticsManager
 	diagnosticsMenu    []string
 	diagnosticsOutput  string
+	sipTestMenu        []string
+	sipTestOutput      string
 	
 	// Configuration management
 	configManager *AsteriskConfigManager
@@ -157,7 +165,10 @@ func (m model) isDiagnosticsInputScreen() bool {
 	return m.currentScreen == diagTestExtensionScreen ||
 		m.currentScreen == diagTestTrunkScreen ||
 		m.currentScreen == diagTestRoutingScreen ||
-		m.currentScreen == diagPortTestScreen
+		m.currentScreen == diagPortTestScreen ||
+		m.currentScreen == sipTestRegisterScreen ||
+		m.currentScreen == sipTestCallScreen ||
+		m.currentScreen == sipTestFullScreen
 }
 
 func initialModel(db *sql.DB, config *Config, verbose bool) model {
@@ -208,7 +219,16 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🔗 Test Trunk Connectivity",
 			"🛣️  Test Call Routing",
 			"🌐 Test Port Connectivity",
+			"🧪 SIP Testing Suite",
 			"🔙 Back to Main Menu",
+		},
+		sipTestMenu: []string{
+			"🔧 Check Available Tools",
+			"📦 Install SIP Tool",
+			"📞 Test Registration",
+			"📲 Test Call",
+			"🧪 Run Full Test Suite",
+			"🔙 Back to Diagnostics",
 		},
 	}
 }
@@ -249,6 +269,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor > 0 {
 					m.cursor--
 				}
+			} else if m.currentScreen == sipTestMenuScreen {
+				// Navigate SIP test menu
+				if m.cursor > 0 {
+					m.cursor--
+				}
 			} else if m.currentScreen == asteriskMenuScreen {
 				// Navigate asterisk menu
 				if m.cursor > 0 {
@@ -276,6 +301,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == diagnosticsMenuScreen {
 				// Navigate diagnostics menu
 				if m.cursor < len(m.diagnosticsMenu)-1 {
+					m.cursor++
+				}
+			} else if m.currentScreen == sipTestMenuScreen {
+				// Navigate SIP test menu
+				if m.cursor < len(m.sipTestMenu)-1 {
 					m.cursor++
 				}
 			} else if m.currentScreen == asteriskMenuScreen {
@@ -385,6 +415,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == diagnosticsMenuScreen {
 				// Handle diagnostics menu selection
 				m.handleDiagnosticsMenuSelection()
+			} else if m.currentScreen == sipTestMenuScreen {
+				// Handle SIP test menu selection
+				m.handleSipTestMenuSelection()
 			} else if m.currentScreen == asteriskMenuScreen {
 				// Handle asterisk menu selection
 				m.handleAsteriskMenuSelection()
@@ -407,6 +440,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
+				} else if m.currentScreen == sipTestMenuScreen {
+					m.currentScreen = diagnosticsMenuScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
+					m.sipTestOutput = ""
+				} else if m.currentScreen == sipTestToolsScreen || 
+					m.currentScreen == sipTestRegisterScreen ||
+					m.currentScreen == sipTestCallScreen ||
+					m.currentScreen == sipTestFullScreen {
+					m.currentScreen = sipTestMenuScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else if m.currentScreen == asteriskMenuScreen {
 					m.currentScreen = mainMenu
 					m.cursor = 0
@@ -483,6 +530,16 @@ func (m model) View() string {
 		s += m.renderDiagTestRouting()
 	case diagPortTestScreen:
 		s += m.renderDiagPortTest()
+	case sipTestMenuScreen:
+		s += m.renderSipTestMenu()
+	case sipTestToolsScreen:
+		s += m.renderSipTestTools()
+	case sipTestRegisterScreen:
+		s += m.renderSipTestRegister()
+	case sipTestCallScreen:
+		s += m.renderSipTestCall()
+	case sipTestFullScreen:
+		s += m.renderSipTestFull()
 	case statusScreen:
 		s += m.renderStatus()
 	case logsScreen:
@@ -883,6 +940,159 @@ func (m model) renderDiagPortTest() string {
 	return menuStyle.Render(content)
 }
 
+func (m model) renderSipTestMenu() string {
+	content := infoStyle.Render("🧪 SIP Testing Suite") + "\n\n"
+
+	if m.sipTestOutput != "" {
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+		content += m.sipTestOutput + "\n"
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+	}
+
+	content += "Select a SIP test operation:\n\n"
+
+	for i, item := range m.sipTestMenu {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		} else {
+			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderSipTestTools() string {
+	content := infoStyle.Render("🔧 SIP Testing Tools") + "\n\n"
+
+	if m.sipTestOutput != "" {
+		content += m.sipTestOutput + "\n\n"
+	} else {
+		content += "Checking available SIP testing tools...\n"
+	}
+
+	content += helpStyle.Render("💡 Press ESC to go back")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderSipTestRegister() string {
+	content := infoStyle.Render("📞 Test SIP Registration") + "\n\n"
+
+	if m.sipTestOutput != "" {
+		content += m.sipTestOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			switch field {
+			case "Extension":
+				value = helpStyle.Render("<enter extension number>")
+			case "Password":
+				value = helpStyle.Render("<enter password>")
+			case "Server":
+				value = helpStyle.Render("<server IP (default: 127.0.0.1)>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Test SIP registration for an extension")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderSipTestCall() string {
+	content := infoStyle.Render("📲 Test SIP Call") + "\n\n"
+
+	if m.sipTestOutput != "" {
+		content += m.sipTestOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			switch field {
+			case "From Extension":
+				value = helpStyle.Render("<caller extension>")
+			case "From Password":
+				value = helpStyle.Render("<caller password>")
+			case "To Extension":
+				value = helpStyle.Render("<destination extension>")
+			case "To Password":
+				value = helpStyle.Render("<destination password>")
+			case "Server":
+				value = helpStyle.Render("<server IP (default: 127.0.0.1)>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Test call between two extensions")
+
+	return menuStyle.Render(content)
+}
+
+func (m model) renderSipTestFull() string {
+	content := infoStyle.Render("🧪 Full SIP Test Suite") + "\n\n"
+
+	if m.sipTestOutput != "" {
+		content += m.sipTestOutput + "\n\n"
+	}
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			switch field {
+			case "Extension 1":
+				value = helpStyle.Render("<first extension>")
+			case "Password 1":
+				value = helpStyle.Render("<first password>")
+			case "Extension 2":
+				value = helpStyle.Render("<second extension>")
+			case "Password 2":
+				value = helpStyle.Render("<second password>")
+			case "Server":
+				value = helpStyle.Render("<server IP (default: 127.0.0.1)>")
+			}
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Run comprehensive SIP tests with two extensions")
+
+	return menuStyle.Render(content)
+}
+
+
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
 
@@ -1035,6 +1245,12 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeDiagTestRouting()
 			} else if m.currentScreen == diagPortTestScreen {
 				m.executeDiagPortTest()
+			} else if m.currentScreen == sipTestRegisterScreen {
+				m.executeSipTestRegister()
+			} else if m.currentScreen == sipTestCallScreen {
+				m.executeSipTestCall()
+			} else if m.currentScreen == sipTestFullScreen {
+				m.executeSipTestFull()
 			}
 		}
 
@@ -1430,8 +1646,56 @@ func (m *model) handleDiagnosticsMenuSelection() {
 		m.inputFields = []string{"Host", "Port"}
 		m.inputValues = []string{"", DefaultSIPPort}
 		m.inputCursor = 0
-	case 8: // Back to Main Menu
+	case 8: // SIP Testing Suite
+		m.currentScreen = sipTestMenuScreen
+		m.cursor = 0
+	case 9: // Back to Main Menu
 		m.currentScreen = mainMenu
+		m.cursor = 0
+	}
+}
+
+// handleSipTestMenuSelection handles SIP test menu selection
+func (m *model) handleSipTestMenuSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	m.sipTestOutput = ""
+
+	switch m.cursor {
+	case 0: // Check Available Tools
+		m.currentScreen = sipTestToolsScreen
+		// Run the tools check command
+		scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
+		cmd := exec.Command("bash", scriptPath, "tools")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			m.sipTestOutput = fmt.Sprintf("Error checking tools: %v", err)
+		} else {
+			m.sipTestOutput = string(output)
+		}
+	case 1: // Install SIP Tool
+		// This would require an input screen, for now show a message
+		m.sipTestOutput = "To install a tool, use CLI:\nrayanpbx-cli sip-test install <tool>\n\nAvailable tools: pjsua, sipsak, sipp"
+	case 2: // Test Registration
+		m.currentScreen = sipTestRegisterScreen
+		m.inputMode = true
+		m.inputFields = []string{"Extension", "Password", "Server"}
+		m.inputValues = []string{"", "", "127.0.0.1"}
+		m.inputCursor = 0
+	case 3: // Test Call
+		m.currentScreen = sipTestCallScreen
+		m.inputMode = true
+		m.inputFields = []string{"From Extension", "From Password", "To Extension", "To Password", "Server"}
+		m.inputValues = []string{"", "", "", "", "127.0.0.1"}
+		m.inputCursor = 0
+	case 4: // Run Full Test Suite
+		m.currentScreen = sipTestFullScreen
+		m.inputMode = true
+		m.inputFields = []string{"Extension 1", "Password 1", "Extension 2", "Password 2", "Server"}
+		m.inputValues = []string{"", "", "", "", "127.0.0.1"}
+		m.inputCursor = 0
+	case 5: // Back to Diagnostics
+		m.currentScreen = diagnosticsMenuScreen
 		m.cursor = 0
 	}
 }
@@ -1588,6 +1852,97 @@ func (m *model) executeDiagPortTest() {
 
 	m.inputMode = false
 }
+
+func (m *model) executeSipTestRegister() {
+	if m.inputValues[0] == "" || m.inputValues[1] == "" {
+		m.errorMsg = "Extension and password are required"
+		return
+	}
+
+	ext := m.inputValues[0]
+	pass := m.inputValues[1]
+	server := m.inputValues[2]
+	if server == "" {
+		server = "127.0.0.1"
+	}
+
+	scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
+	cmd := exec.Command("bash", scriptPath, "register", ext, pass, server)
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+		m.sipTestOutput = string(output)
+	} else {
+		m.successMsg = "Registration test completed"
+		m.sipTestOutput = string(output)
+	}
+
+	m.inputMode = false
+}
+
+func (m *model) executeSipTestCall() {
+	if len(m.inputValues) < 4 || m.inputValues[0] == "" || m.inputValues[1] == "" || 
+		m.inputValues[2] == "" || m.inputValues[3] == "" {
+		m.errorMsg = "All extension and password fields are required"
+		return
+	}
+
+	fromExt := m.inputValues[0]
+	fromPass := m.inputValues[1]
+	toExt := m.inputValues[2]
+	toPass := m.inputValues[3]
+	server := m.inputValues[4]
+	if server == "" {
+		server = "127.0.0.1"
+	}
+
+	scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
+	cmd := exec.Command("bash", scriptPath, "call", fromExt, fromPass, toExt, toPass, server)
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+		m.sipTestOutput = string(output)
+	} else {
+		m.successMsg = "Call test completed"
+		m.sipTestOutput = string(output)
+	}
+
+	m.inputMode = false
+}
+
+func (m *model) executeSipTestFull() {
+	if len(m.inputValues) < 4 || m.inputValues[0] == "" || m.inputValues[1] == "" || 
+		m.inputValues[2] == "" || m.inputValues[3] == "" {
+		m.errorMsg = "All extension and password fields are required"
+		return
+	}
+
+	ext1 := m.inputValues[0]
+	pass1 := m.inputValues[1]
+	ext2 := m.inputValues[2]
+	pass2 := m.inputValues[3]
+	server := m.inputValues[4]
+	if server == "" {
+		server = "127.0.0.1"
+	}
+
+	scriptPath := "/home/runner/work/rayanpbx/rayanpbx/scripts/sip-test-suite.sh"
+	cmd := exec.Command("bash", scriptPath, "full", ext1, pass1, ext2, pass2, server)
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
+		m.sipTestOutput = string(output)
+	} else {
+		m.successMsg = "Full test suite completed"
+		m.sipTestOutput = string(output)
+	}
+
+	m.inputMode = false
+}
+
 
 func (m *model) renderSystemSettings() string {
 	s := "⚙️  System Settings\n\n"
