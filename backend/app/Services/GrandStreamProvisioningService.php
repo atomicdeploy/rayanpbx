@@ -331,6 +331,11 @@ class GrandStreamProvisioningService
     {
         $devices = [];
         
+        // Validate network CIDR notation
+        if (!$this->isValidCIDR($network)) {
+            throw new \Exception("Invalid network CIDR notation");
+        }
+        
         // Check if nmap is available
         exec('which nmap 2>&1', $output, $returnCode);
         if ($returnCode !== 0) {
@@ -352,6 +357,32 @@ class GrandStreamProvisioningService
         $devices = $this->parseNmapOutput(implode("\n", $output));
         
         return $devices;
+    }
+    
+    /**
+     * Validate CIDR notation for network address
+     */
+    protected function isValidCIDR($cidr)
+    {
+        // Check format: IP/mask
+        if (!preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $cidr)) {
+            return false;
+        }
+        
+        list($ip, $mask) = explode('/', $cidr);
+        
+        // Validate IP address
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        
+        // Validate mask (0-32)
+        $mask = (int)$mask;
+        if ($mask < 0 || $mask > 32) {
+            return false;
+        }
+        
+        return true;
     }
     
     /**
@@ -581,11 +612,16 @@ class GrandStreamProvisioningService
      */
     public function pingHost($ip, $timeout = 2)
     {
+        // Validate IP address
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        
         $output = [];
         $returnCode = 0;
         
         // Use system ping command
-        $cmd = sprintf('ping -c 1 -W %d %s 2>&1', $timeout, escapeshellarg($ip));
+        $cmd = sprintf('ping -c 1 -W %d %s 2>&1', (int)$timeout, escapeshellarg($ip));
         exec($cmd, $output, $returnCode);
         
         return $returnCode === 0;

@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+// Discovery constants
+const (
+	DefaultPingTimeout    = 2  // seconds
+	LLDPCaptureTimeout    = 10 // seconds
+	LLDPCapturePackets    = 10 // number of packets to capture
+	DefaultNetworkSubnet  = "192.168.1.0/24"
+)
+
+// VoIP vendor list
+var voipVendors = []string{"grandstream", "yealink", "polycom", "cisco", "snom", "panasonic", "fanvil"}
+
 // DiscoveredPhone represents a phone discovered on the network
 type DiscoveredPhone struct {
 	IP            string    `json:"ip"`
@@ -178,8 +189,8 @@ func (pd *PhoneDiscovery) captureLLDPPackets() ([]DiscoveredPhone, error) {
 	// This is a simplified implementation
 	// In production, you'd want to use a proper packet capture library
 	
-	cmd := exec.Command("timeout", "10", "tcpdump", 
-		"-nn", "-v", "-c", "10", 
+	cmd := exec.Command("timeout", strconv.Itoa(LLDPCaptureTimeout), "tcpdump", 
+		"-nn", "-v", "-c", strconv.Itoa(LLDPCapturePackets), 
 		"-i", "any",
 		"ether proto 0x88cc")
 	
@@ -358,7 +369,6 @@ func (pd *PhoneDiscovery) parseSystemDescription(desc string) (vendor string, mo
 // isVoIPPhone determines if a discovered device is likely a VoIP phone
 func (pd *PhoneDiscovery) isVoIPPhone(phone *DiscoveredPhone) bool {
 	// Check vendor
-	voipVendors := []string{"grandstream", "yealink", "polycom", "cisco", "snom", "panasonic", "fanvil"}
 	vendorLower := strings.ToLower(phone.Vendor)
 	for _, v := range voipVendors {
 		if strings.Contains(vendorLower, v) {
@@ -404,6 +414,9 @@ func (pd *PhoneDiscovery) deduplicatePhones(phones []DiscoveredPhone) []Discover
 
 // PingHost checks if a host is reachable using ICMP ping
 func (pd *PhoneDiscovery) PingHost(host string, timeoutSec int) bool {
+	if timeoutSec <= 0 {
+		timeoutSec = DefaultPingTimeout
+	}
 	// Use system ping command (works on most Unix-like systems)
 	cmd := exec.Command("ping", "-c", "1", "-W", strconv.Itoa(timeoutSec), host)
 	err := cmd.Run()

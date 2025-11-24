@@ -795,20 +795,26 @@ m.currentScreen = voipPhonesScreen
 
 // handleVoIPDiscoveryKeyPress handles key presses in VoIP discovery screen
 func (m *model) handleVoIPDiscoveryKeyPress(key string) {
-switch key {
-case "s":
-// Scan network
-m.discoverPhones("192.168.1.0/24") // Default network, can be made configurable
-case "l":
-// LLDP discovery
-m.discoverViaLLDP()
-case "r":
-// Check reachability
-m.checkDiscoveredPhonesReachability()
-case "a":
-// Add selected phone
-if len(m.discoveredPhones) > 0 {
-m.addDiscoveredPhone()
-}
-}
+	// Get network subnet from config or use default
+	network := "192.168.1.0/24"
+	if m.config != nil && m.config.NetworkSubnet != "" {
+		network = m.config.NetworkSubnet
+	}
+	
+	switch key {
+	case "s":
+		// Scan network
+		m.discoverPhones(network)
+	case "l":
+		// LLDP discovery
+		m.discoverViaLLDP()
+	case "r":
+		// Check reachability
+		m.checkDiscoveredPhonesReachability()
+	case "a":
+		// Add selected phone
+		if len(m.discoveredPhones) > 0 {
+			m.addDiscoveredPhone()
+		}
+	}
 }
