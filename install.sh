@@ -20,6 +20,9 @@ VERBOSE=false
 DRY_RUN=false
 UPGRADE_MODE=false
 CREATE_BACKUP=false
+ONLY_STEPS=""
+SKIP_STEPS=""
+CI_MODE=false
 
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
@@ -52,6 +55,118 @@ readonly CLEAR_LINE='\033[2K'
 STEP_NUMBER=0
 
 # ════════════════════════════════════════════════════════════════════════
+# Step Definitions and Management
+# ════════════════════════════════════════════════════════════════════════
+
+# Define all available installation steps with their identifiers
+# Format: "step_id:Step Name"
+declare -a ALL_STEPS=(
+    "updates:Checking for Updates"
+    "system-verification:System Verification"
+    "package-manager:Package Manager Setup"
+    "system-update:System Update"
+    "dependencies:Essential Dependencies"
+    "github-cli:GitHub CLI Installation"
+    "database:Database Setup (MySQL/MariaDB)"
+    "php:PHP 8.3 Installation"
+    "composer:Composer Installation"
+    "nodejs:Node.js 24 Installation"
+    "go:Go 1.23 Installation"
+    "asterisk:Asterisk 22 Installation"
+    "asterisk-ami:Asterisk AMI Configuration"
+    "source:RayanPBX Source Code"
+    "env-config:Environment Configuration"
+    "backend:Backend API Setup"
+    "frontend:Frontend Web UI Setup"
+    "tui:TUI (Terminal UI) Build"
+    "pm2:PM2 Process Management Setup"
+    "systemd:Systemd Services Configuration"
+    "cron:Cron Jobs Setup"
+    "health-check:Service Verification & Health Checks"
+    "complete:Installation Complete"
+)
+
+# Array to track which steps should be executed
+declare -a STEPS_TO_RUN=()
+
+# Initialize steps to run based on command line arguments
+initialize_steps() {
+    if [ -n "$ONLY_STEPS" ]; then
+        # User specified only certain steps to run
+        IFS=',' read -ra SELECTED_STEPS <<< "$ONLY_STEPS"
+        for step_id in "${SELECTED_STEPS[@]}"; do
+            STEPS_TO_RUN+=("$step_id")
+        done
+        print_verbose "Running only steps: ${STEPS_TO_RUN[*]}"
+    else
+        # Run all steps by default
+        for step_def in "${ALL_STEPS[@]}"; do
+            step_id="${step_def%%:*}"
+            STEPS_TO_RUN+=("$step_id")
+        done
+    fi
+    
+    # Remove skipped steps if any
+    if [ -n "$SKIP_STEPS" ]; then
+        IFS=',' read -ra SKIPPED_STEPS <<< "$SKIP_STEPS"
+        for skip_id in "${SKIPPED_STEPS[@]}"; do
+            STEPS_TO_RUN=("${STEPS_TO_RUN[@]/$skip_id}")
+        done
+        # Remove empty elements
+        STEPS_TO_RUN=("${STEPS_TO_RUN[@]}")
+        print_verbose "Skipping steps: ${SKIPPED_STEPS[*]}"
+    fi
+}
+
+# Check if a step should be executed
+should_run_step() {
+    local step_id="$1"
+    for run_step in "${STEPS_TO_RUN[@]}"; do
+        if [ "$run_step" == "$step_id" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Get step name from step ID
+get_step_name() {
+    local step_id="$1"
+    for step_def in "${ALL_STEPS[@]}"; do
+        if [[ "$step_def" == "$step_id:"* ]]; then
+            echo "${step_def#*:}"
+            return 0
+        fi
+    done
+    echo "Unknown Step"
+    return 1
+}
+
+# List all available steps
+list_steps() {
+    echo -e "${CYAN}${BOLD}Available Installation Steps:${RESET}"
+    echo ""
+    local num=1
+    for step_def in "${ALL_STEPS[@]}"; do
+        step_id="${step_def%%:*}"
+        step_name="${step_def#*:}"
+        printf "  ${GREEN}%2d.${RESET} ${WHITE}%-20s${RESET} ${DIM}%s${RESET}\n" "$num" "$step_id" "$step_name"
+        num=$((num + 1))
+    done
+    echo ""
+    echo -e "${YELLOW}${BOLD}Usage Examples:${RESET}"
+    echo -e "  ${DIM}# Run only specific steps:${RESET}"
+    echo -e "  ${WHITE}sudo ./install.sh --steps=backend,frontend,tui${RESET}"
+    echo ""
+    echo -e "  ${DIM}# Skip certain steps:${RESET}"
+    echo -e "  ${WHITE}sudo ./install.sh --skip=asterisk,asterisk-ami${RESET}"
+    echo ""
+    echo -e "  ${DIM}# Combine with other flags:${RESET}"
+    echo -e "  ${WHITE}sudo ./install.sh --steps=backend --verbose${RESET}"
+    echo ""
+}
+
+# ════════════════════════════════════════════════════════════════════════
 # Usage and Help Functions
 # ════════════════════════════════════════════════════════════════════════
 
@@ -72,12 +187,16 @@ show_help() {
     echo -e "    required dependencies (MariaDB, PHP 8.3, Node.js 24, Go 1.23)."
     echo ""
     echo -e "${YELLOW}${BOLD}OPTIONS:${RESET}"
-    echo -e "    ${GREEN}-h, --help${RESET}          Show this help message and exit"
-    echo -e "    ${GREEN}-u, --upgrade${RESET}       Automatically apply updates without prompting"
-    echo -e "    ${GREEN}-b, --backup${RESET}        Create backup before updates (.env and backend/storage)"
-    echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
-    echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
-    echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
+    echo -e "    ${GREEN}-h, --help${RESET}              Show this help message and exit"
+    echo -e "    ${GREEN}-u, --upgrade${RESET}           Automatically apply updates without prompting"
+    echo -e "    ${GREEN}-b, --backup${RESET}            Create backup before updates (.env and backend/storage)"
+    echo -e "    ${GREEN}-v, --verbose${RESET}           Enable verbose output (shows detailed execution)"
+    echo -e "    ${GREEN}-V, --version${RESET}           Show script version and exit"
+    echo -e "    ${GREEN}--steps=STEPS${RESET}           Run only specified steps (comma-separated)"
+    echo -e "    ${GREEN}--skip=STEPS${RESET}            Skip specified steps (comma-separated)"
+    echo -e "    ${GREEN}--list-steps${RESET}            Show all available steps and exit"
+    echo -e "    ${GREEN}--ci${RESET}                    CI mode (skip root check, non-interactive)"
+    echo -e "    ${GREEN}--dry-run${RESET}               Simulate installation without making changes (not yet implemented)"
     echo ""
     echo -e "${YELLOW}${BOLD}REQUIREMENTS:${RESET}"
     echo -e "    ${CYAN}•${RESET} Ubuntu 24.04 LTS (recommended)"
@@ -95,6 +214,15 @@ show_help() {
     echo ""
     echo -e "    ${DIM}# Automatic upgrade without prompts${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --upgrade${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Run only backend and frontend setup${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --steps=backend,frontend${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Skip Asterisk installation${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --skip=asterisk,asterisk-ami${RESET}"
+    echo ""
+    echo -e "    ${DIM}# List all available steps${RESET}"
+    echo -e "    ${WHITE}./install.sh --list-steps${RESET}"
     echo ""
     echo -e "    ${DIM}# Show version${RESET}"
     echo -e "    ${WHITE}./install.sh --version${RESET}"
@@ -170,9 +298,32 @@ print_banner() {
 }
 
 next_step() {
+    local step_name="$1"
+    local step_id="${2:-}"
+    
+    # If step_id is provided, check if it should run
+    if [ -n "$step_id" ]; then
+        if ! should_run_step "$step_id"; then
+            print_verbose "Skipping step: $step_name (id: $step_id)"
+            return 1
+        fi
+    fi
+    
     STEP_NUMBER=$((STEP_NUMBER + 1))
-    echo -e "\n${BLUE}${BOLD}┌─ Step ${STEP_NUMBER}: $1${RESET}"
-    echo -e "${DIM}└─────────────────────────────────────────────────────────────${RESET}"
+    
+    # Print step name in grey/dim or normal based on verbose mode
+    if [ "$VERBOSE" = true ]; then
+        echo -e "\n${BLUE}${BOLD}┌─ Step ${STEP_NUMBER}: $step_name${RESET} ${DIM}[$step_id]${RESET}"
+    else
+        echo -e "\n${BLUE}${BOLD}┌─ Step ${STEP_NUMBER}: $step_name${RESET}"
+        echo -e "${DIM}└─────────────────────────────────────────────────────────────${RESET}"
+    fi
+    
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${DIM}└─────────────────────────────────────────────────────────────${RESET}"
+    fi
+    
+    return 0
 }
 
 print_success() {
@@ -526,6 +677,22 @@ while [[ $# -gt 0 ]]; do
         -V|--version)
             show_version
             ;;
+        --list-steps)
+            list_steps
+            exit 0
+            ;;
+        --ci)
+            CI_MODE=true
+            shift
+            ;;
+        --steps=*)
+            ONLY_STEPS="${1#*=}"
+            shift
+            ;;
+        --skip=*)
+            SKIP_STEPS="${1#*=}"
+            shift
+            ;;
         --dry-run)
             DRY_RUN=true
             echo "Dry-run mode enabled (not yet fully implemented)"
@@ -551,6 +718,9 @@ if [ "$UPGRADE_MODE" = true ]; then
     print_verbose "Upgrade mode enabled - will automatically apply updates without prompting"
 fi
 
+# Initialize step filtering based on command-line arguments
+initialize_steps
+
 # ════════════════════════════════════════════════════════════════════════
 # Main Installation
 # ════════════════════════════════════════════════════════════════════════
@@ -563,15 +733,19 @@ print_banner
 
 # Check if running as root
 print_verbose "Checking if running as root (EUID: $EUID)..."
-if [[ $EUID -ne 0 ]]; then
+if [[ $EUID -ne 0 ]] && [[ "$CI_MODE" != true ]]; then
    print_error "This script must be run as root"
    echo -e "${YELLOW}💡 Please run: ${WHITE}sudo $0${RESET}"
    exit 1
 fi
-print_verbose "Root check passed"
+if [[ "$CI_MODE" == true ]]; then
+    print_verbose "CI mode enabled, skipping root check"
+else
+    print_verbose "Root check passed"
+fi
 
 # Check for git updates
-next_step "Checking for Updates"
+next_step "Checking for Updates" "updates" || exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 print_verbose "Script directory: $SCRIPT_DIR"
 
@@ -711,7 +885,7 @@ else
 fi
 
 # Check Ubuntu version
-next_step "System Verification"
+next_step "System Verification" "system-verification" || exit 0
 print_verbose "Checking Ubuntu version..."
 print_verbose "Reading OS release information..."
 if [ "$VERBOSE" = true ]; then
@@ -733,7 +907,7 @@ fi
 print_verbose "System verification complete"
 
 # Install nala if not present
-next_step "Package Manager Setup"
+next_step "Package Manager Setup" "package-manager" || exit 0
 print_verbose "Checking for nala package manager..."
 if ! command -v nala &> /dev/null; then
     print_progress "Installing nala package manager..."
@@ -768,7 +942,7 @@ else
 fi
 
 # System update
-next_step "System Update"
+next_step "System Update" "system-update" || exit 0
 print_progress "Updating package lists and upgrading system..."
 
 # Determine which package manager to use
@@ -820,7 +994,7 @@ fi
 print_success "System updated"
 
 # Install dependencies
-next_step "Essential Dependencies"
+next_step "Essential Dependencies" "dependencies" || exit 0
 PACKAGES=(
     software-properties-common
     curl
@@ -876,7 +1050,7 @@ for package in "${PACKAGES[@]}"; do
 done
 
 # Install GitHub CLI
-next_step "GitHub CLI Installation"
+next_step "GitHub CLI Installation" "github-cli" || exit 0
 print_verbose "Checking for GitHub CLI..."
 if ! check_installed "gh" "GitHub CLI"; then
     print_progress "Installing GitHub CLI..."
@@ -987,7 +1161,7 @@ EOF
 }
 
 # MySQL/MariaDB Installation
-next_step "Database Setup (MySQL/MariaDB)"
+next_step "Database Setup (MySQL/MariaDB)" "database" || exit 0
 print_verbose "Checking for MySQL/MariaDB..."
 if ! command -v mysql &> /dev/null; then
     print_progress "Installing MariaDB..."
@@ -1150,7 +1324,7 @@ else
 fi
 
 # PHP 8.3 Installation
-next_step "PHP 8.3 Installation"
+next_step "PHP 8.3 Installation" "php" || exit 0
 print_verbose "Checking for PHP 8.3..."
 if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
     print_progress "Installing PHP 8.3 and extensions..."
@@ -1235,7 +1409,7 @@ else
 fi
 
 # Composer Installation
-next_step "Composer Installation"
+next_step "Composer Installation" "composer" || exit 0
 print_verbose "Checking for Composer..."
 if ! check_installed "composer" "Composer"; then
     print_progress "Installing Composer..."
@@ -1267,7 +1441,7 @@ composer --version | head -n 1
 print_verbose "Composer location: $(which composer)"
 
 # Node.js 24 Installation
-next_step "Node.js 24 Installation"
+next_step "Node.js 24 Installation" "nodejs" || exit 0
 print_verbose "Checking for Node.js 24..."
 if ! command -v node &> /dev/null || ! node -v | grep -q "v24"; then
     print_progress "Installing Node.js 24..."
@@ -1346,7 +1520,7 @@ pm2 -v
 print_verbose "PM2 location: $(which pm2)"
 
 # Go 1.23 Installation
-next_step "Go 1.23 Installation"
+next_step "Go 1.23 Installation" "go" || exit 0
 print_verbose "Checking for Go..."
 if ! check_installed "go" "Go"; then
     print_progress "Installing Go 1.23..."
@@ -1376,7 +1550,7 @@ print_verbose "Go location: $(which go)"
 print_verbose "GOPATH: $(go env GOPATH 2>/dev/null || echo 'not set')"
 
 # Asterisk 22 Installation
-next_step "Asterisk 22 Installation"
+next_step "Asterisk 22 Installation" "asterisk" || exit 0
 SKIP_ASTERISK=""
 
 if command -v asterisk &> /dev/null; then
@@ -1469,7 +1643,7 @@ if [ -z "$SKIP_ASTERISK" ]; then
 fi
 
 # Configure Asterisk AMI (using INI helper)
-next_step "Asterisk AMI Configuration"
+next_step "Asterisk AMI Configuration" "asterisk-ami" || exit 0
 print_info "Configuring Asterisk Manager Interface..."
 
 # Source INI helper script
@@ -1507,7 +1681,7 @@ else
 fi
 
 # Clone/Update RayanPBX Repository
-next_step "RayanPBX Source Code"
+next_step "RayanPBX Source Code" "source" || exit 0
 cd /opt
 
 if [ -d "rayanpbx" ]; then
@@ -1552,7 +1726,7 @@ if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
 fi
 
 # Setup unified .env file
-next_step "Environment Configuration"
+next_step "Environment Configuration" "env-config" || exit 0
 if [ ! -f ".env" ]; then
     print_progress "Creating unified environment configuration..."
     cp .env.example .env
@@ -1597,7 +1771,7 @@ print_verbose "Backend .env synchronized with root .env"
 print_success "Backend environment configured"
 
 # Backend Setup
-next_step "Backend API Setup"
+next_step "Backend API Setup" "backend" || exit 0
 print_progress "Installing backend dependencies..."
 cd /opt/rayanpbx/backend
 composer install --no-dev --optimize-autoloader 2>&1 | grep -E "(Installing|Generating)" || true
@@ -1680,7 +1854,7 @@ print_success "Ownership and permissions configured"
 print_success "Backend configured successfully"
 
 # Frontend Setup
-next_step "Frontend Web UI Setup"
+next_step "Frontend Web UI Setup" "frontend" || exit 0
 print_progress "Installing frontend dependencies..."
 cd /opt/rayanpbx/frontend
 npm install 2>&1 | grep -E "(added|up to date)" | tail -1
@@ -1705,7 +1879,7 @@ fi
 print_success "Frontend built successfully"
 
 # TUI Setup
-next_step "TUI (Terminal UI) Build"
+next_step "TUI (Terminal UI) Build" "tui" || exit 0
 print_progress "Building TUI application..."
 cd /opt/rayanpbx/tui
 
@@ -1746,7 +1920,7 @@ else
 fi
 
 # PM2 Ecosystem Configuration
-next_step "PM2 Process Management Setup"
+next_step "PM2 Process Management Setup" "pm2" || exit 0
 cat > /opt/rayanpbx/ecosystem.config.js << 'EOF'
 module.exports = {
   apps: [
@@ -1779,7 +1953,7 @@ EOF
 print_success "PM2 ecosystem configured"
 
 # Systemd Services
-next_step "Systemd Services Configuration"
+next_step "Systemd Services Configuration" "systemd" || exit 0
 
 # Backend API service
 cat > /etc/systemd/system/rayanpbx-api.service << 'EOF'
@@ -1831,7 +2005,7 @@ su - www-data -s /bin/bash -c "cd /opt/rayanpbx && pm2 start ecosystem.config.js
 su - www-data -s /bin/bash -c "pm2 save"
 
 # Setup Cron Jobs
-next_step "Cron Jobs Setup"
+next_step "Cron Jobs Setup" "cron" || exit 0
 print_info "Configuring cron jobs..."
 
 # Laravel scheduler
@@ -1840,7 +2014,7 @@ print_info "Configuring cron jobs..."
 print_success "Cron jobs configured"
 
 # Verify services with comprehensive health checks
-next_step "Service Verification & Health Checks"
+next_step "Service Verification & Health Checks" "health-check" || exit 0
 print_info "Performing comprehensive health checks on all services..."
 echo ""
 
@@ -1922,7 +2096,7 @@ else
 fi
 
 # Final Banner
-next_step "Installation Complete! 🎉"
+next_step "Installation Complete! 🎉" "complete" || exit 0
 
 clear
 print_banner
