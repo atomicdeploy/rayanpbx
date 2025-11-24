@@ -67,12 +67,14 @@ class JWTGuard implements Guard
             return null;
         }
         
-        // Check cache first
+        // Check cache first - use cached data if available and has same structure
         $cachedUser = cache()->get("user:{$userData['id']}");
-        if ($cachedUser) {
+        if ($cachedUser && is_array($cachedUser) && 
+            isset($cachedUser['id'], $cachedUser['name'], $cachedUser['email'])) {
             $userData = $cachedUser;
         }
 
+        // Create user instance with validated data
         $user = new User();
         $user->id = $userData['id'];
         $user->name = $userData['name'];
@@ -96,10 +98,15 @@ class JWTGuard implements Guard
 
     /**
      * Validate a user's credentials.
+     * 
+     * Note: This method is not supported for JWT authentication.
+     * JWT tokens are validated in the user() method.
      */
     public function validate(array $credentials = []): bool
     {
-        return false;
+        // JWT authentication doesn't support credential validation
+        // Token validation happens in the user() method
+        throw new \BadMethodCallException('Credential validation is not supported for JWT authentication.');
     }
 
     /**
