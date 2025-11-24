@@ -72,8 +72,10 @@ func TestInputFieldsValidation(t *testing.T) {
 		t.Error("Expected inputMode to be true after initCreateExtension")
 	}
 	
-	if len(m.inputFields) != 3 {
-		t.Errorf("Expected 3 input fields for extension, got %d", len(m.inputFields))
+	// Now we have 9 fields for extension creation (including advanced PJSIP options)
+	// Extension Number, Name, Password, Codecs, Context, Transport, Direct Media, Max Contacts, Qualify Frequency
+	if len(m.inputFields) != 9 {
+		t.Errorf("Expected 9 input fields for extension (including advanced PJSIP options), got %d", len(m.inputFields))
 	}
 	
 	// Test trunk creation initialization

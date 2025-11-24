@@ -196,19 +196,22 @@ func PrintBanner() {
 
 // Extension represents a SIP extension
 type Extension struct {
-	ID              int
-	ExtensionNumber string
-	Name            string
-	Secret          string
-	Email           string
-	Enabled         bool
-	Context         string
-	Transport       string
-	CallerID        string
-	MaxContacts     int
+	ID               int
+	ExtensionNumber  string
+	Name             string
+	Secret           string
+	Email            string
+	Enabled          bool
+	Context          string
+	Transport        string
+	CallerID         string
+	MaxContacts      int
 	VoicemailEnabled bool
-	CreatedAt       string
-	UpdatedAt       string
+	Codecs           string // Comma-separated list of codecs (e.g., "ulaw,alaw,g722")
+	DirectMedia      string // "yes" or "no"
+	QualifyFrequency int    // Seconds between qualify checks
+	CreatedAt        string
+	UpdatedAt        string
 }
 
 // Trunk represents a SIP trunk
@@ -221,11 +224,12 @@ type Trunk struct {
 	Priority int
 }
 
-// GetExtensions fetches extensions from database
+// GetExtensions fetches extensions from database including advanced PJSIP options
 func GetExtensions(db *sql.DB) ([]Extension, error) {
 	query := `SELECT id, extension_number, name, COALESCE(secret, ''), COALESCE(email, ''), 
 	          enabled, COALESCE(context, 'from-internal'), COALESCE(transport, 'transport-udp'), 
-	          COALESCE(caller_id, ''), COALESCE(max_contacts, 1), COALESCE(voicemail_enabled, 0)
+	          COALESCE(caller_id, ''), COALESCE(max_contacts, 1), COALESCE(voicemail_enabled, 0),
+	          COALESCE(codecs, 'ulaw,alaw,g722'), COALESCE(direct_media, 'no'), COALESCE(qualify_frequency, 60)
 	          FROM extensions ORDER BY extension_number`
 	rows, err := db.Query(query)
 	if err != nil {
@@ -237,7 +241,8 @@ func GetExtensions(db *sql.DB) ([]Extension, error) {
 	for rows.Next() {
 		var ext Extension
 		if err := rows.Scan(&ext.ID, &ext.ExtensionNumber, &ext.Name, &ext.Secret, &ext.Email,
-			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled); err != nil {
+			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled,
+			&ext.Codecs, &ext.DirectMedia, &ext.QualifyFrequency); err != nil {
 			continue
 		}
 		extensions = append(extensions, ext)

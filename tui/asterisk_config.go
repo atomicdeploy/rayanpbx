@@ -25,6 +25,7 @@ func NewAsteriskConfigManager(verbose bool) *AsteriskConfigManager {
 }
 
 // GeneratePjsipEndpoint generates PJSIP configuration for an extension
+// Uses best-practice defaults from "Config #2" style while allowing customization
 func (acm *AsteriskConfigManager) GeneratePjsipEndpoint(ext Extension) string {
 	var config strings.Builder
 
@@ -36,16 +37,32 @@ func (acm *AsteriskConfigManager) GeneratePjsipEndpoint(ext Extension) string {
 	config.WriteString(fmt.Sprintf("context=%s\n", ext.Context))
 	config.WriteString("disallow=all\n")
 	
-	// Add codecs
-	codecs := []string{"ulaw", "alaw", "g722"}
-	for _, codec := range codecs {
-		config.WriteString(fmt.Sprintf("allow=%s\n", codec))
+	// Add codecs from user configuration or defaults
+	// Default codecs provide good compatibility: ulaw (US), alaw (EU), g722 (HD audio)
+	codecList := []string{"ulaw", "alaw", "g722"}
+	if ext.Codecs != "" {
+		// Parse user-specified codecs
+		codecList = strings.Split(ext.Codecs, ",")
+	}
+	for _, codec := range codecList {
+		codec = strings.TrimSpace(codec)
+		if codec != "" {
+			config.WriteString(fmt.Sprintf("allow=%s\n", codec))
+		}
 	}
 	
 	config.WriteString(fmt.Sprintf("transport=%s\n", ext.Transport))
 	config.WriteString(fmt.Sprintf("auth=%s\n", ext.ExtensionNumber))
 	config.WriteString(fmt.Sprintf("aors=%s\n", ext.ExtensionNumber))
-	config.WriteString("direct_media=no\n")
+	
+	// direct_media: Controls whether RTP goes directly between endpoints
+	// "no" is recommended for NAT/firewall scenarios (safer default)
+	// "yes" can be used in pure LAN environments for reduced server load
+	directMedia := ext.DirectMedia
+	if directMedia == "" {
+		directMedia = "no"
+	}
+	config.WriteString(fmt.Sprintf("direct_media=%s\n", directMedia))
 	
 	if ext.CallerID != "" {
 		config.WriteString(fmt.Sprintf("callerid=%s\n", ext.CallerID))
@@ -58,12 +75,24 @@ func (acm *AsteriskConfigManager) GeneratePjsipEndpoint(ext Extension) string {
 	config.WriteString(fmt.Sprintf("username=%s\n", ext.ExtensionNumber))
 	config.WriteString(fmt.Sprintf("password=%s\n", ext.Secret))
 	
-	// AOR section
+	// AOR section (Address of Record)
 	config.WriteString(fmt.Sprintf("\n[%s]\n", ext.ExtensionNumber))
 	config.WriteString("type=aor\n")
 	config.WriteString(fmt.Sprintf("max_contacts=%d\n", ext.MaxContacts))
+	
+	// remove_existing=yes: Clears old registrations when a new one arrives
+	// This helps avoid stale registration issues
 	config.WriteString("remove_existing=yes\n")
-	config.WriteString("qualify_frequency=60\n")
+	
+	// qualify_frequency: How often Asterisk pings the device to check if it's alive
+	// 60 seconds is a good balance between responsiveness and overhead
+	// 0 = disabled (not recommended for most setups)
+	qualifyFreq := ext.QualifyFrequency
+	if qualifyFreq == 0 && ext.DirectMedia != "yes" {
+		// Use default if not specified and not in LAN mode
+		qualifyFreq = 60
+	}
+	config.WriteString(fmt.Sprintf("qualify_frequency=%d\n", qualifyFreq))
 	
 	config.WriteString(fmt.Sprintf("; END MANAGED - Extension %s\n", ext.ExtensionNumber))
 	

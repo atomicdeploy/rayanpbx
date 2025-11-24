@@ -61,6 +61,12 @@ const (
 	extFieldNumber = iota
 	extFieldName
 	extFieldPassword
+	extFieldCodecs
+	extFieldContext
+	extFieldTransport
+	extFieldDirectMedia
+	extFieldMaxContacts
+	extFieldQualifyFreq
 )
 
 // Field indices for trunk creation form
@@ -86,6 +92,9 @@ const (
 	DefaultExtensionContext   = "from-internal"
 	DefaultExtensionTransport = "transport-udp"
 	DefaultMaxContacts        = 1
+	DefaultQualifyFrequency   = 60
+	DefaultCodecs             = "ulaw,alaw,g722"
+	DefaultDirectMedia        = "no"
 )
 
 type screen int
@@ -1290,12 +1299,32 @@ func (m *model) executeCommand(command string) {
 	m.errorMsg = "Note: Command execution is simulated in TUI. Please run in terminal."
 }
 
-// initCreateExtension initializes the extension creation form
+// initCreateExtension initializes the extension creation form with advanced PJSIP options
 func (m *model) initCreateExtension() {
 	m.currentScreen = createExtensionScreen
 	m.inputMode = true
-	m.inputFields = []string{"Extension Number", "Name", "Password"}
-	m.inputValues = []string{"", "", ""}
+	m.inputFields = []string{
+		"Extension Number",
+		"Name",
+		"Password",
+		"Codecs (ulaw,alaw,g722)",
+		"Context",
+		"Transport",
+		"Direct Media (yes/no)",
+		"Max Contacts",
+		"Qualify Frequency (sec)",
+	}
+	m.inputValues = []string{
+		"",                          // Extension Number
+		"",                          // Name
+		"",                          // Password
+		DefaultCodecs,               // Codecs
+		DefaultExtensionContext,     // Context
+		DefaultExtensionTransport,   // Transport
+		DefaultDirectMedia,          // Direct Media
+		fmt.Sprintf("%d", DefaultMaxContacts),     // Max Contacts
+		fmt.Sprintf("%d", DefaultQualifyFrequency), // Qualify Frequency
+	}
 	m.inputCursor = 0
 	m.errorMsg = ""
 	m.successMsg = ""
@@ -1312,7 +1341,7 @@ func (m *model) initCreateTrunk() {
 	m.successMsg = ""
 }
 
-// initEditExtension initializes the extension edit form
+// initEditExtension initializes the extension edit form with advanced PJSIP options
 func (m *model) initEditExtension() {
 	if m.selectedExtensionIdx >= len(m.extensions) {
 		return
@@ -1321,9 +1350,48 @@ func (m *model) initEditExtension() {
 	ext := m.extensions[m.selectedExtensionIdx]
 	m.currentScreen = editExtensionScreen
 	m.inputMode = true
-	m.inputFields = []string{"Extension Number", "Name", "Password"}
+	m.inputFields = []string{
+		"Extension Number",
+		"Name",
+		"Password",
+		"Codecs (ulaw,alaw,g722)",
+		"Context",
+		"Transport",
+		"Direct Media (yes/no)",
+		"Max Contacts",
+		"Qualify Frequency (sec)",
+	}
+	
+	// Get codecs string, default if empty
+	codecs := ext.Codecs
+	if codecs == "" {
+		codecs = DefaultCodecs
+	}
+	
+	// Get direct_media, default if empty
+	directMedia := ext.DirectMedia
+	if directMedia == "" {
+		directMedia = DefaultDirectMedia
+	}
+	
+	// Get qualify frequency, default if zero
+	qualifyFreq := ext.QualifyFrequency
+	if qualifyFreq == 0 {
+		qualifyFreq = DefaultQualifyFrequency
+	}
+	
 	// Pre-fill with current values (password will be empty for security)
-	m.inputValues = []string{ext.ExtensionNumber, ext.Name, ""}
+	m.inputValues = []string{
+		ext.ExtensionNumber,
+		ext.Name,
+		"", // Password empty for security
+		codecs,
+		ext.Context,
+		ext.Transport,
+		directMedia,
+		fmt.Sprintf("%d", ext.MaxContacts),
+		fmt.Sprintf("%d", qualifyFreq),
+	}
 	m.inputCursor = 0
 	m.errorMsg = ""
 	m.successMsg = ""
@@ -1402,9 +1470,22 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderCreateExtension renders the extension creation form
+// renderCreateExtension renders the extension creation form with advanced PJSIP options
 func (m model) renderCreateExtension() string {
 	content := infoStyle.Render("📱 Create New Extension") + "\n\n"
+	
+	// Help descriptions for each field
+	fieldHelp := map[int]string{
+		extFieldNumber:      "Unique extension number (e.g., 100, 101)",
+		extFieldName:        "Display name for the extension",
+		extFieldPassword:    "SIP authentication password (min 8 chars)",
+		extFieldCodecs:      "Audio codecs: ulaw (US), alaw (EU), g722 (HD)",
+		extFieldContext:     "Dialplan context (from-internal recommended)",
+		extFieldTransport:   "SIP transport (transport-udp recommended)",
+		extFieldDirectMedia: "Allow direct RTP (no=NAT-safe, yes=LAN only)",
+		extFieldMaxContacts: "Max simultaneous registrations (1-10)",
+		extFieldQualifyFreq: "Seconds between keep-alive checks (0=disabled)",
+	}
 
 	for i, field := range m.inputFields {
 		cursor := "  "
@@ -1419,14 +1500,25 @@ func (m model) renderCreateExtension() string {
 			value = helpStyle.Render("<enter value>")
 		} else if field == "Password" {
 			// Use fixed mask to not reveal password length (security best practice)
-			// This prevents potential attackers from guessing password complexity
 			value = "********"
 		}
 
 		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+		
+		// Show help for selected field
+		if i == m.inputCursor {
+			if help, ok := fieldHelp[i]; ok {
+				content += helpStyle.Render(fmt.Sprintf("   💡 %s", help)) + "\n"
+			}
+		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Fill in all fields and press Enter on the last field to create")
+	content += "\n" + helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	content += "\n" + helpStyle.Render("📖 PJSIP Configuration Guide:")
+	content += "\n" + helpStyle.Render("   • Codecs: g722 = HD audio (16kHz), ulaw/alaw = standard (8kHz)")
+	content += "\n" + helpStyle.Render("   • Direct Media: 'no' is recommended for NAT/firewall setups")
+	content += "\n" + helpStyle.Render("   • Qualify: Asterisk pings the device to check if it's online")
+	content += "\n\n" + helpStyle.Render("💡 Press ↑/↓ to navigate, Enter on last field to create, ESC to cancel")
 
 	return menuStyle.Render(content)
 }
@@ -1456,20 +1548,68 @@ func (m model) renderCreateTrunk() string {
 	return menuStyle.Render(content)
 }
 
-// createExtension creates a new extension in the database
+// createExtension creates a new extension in the database with advanced PJSIP options
 func (m *model) createExtension() {
-	// Validate inputs using field constants
+	// Validate required inputs
 	if m.inputValues[extFieldNumber] == "" || m.inputValues[extFieldName] == "" || m.inputValues[extFieldPassword] == "" {
-		m.errorMsg = "All fields are required"
+		m.errorMsg = "Extension number, name, and password are required"
 		return
 	}
+	
+	// Parse max_contacts
+	maxContacts := DefaultMaxContacts
+	if m.inputValues[extFieldMaxContacts] != "" {
+		if parsed, err := strconv.Atoi(m.inputValues[extFieldMaxContacts]); err == nil && parsed > 0 && parsed <= 10 {
+			maxContacts = parsed
+		}
+	}
+	
+	// Parse qualify_frequency
+	qualifyFreq := DefaultQualifyFrequency
+	if m.inputValues[extFieldQualifyFreq] != "" {
+		if parsed, err := strconv.Atoi(m.inputValues[extFieldQualifyFreq]); err == nil && parsed >= 0 {
+			qualifyFreq = parsed
+		}
+	}
+	
+	// Get codecs (use default if empty)
+	codecs := m.inputValues[extFieldCodecs]
+	if codecs == "" {
+		codecs = DefaultCodecs
+	}
+	
+	// Get context (use default if empty)
+	context := m.inputValues[extFieldContext]
+	if context == "" {
+		context = DefaultExtensionContext
+	}
+	
+	// Get transport (use default if empty)
+	transport := m.inputValues[extFieldTransport]
+	if transport == "" {
+		transport = DefaultExtensionTransport
+	}
+	
+	// Get direct_media (use default if empty or invalid)
+	directMedia := strings.ToLower(m.inputValues[extFieldDirectMedia])
+	if directMedia != "yes" && directMedia != "no" {
+		directMedia = DefaultDirectMedia
+	}
 
-	// Insert into database with default configuration values
-	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, created_at, updated_at)
-			  VALUES (?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`
+	// Insert into database with all PJSIP configuration values
+	query := `INSERT INTO extensions (extension_number, name, secret, context, transport, enabled, max_contacts, codecs, direct_media, qualify_frequency, created_at, updated_at)
+			  VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, NOW(), NOW())`
 
-	_, err := m.db.Exec(query, m.inputValues[extFieldNumber], m.inputValues[extFieldName], m.inputValues[extFieldPassword],
-		DefaultExtensionContext, DefaultExtensionTransport, DefaultMaxContacts)
+	_, err := m.db.Exec(query, 
+		m.inputValues[extFieldNumber], 
+		m.inputValues[extFieldName], 
+		m.inputValues[extFieldPassword],
+		context, 
+		transport, 
+		maxContacts,
+		codecs,
+		directMedia,
+		qualifyFreq)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create extension: %v", err)
 		return
@@ -1477,13 +1617,16 @@ func (m *model) createExtension() {
 
 	// Create extension object for config generation
 	ext := Extension{
-		ExtensionNumber: m.inputValues[extFieldNumber],
-		Name:            m.inputValues[extFieldName],
-		Secret:          m.inputValues[extFieldPassword],
-		Context:         DefaultExtensionContext,
-		Transport:       DefaultExtensionTransport,
-		Enabled:         true,
-		MaxContacts:     DefaultMaxContacts,
+		ExtensionNumber:  m.inputValues[extFieldNumber],
+		Name:             m.inputValues[extFieldName],
+		Secret:           m.inputValues[extFieldPassword],
+		Context:          context,
+		Transport:        transport,
+		Enabled:          true,
+		MaxContacts:      maxContacts,
+		Codecs:           codecs,
+		DirectMedia:      directMedia,
+		QualifyFrequency: qualifyFreq,
 	}
 
 	// Generate and write PJSIP configuration
@@ -1544,7 +1687,7 @@ func (m *model) createTrunk() {
 	m.currentScreen = trunksScreen
 }
 
-// editExtension updates an existing extension
+// editExtension updates an existing extension with advanced PJSIP options
 func (m *model) editExtension() {
 	if m.selectedExtensionIdx >= len(m.extensions) {
 		m.errorMsg = "No extension selected"
@@ -1561,16 +1704,66 @@ func (m *model) editExtension() {
 	oldNumber := ext.ExtensionNumber
 	newNumber := m.inputValues[extFieldNumber]
 	
-	// Build update query - only update password if provided
+	// Parse max_contacts
+	maxContacts := DefaultMaxContacts
+	if m.inputValues[extFieldMaxContacts] != "" {
+		if parsed, err := strconv.Atoi(m.inputValues[extFieldMaxContacts]); err == nil && parsed > 0 && parsed <= 10 {
+			maxContacts = parsed
+		}
+	}
+	
+	// Parse qualify_frequency
+	qualifyFreq := DefaultQualifyFrequency
+	if m.inputValues[extFieldQualifyFreq] != "" {
+		if parsed, err := strconv.Atoi(m.inputValues[extFieldQualifyFreq]); err == nil && parsed >= 0 {
+			qualifyFreq = parsed
+		}
+	}
+	
+	// Get codecs (use current value if empty)
+	codecs := m.inputValues[extFieldCodecs]
+	if codecs == "" {
+		codecs = ext.Codecs
+		if codecs == "" {
+			codecs = DefaultCodecs
+		}
+	}
+	
+	// Get context
+	context := m.inputValues[extFieldContext]
+	if context == "" {
+		context = ext.Context
+	}
+	
+	// Get transport
+	transport := m.inputValues[extFieldTransport]
+	if transport == "" {
+		transport = ext.Transport
+	}
+	
+	// Get direct_media
+	directMedia := strings.ToLower(m.inputValues[extFieldDirectMedia])
+	if directMedia != "yes" && directMedia != "no" {
+		directMedia = ext.DirectMedia
+		if directMedia == "" {
+			directMedia = DefaultDirectMedia
+		}
+	}
+	
+	// Build update query with all PJSIP options
 	var query string
 	var args []interface{}
 	
 	if m.inputValues[extFieldPassword] != "" {
-		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, updated_at = NOW() WHERE id = ?`
-		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword], ext.ID}
+		query = `UPDATE extensions SET extension_number = ?, name = ?, secret = ?, context = ?, transport = ?, 
+		         codecs = ?, direct_media = ?, max_contacts = ?, qualify_frequency = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName], m.inputValues[extFieldPassword],
+			context, transport, codecs, directMedia, maxContacts, qualifyFreq, ext.ID}
 	} else {
-		query = `UPDATE extensions SET extension_number = ?, name = ?, updated_at = NOW() WHERE id = ?`
-		args = []interface{}{newNumber, m.inputValues[extFieldName], ext.ID}
+		query = `UPDATE extensions SET extension_number = ?, name = ?, context = ?, transport = ?, 
+		         codecs = ?, direct_media = ?, max_contacts = ?, qualify_frequency = ?, updated_at = NOW() WHERE id = ?`
+		args = []interface{}{newNumber, m.inputValues[extFieldName],
+			context, transport, codecs, directMedia, maxContacts, qualifyFreq, ext.ID}
 	}
 	
 	_, err := m.db.Exec(query, args...)
@@ -1584,9 +1777,15 @@ func (m *model) editExtension() {
 		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
 	}
 	
-	// Update extension object
+	// Update extension object with all new values
 	ext.ExtensionNumber = newNumber
 	ext.Name = m.inputValues[extFieldName]
+	ext.Context = context
+	ext.Transport = transport
+	ext.Codecs = codecs
+	ext.DirectMedia = directMedia
+	ext.MaxContacts = maxContacts
+	ext.QualifyFrequency = qualifyFreq
 	if m.inputValues[extFieldPassword] != "" {
 		ext.Secret = m.inputValues[extFieldPassword]
 	}
