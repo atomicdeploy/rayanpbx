@@ -401,11 +401,11 @@ handle_asterisk_error() {
     local solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 500)
     
     if [ -n "$solution" ]; then
-        echo -e "${YELLOW}${BOLD}💡 AI-Suggested solution:${RESET}"
+        echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
         echo -e "${DIM}${solution}${RESET}"
         echo ""
     else
-        echo -e "${DIM}Could not retrieve AI solution automatically. Check your internet connection.${RESET}"
+        echo -e "${DIM}Could not retrieve solution automatically. Check your internet connection.${RESET}"
         echo ""
     fi
 }
@@ -1406,7 +1406,7 @@ if next_step "Essential Dependencies" "dependencies"; then
 
     # Install optional SIP testing tools
     print_verbose "Installing optional SIP testing tools..."
-    SIP_TOOLS=(sipsak sngrep)
+    SIP_TOOLS=(pjsua sipsak sngrep sipp)
     for tool in "${SIP_TOOLS[@]}"; do
         if ! command -v "$tool" &> /dev/null; then
             print_verbose "Installing $tool..."
@@ -2052,7 +2052,6 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     fi
 
     # Check Asterisk status with comprehensive error checking and auto-fix
-    sleep 3
     if check_asterisk_status "Asterisk startup" "true"; then
         print_success "Asterisk service is running"
         print_info "Active channels: $(asterisk -rx 'core show channels' 2>/dev/null | grep 'active channel' || echo '0 active channels')"
@@ -2502,8 +2501,12 @@ fi
 
 # Final Banner
 if next_step "Installation Complete! 🎉" "complete"; then
-    clear
-    print_banner
+
+    # Only clear if TERM is set and not "dumb" (avoid errors in CI environments without TTY)
+    if [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ]; then
+        # clear
+        # print_banner
+    fi
 
     print_box "Installation Successful!" "$GREEN"
 
