@@ -110,6 +110,7 @@ type PhoneInfo struct {
 	IP        string
 	Status    string
 	UserAgent string
+	Online    bool
 }
 
 // parseEndpoints parses the output of "pjsip show endpoints"
