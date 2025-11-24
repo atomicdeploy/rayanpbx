@@ -239,9 +239,14 @@ class ExtensionController extends Controller
         
         try {
             // Regenerate configuration
-            $config = $this->asterisk->generatePjsipEndpoint($extension);
-            $configWriteSuccess = $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
-            
+            if ($extension->enabled) {
+                // Extension is being enabled - write PJSIP config
+                $config = $this->asterisk->generatePjsipEndpoint($extension);
+                $configWriteSuccess = $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+            } else {
+                // Extension is being disabled - remove PJSIP config
+                $configWriteSuccess = $this->asterisk->removePjsipConfig("Extension {$extension->extension_number}");
+            }
             if (!$configWriteSuccess) {
                 $configError = 'Failed to write PJSIP configuration';
             }
