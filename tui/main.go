@@ -1797,12 +1797,21 @@ func (m *model) setMode(env string, debug bool) {
 
 // runSystemUpgrade executes the upgrade script
 func (m *model) runSystemUpgrade() {
-	// Look for upgrade script in common locations
+	// Use absolute path for security
 	upgradeScript := "/opt/rayanpbx/scripts/upgrade.sh"
 	
-	// Check if the script exists
-	if _, err := os.Stat(upgradeScript); os.IsNotExist(err) {
+	// Check if the script exists and is a regular file
+	fileInfo, err := os.Stat(upgradeScript)
+	if os.IsNotExist(err) {
 		m.errorMsg = fmt.Sprintf("Upgrade script not found at: %s", upgradeScript)
+		return
+	}
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Error checking upgrade script: %v", err)
+		return
+	}
+	if !fileInfo.Mode().IsRegular() {
+		m.errorMsg = fmt.Sprintf("Upgrade script is not a regular file: %s", upgradeScript)
 		return
 	}
 	
@@ -1819,7 +1828,12 @@ func (m *model) runSystemUpgrade() {
 	
 	// Execute the upgrade script
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Error running upgrade script: %v\n", err)
+		// Check for specific error types
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fmt.Printf("Upgrade script exited with status %d\n", exitErr.ExitCode())
+		} else {
+			fmt.Printf("Error running upgrade script: %v\n", err)
+		}
 		os.Exit(1)
 	}
 	
