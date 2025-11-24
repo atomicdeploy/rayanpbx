@@ -2,18 +2,24 @@
 
 namespace App\Guards;
 
+use App\Models\SessionToken;
+use App\Models\User;
 use App\Services\JWTService;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Http\Request;
-use App\Models\User;
 
 class JWTGuard implements Guard
 {
     protected $provider;
+
     protected $user;
+
     protected $jwtService;
+
     protected $request;
+
+    protected $accessToken;
 
     public function __construct(UserProvider $provider, Request $request, JWTService $jwtService)
     {
@@ -27,7 +33,7 @@ class JWTGuard implements Guard
      */
     public function check(): bool
     {
-        return !is_null($this->user());
+        return ! is_null($this->user());
     }
 
     /**
@@ -35,7 +41,7 @@ class JWTGuard implements Guard
      */
     public function guest(): bool
     {
-        return !$this->check();
+        return ! $this->check();
     }
 
     /**
@@ -43,39 +49,60 @@ class JWTGuard implements Guard
      */
     public function user()
     {
-        if (!is_null($this->user)) {
+        if (! is_null($this->user)) {
             return $this->user;
         }
 
         $token = $this->jwtService->extractTokenFromRequest($this->request);
 
-        if (!$token) {
+        if (! $token) {
             return null;
         }
 
         $decoded = $this->jwtService->verifyToken($token);
 
-        if (!$decoded || !isset($decoded->user)) {
+        if (! $decoded || ! isset($decoded->user)) {
             return null;
+        }
+
+        // Validate token against database if JTI is present
+        if (isset($decoded->jti)) {
+            $sessionToken = SessionToken::findByJti($decoded->jti);
+
+            if (! $sessionToken) {
+                // Token has been revoked or doesn't exist in database
+                return null;
+            }
+
+            if ($sessionToken->isExpired()) {
+                // Token has expired
+                $sessionToken->revoke();
+
+                return null;
+            }
+
+            // Update last used timestamp
+            $sessionToken->updateLastUsed();
+            $this->accessToken = $sessionToken;
         }
 
         // Create a User instance from JWT payload
         $userData = (array) $decoded->user;
-        
+
         // Validate required fields
-        if (!isset($userData['id']) || !isset($userData['name']) || !isset($userData['email'])) {
+        if (! isset($userData['id']) || ! isset($userData['name']) || ! isset($userData['email'])) {
             return null;
         }
-        
+
         // Check cache first - use cached data if available and has same structure
         $cachedUser = cache()->get("user:{$userData['id']}");
-        if ($cachedUser && is_array($cachedUser) && 
+        if ($cachedUser && is_array($cachedUser) &&
             isset($cachedUser['id'], $cachedUser['name'], $cachedUser['email'])) {
             $userData = $cachedUser;
         }
 
         // Create user instance with validated data
-        $user = new User();
+        $user = new User;
         $user->id = $userData['id'];
         $user->name = $userData['name'];
         $user->email = $userData['email'];
@@ -98,7 +125,7 @@ class JWTGuard implements Guard
 
     /**
      * Validate a user's credentials.
-     * 
+     *
      * Note: This method is not supported for JWT authentication.
      * JWT tokens are validated in the user() method.
      */
@@ -114,7 +141,7 @@ class JWTGuard implements Guard
      */
     public function hasUser(): bool
     {
-        return !is_null($this->user);
+        return ! is_null($this->user);
     }
 
     /**
@@ -123,6 +150,15 @@ class JWTGuard implements Guard
     public function setUser($user)
     {
         $this->user = $user;
+
         return $this;
+    }
+
+    /**
+     * Get the current access token.
+     */
+    public function currentAccessToken(): ?SessionToken
+    {
+        return $this->accessToken;
     }
 }
