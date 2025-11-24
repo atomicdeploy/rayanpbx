@@ -115,6 +115,7 @@ const (
 	editExtensionScreen
 	deleteExtensionScreen
 	extensionDetailsScreen
+	extensionInfoScreen
 	systemSettingsScreen
 	configManagementScreen
 	configEditScreen
@@ -393,6 +394,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		
+		case "i":
+			// Info/diagnostics button - show extension info
+			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
+				if m.selectedExtensionIdx < len(m.extensions) {
+					m.currentScreen = extensionInfoScreen
+				}
+			}
+		
+		case "r":
+			// Reload Asterisk PJSIP
+			if m.currentScreen == extensionInfoScreen {
+				cyan := color.New(color.FgCyan)
+				green := color.New(color.FgGreen)
+				cyan.Println("\n🔄 Reloading Asterisk PJSIP...")
+				if _, err := m.asteriskManager.ExecuteCLICommand("pjsip reload"); err != nil {
+					m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
+				} else {
+					green.Println("✅ PJSIP reloaded successfully")
+					m.successMsg = "PJSIP reloaded successfully"
+				}
+			}
+		
+		case "t":
+			// Run SIP test suite
+			if m.currentScreen == extensionInfoScreen && m.selectedExtensionIdx < len(m.extensions) {
+				m.currentScreen = sipTestRegisterScreen
+				m.inputMode = true
+				ext := m.extensions[m.selectedExtensionIdx]
+				m.inputFields = []string{"Extension Number", "Password", "Server (optional)"}
+				m.inputValues = []string{ext.ExtensionNumber, "", "127.0.0.1"}
+				m.inputCursor = 0
+			}
+		
+		case "s":
+			// Enable SIP debugging
+			if m.currentScreen == extensionInfoScreen {
+				cyan := color.New(color.FgCyan)
+				green := color.New(color.FgGreen)
+				cyan.Println("\n🔍 Enabling SIP debugging...")
+				if err := m.diagnosticsManager.EnableSIPDebug(); err != nil {
+					m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
+				} else {
+					green.Println("✅ SIP debugging enabled")
+					m.successMsg = "SIP debugging enabled - check Asterisk console"
+				}
+			}
+		
 		case "y":
 			// Confirm deletion
 			if m.currentScreen == deleteExtensionScreen {
@@ -508,6 +556,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
+				} else if m.currentScreen == extensionInfoScreen {
+					m.currentScreen = extensionsScreen
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else if m.currentScreen == deleteExtensionScreen {
 					m.currentScreen = extensionsScreen
 					m.errorMsg = ""
@@ -616,6 +668,8 @@ func (m model) View() string {
 		s += m.renderEditExtension()
 	case deleteExtensionScreen:
 		s += m.renderDeleteExtension()
+	case extensionInfoScreen:
+		s += m.renderExtensionInfo()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
 	case systemSettingsScreen:
@@ -715,7 +769,7 @@ func (m model) renderExtensions() string {
 		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete")
+	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete, 'i' for info/diagnostics")
 
 	return menuStyle.Render(content)
 }
@@ -1672,6 +1726,104 @@ func (m model) renderDeleteExtension() string {
 	
 	content += helpStyle.Render("Press 'y' to confirm, ESC to cancel")
 
+	return menuStyle.Render(content)
+}
+
+// renderExtensionInfo displays detailed info and diagnostics for selected extension
+func (m model) renderExtensionInfo() string {
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		return "Error: No extension selected"
+	}
+	
+	ext := m.extensions[m.selectedExtensionIdx]
+	content := titleStyle.Render(fmt.Sprintf("📞 Extension Info & Diagnostics: %s", ext.ExtensionNumber)) + "\n\n"
+	
+	// Extension details
+	content += infoStyle.Render("📋 Extension Details:") + "\n"
+	content += fmt.Sprintf("  • Number: %s\n", successStyle.Render(ext.ExtensionNumber))
+	content += fmt.Sprintf("  • Name: %s\n", ext.Name)
+	content += fmt.Sprintf("  • Status: %s\n", func() string {
+		if ext.Enabled {
+			return successStyle.Render("✅ Enabled")
+		}
+		return errorStyle.Render("❌ Disabled")
+	}())
+	content += "\n"
+	
+	// Real-time Asterisk status
+	content += infoStyle.Render("🔍 Real-time Registration Status:") + "\n"
+	
+	// Get endpoint status from Asterisk
+	endpointOutput, err := m.asteriskManager.ExecuteCLICommand(fmt.Sprintf("pjsip show endpoint %s", ext.ExtensionNumber))
+	if err != nil {
+		content += errorStyle.Render(fmt.Sprintf("  ❌ Error querying Asterisk: %v\n", err))
+	} else if strings.Contains(endpointOutput, "Unable to find") || strings.Contains(endpointOutput, "No such") {
+		content += errorStyle.Render("  ❌ Endpoint not found in Asterisk\n")
+		content += "  💡 Tip: Try reloading Asterisk configuration\n"
+	} else {
+		// Parse status
+		if strings.Contains(endpointOutput, "Unavailable") {
+			content += errorStyle.Render("  ⚫ Status: Offline/Not Registered\n")
+		} else if strings.Contains(endpointOutput, "Contact:") {
+			content += successStyle.Render("  🟢 Status: Registered\n")
+			// Extract contact info
+			lines := strings.Split(endpointOutput, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.Contains(line, "Contact:") || strings.Contains(line, "Status:") {
+					content += fmt.Sprintf("  %s\n", line)
+				}
+			}
+		} else {
+			content += "  ⚠️  Status: Unknown\n"
+		}
+	}
+	content += "\n"
+	
+	// SIP Client Setup Guide
+	content += infoStyle.Render("📱 SIP Client Setup Guide:") + "\n"
+	content += "  Configure your SIP phone/softphone with these settings:\n\n"
+	content += successStyle.Render("  Required Configuration:\n")
+	content += fmt.Sprintf("    • Extension/Username: %s\n", ext.ExtensionNumber)
+	content += fmt.Sprintf("    • Password: %s\n", "(your configured secret)")
+	content += fmt.Sprintf("    • SIP Server: %s\n", "(your PBX server IP or hostname)")
+	content += "    • Port: 5060 (default)\n"
+	content += "    • Transport: UDP (default)\n\n"
+	
+	content += infoStyle.Render("  Popular SIP Clients:\n")
+	content += "    • MicroSIP (Windows): https://www.microsip.org/\n"
+	content += "    • Linphone (Cross-platform): https://www.linphone.org/\n"
+	content += "    • GrandStream phones: Enterprise hardware phones\n"
+	content += "    • Yealink phones: Enterprise hardware phones\n\n"
+	
+	// Test call instructions
+	content += infoStyle.Render("🧪 Testing Instructions:") + "\n"
+	content += "  1. Register your SIP client with the above credentials\n"
+	content += "  2. Check registration status (should show 'Registered')\n"
+	content += "  3. Place a test call to another extension\n"
+	content += "  4. Verify two-way audio works correctly\n\n"
+	
+	// Troubleshooting tips
+	content += infoStyle.Render("🔧 Troubleshooting:") + "\n"
+	content += "  If registration fails:\n"
+	content += "    • Verify credentials match database\n"
+	content += "    • Check network connectivity to PBX\n"
+	content += "    • Ensure port 5060 is not blocked by firewall\n"
+	content += "    • Check Asterisk logs: /var/log/asterisk/full\n"
+	content += "    • Enable SIP debug: pjsip set logger on\n\n"
+	
+	if !ext.Enabled {
+		content += errorStyle.Render("  ⚠️  IMPORTANT: Extension is disabled!\n")
+		content += "  Enable it first before attempting registration.\n\n"
+	}
+	
+	// Quick actions
+	content += infoStyle.Render("⚡ Quick Actions:") + "\n"
+	content += "  • Press 'r' to reload Asterisk PJSIP\n"
+	content += "  • Press 't' to run SIP test suite\n"
+	content += "  • Press 's' to enable SIP debugging\n"
+	content += "  • Press ESC to go back\n"
+	
 	return menuStyle.Render(content)
 }
 
