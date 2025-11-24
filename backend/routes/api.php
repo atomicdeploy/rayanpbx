@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
 use App\Http\Controllers\Api\ValidationController;
 use App\Http\Controllers\Api\GrandStreamController;
+use App\Http\Controllers\Api\GrandStreamWebhookController;
 use App\Http\Controllers\Api\PhoneController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\PjsipConfigController;
@@ -21,6 +22,54 @@ use App\Http\Controllers\Api\SipTestController;
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/refresh', [AuthController::class, 'refresh']);
+
+// GrandStream Action URL Webhooks (public - called by phones)
+Route::prefix('grandstream/webhook')->group(function () {
+    Route::match(['get', 'post'], '/setup-completed', [GrandStreamWebhookController::class, 'setupCompleted']);
+    Route::match(['get', 'post'], '/registered', [GrandStreamWebhookController::class, 'registered']);
+    Route::match(['get', 'post'], '/unregistered', [GrandStreamWebhookController::class, 'unregistered']);
+    Route::match(['get', 'post'], '/register-failed', [GrandStreamWebhookController::class, 'registerFailed']);
+    Route::match(['get', 'post'], '/off-hook', [GrandStreamWebhookController::class, 'offHook']);
+    Route::match(['get', 'post'], '/on-hook', [GrandStreamWebhookController::class, 'onHook']);
+    Route::match(['get', 'post'], '/incoming-call', [GrandStreamWebhookController::class, 'incomingCall']);
+    Route::match(['get', 'post'], '/outgoing-call', [GrandStreamWebhookController::class, 'outgoingCall']);
+    Route::match(['get', 'post'], '/missed-call', [GrandStreamWebhookController::class, 'missedCall']);
+    Route::match(['get', 'post'], '/answered-call', [GrandStreamWebhookController::class, 'answeredCall']);
+    Route::match(['get', 'post'], '/rejected-call', [GrandStreamWebhookController::class, 'rejectedCall']);
+    Route::match(['get', 'post'], '/forwarded-call', [GrandStreamWebhookController::class, 'forwardedCall']);
+    Route::match(['get', 'post'], '/established-call', [GrandStreamWebhookController::class, 'establishedCall']);
+    Route::match(['get', 'post'], '/terminated-call', [GrandStreamWebhookController::class, 'terminatedCall']);
+    Route::match(['get', 'post'], '/idle-to-busy', [GrandStreamWebhookController::class, 'idleToBusy']);
+    Route::match(['get', 'post'], '/busy-to-idle', [GrandStreamWebhookController::class, 'busyToIdle']);
+    Route::match(['get', 'post'], '/open-dnd', [GrandStreamWebhookController::class, 'openDnd']);
+    Route::match(['get', 'post'], '/close-dnd', [GrandStreamWebhookController::class, 'closeDnd']);
+    Route::match(['get', 'post'], '/open-forward', [GrandStreamWebhookController::class, 'openForward']);
+    Route::match(['get', 'post'], '/close-forward', [GrandStreamWebhookController::class, 'closeForward']);
+    Route::match(['get', 'post'], '/open-unconditional-forward', [GrandStreamWebhookController::class, 'openUnconditionalForward']);
+    Route::match(['get', 'post'], '/close-unconditional-forward', [GrandStreamWebhookController::class, 'closeUnconditionalForward']);
+    Route::match(['get', 'post'], '/open-busy-forward', [GrandStreamWebhookController::class, 'openBusyForward']);
+    Route::match(['get', 'post'], '/close-busy-forward', [GrandStreamWebhookController::class, 'closeBusyForward']);
+    Route::match(['get', 'post'], '/open-no-answer-forward', [GrandStreamWebhookController::class, 'openNoAnswerForward']);
+    Route::match(['get', 'post'], '/close-no-answer-forward', [GrandStreamWebhookController::class, 'closeNoAnswerForward']);
+    Route::match(['get', 'post'], '/blind-transfer', [GrandStreamWebhookController::class, 'blindTransfer']);
+    Route::match(['get', 'post'], '/attended-transfer', [GrandStreamWebhookController::class, 'attendedTransfer']);
+    Route::match(['get', 'post'], '/transfer-finished', [GrandStreamWebhookController::class, 'transferFinished']);
+    Route::match(['get', 'post'], '/transfer-failed', [GrandStreamWebhookController::class, 'transferFailed']);
+    Route::match(['get', 'post'], '/hold-call', [GrandStreamWebhookController::class, 'holdCall']);
+    Route::match(['get', 'post'], '/unhold-call', [GrandStreamWebhookController::class, 'unholdCall']);
+    Route::match(['get', 'post'], '/mute-call', [GrandStreamWebhookController::class, 'muteCall']);
+    Route::match(['get', 'post'], '/unmute-call', [GrandStreamWebhookController::class, 'unmuteCall']);
+    Route::match(['get', 'post'], '/open-syslog', [GrandStreamWebhookController::class, 'openSyslog']);
+    Route::match(['get', 'post'], '/close-syslog', [GrandStreamWebhookController::class, 'closeSyslog']);
+    Route::match(['get', 'post'], '/ip-change', [GrandStreamWebhookController::class, 'ipChange']);
+    Route::match(['get', 'post'], '/auto-provision-finish', [GrandStreamWebhookController::class, 'autoProvisionFinish']);
+    
+    // Generic event handler
+    Route::match(['get', 'post'], '/{event}', [GrandStreamWebhookController::class, 'handleEvent']);
+});
+
+// Get Action URL configuration (public for phone setup)
+Route::get('/grandstream/action-urls', [GrandStreamWebhookController::class, 'getActionUrls']);
 
 // Protected routes
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
@@ -121,6 +170,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/config/get', [GrandStreamController::class, 'getPhoneConfig']);
     Route::post('/grandstream/config/set', [GrandStreamController::class, 'setPhoneConfig']);
     Route::post('/grandstream/provision-direct', [GrandStreamController::class, 'provisionExtensionDirect']);
+    
+    // GrandStream Action URL Management
+    Route::post('/grandstream/action-urls/check', [GrandStreamController::class, 'checkActionUrls']);
+    Route::post('/grandstream/action-urls/update', [GrandStreamController::class, 'updateActionUrls']);
+    Route::post('/grandstream/provision-complete', [GrandStreamController::class, 'provisionComplete']);
     
     // Unified Phone Management API
     Route::get('/phones', [PhoneController::class, 'index']);
