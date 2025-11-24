@@ -318,8 +318,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor++
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 5 options
-				if m.cursor < 4 {
+				// System settings has 6 options (added upgrade)
+				if m.cursor < 5 {
 					m.cursor++
 				}
 			} else if m.currentScreen == extensionsScreen {
@@ -1674,6 +1674,7 @@ func (m *model) renderSystemSettings() string {
 		fmt.Sprintf("🐛 Toggle Debug (Current: %v)", appDebug),
 		"📝 Set to Production Mode",
 		"🔧 Set to Development Mode",
+		"🚀 Run System Upgrade",
 		"⬅️  Back to Main Menu",
 	}
 	
@@ -1713,6 +1714,9 @@ func (m *model) handleSystemSettingsAction() {
 		// Set to Development
 		m.setMode("development", true)
 	case 4:
+		// Run System Upgrade
+		m.runSystemUpgrade()
+	case 5:
 		// Back to main menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
@@ -1788,6 +1792,30 @@ func (m *model) setMode(env string, debug bool) {
 	m.config.AppDebug = debug
 	
 	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Changes will take effect after service restart.", env, debug)
+}
+
+// runSystemUpgrade executes the upgrade script
+func (m *model) runSystemUpgrade() {
+	// Look for upgrade script in common locations
+	upgradeScript := "/opt/rayanpbx/scripts/upgrade.sh"
+	
+	// Check if the script exists
+	if _, err := os.Stat(upgradeScript); os.IsNotExist(err) {
+		m.errorMsg = fmt.Sprintf("Upgrade script not found at: %s", upgradeScript)
+		return
+	}
+	
+	// Display a message and exit TUI to run upgrade
+	fmt.Println("\n🚀 Launching system upgrade...")
+	fmt.Println("The TUI will close and the upgrade script will start.")
+	fmt.Println()
+	
+	// Execute the upgrade script with sudo
+	cmd := fmt.Sprintf("sudo bash %s", upgradeScript)
+	fmt.Printf("Running: %s\n\n", cmd)
+	
+	// Exit the TUI program
+	os.Exit(0)
 }
 
 // Helper function to replace environment variable value in .env content
