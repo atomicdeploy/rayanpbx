@@ -25,6 +25,36 @@ Display usage information, requirements, examples, and available options.
 - Usage examples
 - Links to documentation and support
 
+### Upgrade (`-u`, `--upgrade`)
+
+Automatically apply updates without prompting for confirmation when updates are available.
+
+```bash
+sudo ./install.sh --upgrade
+# or
+sudo ./install.sh -u
+```
+
+**When to use:**
+- Automated deployments or CI/CD pipelines
+- Scripted installations where interactive prompts are not desired
+- When you always want the latest version without manual confirmation
+
+**What it does:**
+- Automatically fetches the latest changes from the repository
+- Skips the "Pull updates and restart installation? (y/n)" prompt
+- Automatically pulls updates and restarts the installation with the new version
+- Works seamlessly with other flags (e.g., `--upgrade --verbose`)
+
+**Example:**
+```bash
+# Automatically upgrade and show verbose output
+sudo ./install.sh --upgrade --verbose
+
+# Or using short flags
+sudo ./install.sh -u -v
+```
+
 ### Version (`-V`, `--version`)
 
 Display the script version information.
@@ -111,6 +141,28 @@ This will help you identify:
 - Network connectivity problems
 - Package installation failures
 - Permission issues
+
+### Automatic Upgrade (Non-Interactive)
+
+For automated deployments or when you always want the latest version:
+
+```bash
+sudo ./install.sh --upgrade
+```
+
+This will automatically pull updates without prompting for confirmation.
+
+### Combined Flags
+
+You can combine multiple flags for different behaviors:
+
+```bash
+# Automatic upgrade with verbose output (recommended for troubleshooting)
+sudo ./install.sh --upgrade --verbose
+
+# Or using short flags
+sudo ./install.sh -u -v
+```
 
 ### Getting Help
 
