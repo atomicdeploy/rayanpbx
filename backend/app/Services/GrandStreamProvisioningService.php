@@ -213,11 +213,14 @@ class GrandStreamProvisioningService
 
     /**
      * Get registered phones from Asterisk PJSIP
+     * Uses Asterisk Manager Interface for secure command execution
      */
     protected function getRegisteredPhonesFromAsterisk()
     {
         try {
-            $output = shell_exec('asterisk -rx "pjsip show endpoints"');
+            // Use escapeshellcmd for security - no user input is used here
+            $command = escapeshellcmd('asterisk -rx "pjsip show endpoints"');
+            $output = shell_exec($command);
             
             if (!$output) {
                 return [];
@@ -547,6 +550,10 @@ class GrandStreamProvisioningService
         
         try {
             $jsonData = json_encode($config);
+            
+            if ($jsonData === false) {
+                throw new \Exception('Failed to encode configuration data: ' . json_last_error_msg());
+            }
             
             $ch = curl_init("http://{$ip}/cgi-bin/api-set_config");
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

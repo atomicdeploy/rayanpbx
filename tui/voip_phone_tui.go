@@ -539,7 +539,16 @@ func (m *model) executeVoIPControlAction() {
 		m.voipPhoneOutput += "- Registration events\n"
 		m.voipPhoneOutput += "- Call start/end events\n"
 		m.voipPhoneOutput += "- Configuration changes\n\n"
-		m.voipPhoneOutput += fmt.Sprintf("Webhook URL: http://your-server/api/phones/webhook\n")
+		
+		// Get server address from config or environment
+		serverAddr := "your-server"
+		if m.config != nil && m.config.APIBaseURL != "" {
+			serverAddr = strings.TrimPrefix(m.config.APIBaseURL, "http://")
+			serverAddr = strings.TrimPrefix(serverAddr, "https://")
+			serverAddr = strings.TrimSuffix(serverAddr, "/api")
+		}
+		
+		m.voipPhoneOutput += fmt.Sprintf("Webhook URL: http://%s/api/phones/webhook\n", serverAddr)
 		m.voipPhoneOutput += "Configure in phone web interface under Events/Hooks."
 		
 	case 8: // Live Monitoring

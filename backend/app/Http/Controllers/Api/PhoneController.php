@@ -74,11 +74,21 @@ class PhoneController extends Controller
             'action' => 'required|in:reboot,factory_reset,get_config,set_config,get_status',
             'credentials' => 'nullable|array',
             'config' => 'nullable|array',
+            'confirm_destructive' => 'nullable|boolean',
         ]);
 
         $ip = $request->input('ip');
         $action = $request->input('action');
         $credentials = $request->input('credentials', []);
+
+        // Additional validation for destructive actions
+        if ($action === 'factory_reset' && !$request->input('confirm_destructive', false)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Confirmation required for factory reset',
+                'message' => 'Set confirm_destructive to true to proceed',
+            ], 400);
+        }
 
         $result = match($action) {
             'reboot' => $this->grandstreamService->rebootPhone($ip, $credentials),

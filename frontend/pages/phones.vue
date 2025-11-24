@@ -227,6 +227,10 @@ async function refreshPhones() {
 
 async function scanNetwork() {
   loading.value = true
+  
+  // Get network from config or use default
+  const network = localStorage.getItem('network_range') || '192.168.1.0/24'
+  
   try {
     const response = await fetch('/api/grandstream/scan', {
       method: 'POST',
@@ -234,7 +238,7 @@ async function scanNetwork() {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ network: '192.168.1.0/24' })
+      body: JSON.stringify({ network })
     })
     const data = await response.json()
     if (data.success) {
@@ -286,23 +290,30 @@ async function performAction(action) {
   const confirmActions = ['factory_reset', 'reboot']
   if (confirmActions.includes(action)) {
     const actionName = action === 'factory_reset' ? 'Factory Reset' : 'Reboot'
-    if (!confirm(`Are you sure you want to ${actionName} this phone?`)) {
+    if (!confirm(`Are you sure you want to ${actionName} this phone? This action cannot be undone.`)) {
       return
     }
   }
 
   try {
+    const requestBody = {
+      ip: selectedPhone.value.ip,
+      action: action,
+      credentials: credentials.value
+    }
+    
+    // Add confirmation flag for destructive actions
+    if (action === 'factory_reset') {
+      requestBody.confirm_destructive = true
+    }
+
     const response = await fetch('/api/phones/control', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        ip: selectedPhone.value.ip,
-        action: action,
-        credentials: credentials.value
-      })
+      body: JSON.stringify(requestBody)
     })
     const data = await response.json()
     
@@ -315,7 +326,7 @@ async function performAction(action) {
       if (data.error && data.error.includes('401')) {
         needsCredentials.value = true
       } else {
-        showNotification(data.error || 'Action failed', 'error')
+        showNotification(data.error || data.message || 'Action failed', 'error')
       }
     }
   } catch (error) {
