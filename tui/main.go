@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1810,11 +1811,19 @@ func (m *model) runSystemUpgrade() {
 	fmt.Println("The TUI will close and the upgrade script will start.")
 	fmt.Println()
 	
-	// Execute the upgrade script with sudo
-	cmd := fmt.Sprintf("sudo bash %s", upgradeScript)
-	fmt.Printf("Running: %s\n\n", cmd)
+	// Prepare the command with sudo
+	cmd := exec.Command("sudo", "bash", upgradeScript)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	
-	// Exit the TUI program
+	// Execute the upgrade script
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error running upgrade script: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Exit successfully after upgrade completes
 	os.Exit(0)
 }
 
