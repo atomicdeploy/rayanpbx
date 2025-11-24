@@ -134,6 +134,8 @@ func (m model) renderVoIPPhoneControl() string {
 		content += fmt.Sprintf("%s %s\n", cursor, item)
 	}
 	
+	content += "\n" + helpStyle.Render("💡 Use ↑/↓ to navigate, Enter to select, ESC to go back")
+	
 	return menuStyle.Render(content)
 }
 
@@ -333,7 +335,11 @@ func (m *model) initVoIPControlMenu() {
 		"🔄 Reboot Phone",
 		"🏭 Factory Reset",
 		"📋 Get Configuration",
+		"⚙️ Set Configuration",
 		"🔧 Provision Extension",
+		"📡 TR-069 Management",
+		"🔗 Webhook Configuration",
+		"📊 Live Monitoring",
 		"🔙 Back to Details",
 	}
 }
@@ -471,8 +477,14 @@ func (m *model) executeVoIPControlAction() {
 			m.errorMsg = fmt.Sprintf("Failed to get status: %v", err)
 		} else {
 			m.currentPhoneStatus = status
-			output := fmt.Sprintf("Model: %s\nFirmware: %s\nMAC: %s\n", 
-				status.Model, status.Firmware, status.MAC)
+			output := fmt.Sprintf("Model: %s\nFirmware: %s\nMAC: %s\nUptime: %s\n", 
+				status.Model, status.Firmware, status.MAC, status.Uptime)
+			if len(status.Accounts) > 0 {
+				output += "\nSIP Accounts:\n"
+				for _, acc := range status.Accounts {
+					output += fmt.Sprintf("  Account %d: %s (%s)\n", acc.Number, acc.Extension, acc.Status)
+				}
+			}
 			m.voipPhoneOutput = output
 			m.successMsg = "Status retrieved successfully"
 		}
@@ -509,10 +521,53 @@ func (m *model) executeVoIPControlAction() {
 			m.successMsg = "Configuration retrieved successfully"
 		}
 		
-	case 4: // Provision Extension
+	case 4: // Set Configuration
+		m.voipPhoneOutput = "Configuration setting not yet implemented in TUI.\nUse Web UI for advanced configuration."
+		
+	case 5: // Provision Extension
 		m.initVoIPProvisionScreen()
 		
-	case 5: // Back to Details
+	case 6: // TR-069 Management
+		m.voipPhoneOutput = "TR-069 Management:\n\n"
+		m.voipPhoneOutput += "TR-069 (CWMP) provides advanced management capabilities:\n"
+		m.voipPhoneOutput += "- Firmware updates\n"
+		m.voipPhoneOutput += "- Remote configuration\n"
+		m.voipPhoneOutput += "- Parameter monitoring\n"
+		m.voipPhoneOutput += "- Bulk operations\n\n"
+		m.voipPhoneOutput += "Use the Web UI or API for TR-069 management."
+		
+	case 7: // Webhook Configuration
+		m.voipPhoneOutput = "Webhook Configuration:\n\n"
+		m.voipPhoneOutput += "Configure webhooks for phone events:\n"
+		m.voipPhoneOutput += "- Registration events\n"
+		m.voipPhoneOutput += "- Call start/end events\n"
+		m.voipPhoneOutput += "- Configuration changes\n\n"
+		
+		// Get server address from config or environment
+		serverAddr := "your-server"
+		if m.config != nil && m.config.APIBaseURL != "" {
+			serverAddr = strings.TrimPrefix(m.config.APIBaseURL, "http://")
+			serverAddr = strings.TrimPrefix(serverAddr, "https://")
+			serverAddr = strings.TrimSuffix(serverAddr, "/api")
+		}
+		
+		m.voipPhoneOutput += fmt.Sprintf("Webhook URL: http://%s/api/phones/webhook\n", serverAddr)
+		m.voipPhoneOutput += "Configure in phone web interface under Events/Hooks."
+		
+	case 8: // Live Monitoring
+		m.voipPhoneOutput = "Live Monitoring:\n\n"
+		if m.currentPhoneStatus != nil {
+			m.voipPhoneOutput += fmt.Sprintf("Phone: %s\n", phone.IP)
+			m.voipPhoneOutput += fmt.Sprintf("Status: %s\n", m.currentPhoneStatus.Vendor)
+			m.voipPhoneOutput += fmt.Sprintf("Model: %s\n", m.currentPhoneStatus.Model)
+			m.voipPhoneOutput += fmt.Sprintf("Firmware: %s\n", m.currentPhoneStatus.Firmware)
+			m.voipPhoneOutput += fmt.Sprintf("Active Calls: %d\n", m.currentPhoneStatus.ActiveCalls)
+			m.voipPhoneOutput += fmt.Sprintf("Registered: %v\n", m.currentPhoneStatus.Registered)
+		} else {
+			m.voipPhoneOutput += "No status data available. Get phone status first."
+		}
+		
+	case 9: // Back to Details
 		m.currentScreen = voipPhoneDetailsScreen
 	}
 }
