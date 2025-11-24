@@ -18,6 +18,7 @@ readonly SCRIPT_VERSION
 
 VERBOSE=false
 DRY_RUN=false
+UPGRADE_MODE=false
 
 # ════════════════════════════════════════════════════════════════════════
 # ANSI Color Codes & Emojis
@@ -71,6 +72,7 @@ show_help() {
     echo ""
     echo -e "${YELLOW}${BOLD}OPTIONS:${RESET}"
     echo -e "    ${GREEN}-h, --help${RESET}          Show this help message and exit"
+    echo -e "    ${GREEN}-u, --upgrade${RESET}       Automatically apply updates without prompting"
     echo -e "    ${GREEN}-v, --verbose${RESET}       Enable verbose output (shows detailed execution)"
     echo -e "    ${GREEN}-V, --version${RESET}       Show script version and exit"
     echo -e "    ${GREEN}--dry-run${RESET}           Simulate installation without making changes (not yet implemented)"
@@ -88,6 +90,9 @@ show_help() {
     echo ""
     echo -e "    ${DIM}# Verbose installation (helpful for debugging)${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --verbose${RESET}"
+    echo ""
+    echo -e "    ${DIM}# Automatic upgrade without prompts${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --upgrade${RESET}"
     echo ""
     echo -e "    ${DIM}# Show version${RESET}"
     echo -e "    ${WHITE}./install.sh --version${RESET}"
@@ -504,6 +509,10 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             show_help
             ;;
+        -u|--upgrade)
+            UPGRADE_MODE=true
+            shift
+            ;;
         -v|--verbose)
             VERBOSE=true
             shift
@@ -530,6 +539,10 @@ if [ "$VERBOSE" = true ]; then
     set -eE
     trap 'error_handler ${LINENO} "$BASH_COMMAND"' ERR
     print_verbose "Verbose mode enabled"
+fi
+
+if [ "$UPGRADE_MODE" = true ]; then
+    print_verbose "Upgrade mode enabled - will automatically apply updates without prompting"
 fi
 
 # ════════════════════════════════════════════════════════════════════════
@@ -612,8 +625,15 @@ if [ -d "$SCRIPT_DIR/.git" ]; then
             git log --oneline "$LOCAL_COMMIT".."$REMOTE_COMMIT" 2>/dev/null | head -5 || echo "  (changelog unavailable)"
             echo ""
             
-            read -p "$(echo -e ${CYAN}Pull updates and restart installation? \(y/n\) ${RESET})" -n 1 -r
-            echo
+            # Check if upgrade mode is enabled
+            if [ "$UPGRADE_MODE" = true ]; then
+                print_info "Upgrade mode enabled - automatically applying updates..."
+                REPLY="y"
+            else
+                read -p "$(echo -e ${CYAN}Pull updates and restart installation? \(y/n\) ${RESET})" -n 1 -r
+                echo
+            fi
+            
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 # Create backup before pulling updates (from update-rayanpbx.sh)
                 BACKUP_DIR="/tmp/rayanpbx-backup-$(date +%Y%m%d-%H%M%S)"
