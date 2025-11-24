@@ -215,16 +215,16 @@
     </div>
 
     <!-- Offline Help Modal / Diagnostics Modal -->
-    <div v-if="offlineHelpModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="offlineHelpModal = false">
+    <div v-if="offlineHelpModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="offlineHelpModal = false" role="dialog" aria-modal="true" aria-labelledby="diagnostics-modal-title">
       <div class="flex items-center justify-center min-h-screen px-4">
-        <div class="fixed inset-0 bg-black opacity-50"></div>
-        <div class="relative card max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="fixed inset-0 bg-black opacity-50" aria-hidden="true"></div>
+        <div class="relative card max-w-4xl w-full max-h-[90vh] overflow-y-auto" role="document">
           <div class="flex justify-between items-start mb-4">
-            <h2 class="text-2xl font-bold" :class="selectedExtension?.registered ? 'text-green-600' : 'text-red-600'">
+            <h2 id="diagnostics-modal-title" class="text-2xl font-bold" :class="selectedExtension?.registered ? 'text-green-600' : 'text-red-600'">
               {{ selectedExtension?.registered ? '✓' : '⚠️' }} Extension {{ selectedExtension?.extension_number }} 
               {{ selectedExtension?.registered ? 'Diagnostics' : 'Setup & Troubleshooting' }}
             </h2>
-            <button @click="offlineHelpModal = false" class="text-gray-500 hover:text-gray-700">
+            <button @click="offlineHelpModal = false" class="text-gray-500 hover:text-gray-700" aria-label="Close diagnostics modal">
               ✕
             </button>
           </div>

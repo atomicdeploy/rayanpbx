@@ -264,7 +264,7 @@ class ExtensionController extends Controller
         $setupGuide = [
             'extension' => $extension->extension_number,
             'username' => $extension->extension_number,
-            'server' => env('PBX_SERVER_IP', request()->getHost()),
+            'server' => env('PBX_SERVER_IP') ?: env('APP_URL') ?: 'your-pbx-server',
             'port' => 5060,
             'transport' => 'UDP',
             'context' => $extension->context ?? 'from-internal',
