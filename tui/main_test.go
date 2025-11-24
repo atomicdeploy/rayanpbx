@@ -95,6 +95,7 @@ func TestScreenEnumValues(t *testing.T) {
 		extensionsScreen,
 		trunksScreen,
 		asteriskScreen,
+		asteriskMenuScreen,
 		diagnosticsScreen,
 		statusScreen,
 		logsScreen,
@@ -109,6 +110,7 @@ func TestScreenEnumValues(t *testing.T) {
 		editExtensionScreen,
 		deleteExtensionScreen,
 		extensionDetailsScreen,
+		systemSettingsScreen,
 	}
 	
 	// Check that all values are unique
@@ -263,5 +265,58 @@ func TestIsDiagnosticsInputScreen(t *testing.T) {
 		if m.isDiagnosticsInputScreen() {
 			t.Errorf("Expected isDiagnosticsInputScreen() to return false for screen %d", scr)
 		}
+	}
+}
+
+// TestAsteriskMenuInitialization tests asterisk menu initialization
+func TestAsteriskMenuInitialization(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	if m.asteriskManager == nil {
+		t.Error("Expected asteriskManager to be initialized")
+	}
+	
+	if len(m.asteriskMenu) == 0 {
+		t.Error("Expected asteriskMenu to be populated")
+	}
+	
+	// Check for key menu items
+	expectedItems := []string{"Start", "Stop", "Restart", "Status", "PJSIP", "Dialplan", "Reload All", "Endpoints", "Channels", "Registrations", "Back"}
+	found := make(map[string]bool)
+	for _, item := range m.asteriskMenu {
+		for _, expected := range expectedItems {
+			if strings.Contains(item, expected) {
+				found[expected] = true
+			}
+		}
+	}
+	
+	for _, expected := range expectedItems {
+		if !found[expected] {
+			t.Errorf("Expected to find menu item containing '%s'", expected)
+		}
+	}
+}
+
+// TestAsteriskMenuNavigation tests asterisk menu navigation
+func TestAsteriskMenuNavigation(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = asteriskMenuScreen
+	
+	// Test that cursor starts at 0
+	if m.cursor != 0 {
+		t.Errorf("Expected cursor to start at 0, got %d", m.cursor)
+	}
+	
+	// Test that we can navigate the menu
+	menuLength := len(m.asteriskMenu)
+	if menuLength == 0 {
+		t.Fatal("asteriskMenu is empty")
+	}
+	
+	// Verify menu has expected number of items (11 in this case)
+	expectedMenuItems := 11
+	if menuLength != expectedMenuItems {
+		t.Errorf("Expected %d menu items, got %d", expectedMenuItems, menuLength)
 	}
 }
