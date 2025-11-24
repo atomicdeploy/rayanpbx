@@ -496,6 +496,18 @@ download_file() {
     fi
 }
 
+# Ensure PKG_MGR is set (helper for steps that may run independently)
+# This function is used by steps that need package manager access
+# when they may be run standalone via --steps flag
+ensure_pkg_mgr() {
+    if [ -z "$PKG_MGR" ]; then
+        PKG_MGR="nala"
+        if ! command -v nala &> /dev/null; then
+            PKG_MGR="apt-get"
+        fi
+    fi
+}
+
 # ════════════════════════════════════════════════════════════════════════
 # Error Handler (for verbose mode)
 # ════════════════════════════════════════════════════════════════════════
@@ -979,11 +991,7 @@ fi
 if next_step "System Update" "system-update"; then
     print_progress "Updating package lists and upgrading system..."
 
-    # Determine which package manager to use
-    PKG_MGR="nala"
-    if ! command -v nala &> /dev/null; then
-        PKG_MGR="apt-get"
-    fi
+    ensure_pkg_mgr
     print_verbose "Using package manager: $PKG_MGR"
 
     print_verbose "Running $PKG_MGR update..."
@@ -1054,13 +1062,7 @@ if next_step "Essential Dependencies" "dependencies"; then
     print_info "Installing essential packages..."
     print_verbose "Package list: ${PACKAGES[*]}"
 
-    # Determine which package manager to use (if not already set)
-    if [ -z "$PKG_MGR" ]; then
-        PKG_MGR="nala"
-        if ! command -v nala &> /dev/null; then
-            PKG_MGR="apt-get"
-        fi
-    fi
+    ensure_pkg_mgr
 
     for package in "${PACKAGES[@]}"; do
         print_verbose "Checking package: $package"
@@ -1095,13 +1097,7 @@ fi
 
 # Install GitHub CLI
 if next_step "GitHub CLI Installation" "github-cli"; then
-    # Determine which package manager to use (if not already set)
-    if [ -z "$PKG_MGR" ]; then
-        PKG_MGR="nala"
-        if ! command -v nala &> /dev/null; then
-            PKG_MGR="apt-get"
-        fi
-    fi
+    ensure_pkg_mgr
 
     print_verbose "Checking for GitHub CLI..."
     if ! check_installed "gh" "GitHub CLI"; then
@@ -1215,13 +1211,7 @@ EOF
 
 # MySQL/MariaDB Installation
 if next_step "Database Setup (MySQL/MariaDB)" "database"; then
-    # Determine which package manager to use (if not already set)
-    if [ -z "$PKG_MGR" ]; then
-        PKG_MGR="nala"
-        if ! command -v nala &> /dev/null; then
-            PKG_MGR="apt-get"
-        fi
-    fi
+    ensure_pkg_mgr
 
     print_verbose "Checking for MySQL/MariaDB..."
     if ! command -v mysql &> /dev/null; then
@@ -1387,13 +1377,7 @@ fi
 
 # PHP 8.3 Installation
 if next_step "PHP 8.3 Installation" "php"; then
-    # Determine which package manager to use (if not already set)
-    if [ -z "$PKG_MGR" ]; then
-        PKG_MGR="nala"
-        if ! command -v nala &> /dev/null; then
-            PKG_MGR="apt-get"
-        fi
-    fi
+    ensure_pkg_mgr
 
     print_verbose "Checking for PHP 8.3..."
     if ! command -v php &> /dev/null || ! php -v | grep -q "8.3"; then
@@ -1514,13 +1498,7 @@ fi
 
 # Node.js 24 Installation
 if next_step "Node.js 24 Installation" "nodejs"; then
-    # Determine which package manager to use (if not already set)
-    if [ -z "$PKG_MGR" ]; then
-        PKG_MGR="nala"
-        if ! command -v nala &> /dev/null; then
-            PKG_MGR="apt-get"
-        fi
-    fi
+    ensure_pkg_mgr
 
     print_verbose "Checking for Node.js 24..."
     if ! command -v node &> /dev/null || ! node -v | grep -q "v24"; then
