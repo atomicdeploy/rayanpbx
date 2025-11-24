@@ -127,9 +127,67 @@ The `shift` command modifies the positional parameters (`$@`). Once an argument 
 3. ✅ No breaking changes to existing functionality
 4. ✅ Comprehensive test coverage ensures the fix works correctly
 
+## upgrade.sh Verbose Flag Fix
+
+A similar issue existed in `scripts/upgrade.sh` where passing `-v` as the first argument would cause the argument parsing loop to break early, preventing other flags like `-i` and `-b` from being processed.
+
+### Root Cause
+
+The argument parsing loop in `upgrade.sh` used `break` for unknown arguments:
+
+```bash
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--confirm) ... ;;
+        -b|--backup) ... ;;
+        *)
+            break  # <-- This stopped processing on first unknown arg like -v
+            ;;
+    esac
+done
+```
+
+If a user ran `./upgrade.sh -v -i -b`, the script would:
+1. See `-v`, not recognize it, and break out of the loop
+2. Never process `-i` or `-b`
+3. Pass all remaining args to install.sh
+
+### Solution
+
+Changed the `break` to collect unknown arguments into a `PASSTHROUGH_ARGS` array:
+
+```bash
+PASSTHROUGH_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--confirm) ... ;;
+        -b|--backup) ... ;;
+        *)
+            # Collect all other arguments to pass through to install.sh
+            PASSTHROUGH_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Pass collected arguments to install.sh
+exec "$INSTALL_SCRIPT" $INSTALL_ARGS "${PASSTHROUGH_ARGS[@]}"
+```
+
+### Testing
+
+Run the test suite to verify the fix:
+
+```bash
+./scripts/test-upgrade-verbose-flag.sh
+```
+
 ## Related Files
 
 - `install.sh` - Main installation script (lines 500, 628)
-- `scripts/test-verbose-flag-preservation.sh` - Unit test suite
+- `scripts/upgrade.sh` - Upgrade wrapper script (fixed argument parsing)
+- `scripts/test-verbose-flag-preservation.sh` - Unit test suite for install.sh
+- `scripts/test-upgrade-verbose-flag.sh` - Unit test suite for upgrade.sh
 - `scripts/test-verbose-integration.sh` - Integration test
 - `scripts/test-install-fixes.sh` - Existing test suite (still passes)
