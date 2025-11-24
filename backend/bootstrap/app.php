@@ -8,6 +8,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withProviders([
         App\Providers\EnvLoaderServiceProvider::class,
         App\Providers\RedisServiceProvider::class,
+        App\Providers\AuthServiceProvider::class,
+        App\Providers\RateLimitServiceProvider::class,
     ])
     ->withRouting(
         api: __DIR__.'/../routes/api.php',
