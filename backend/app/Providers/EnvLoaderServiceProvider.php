@@ -57,10 +57,10 @@ class EnvLoaderServiceProvider extends ServiceProvider
 
             try {
                 // Use createMutable to allow overriding existing values
-                // Always use overload() since Laravel has already loaded its default .env
-                // before this service provider runs
+                // createMutable creates a mutable repository that allows overwriting
+                // existing environment variables
                 $dotenv = Dotenv::createMutable($path);
-                $dotenv->overload();
+                $dotenv->load();
                 
                 $loadedPaths[] = $envFile;
             } catch (\Exception $e) {
