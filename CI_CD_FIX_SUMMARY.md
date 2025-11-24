@@ -21,8 +21,8 @@ The install.sh script was outputting "TERM environment variable not set." instea
 
 1. The script calls `print_banner()` early in execution
 2. `print_banner()` calls the `clear` command to clear the terminal
-3. In CI environments without a TTY, the TERM variable is not set
-4. The `clear` command outputs an error to stderr when TERM is missing
+3. In CI environments, bash sets TERM to "dumb" for non-interactive shells
+4. The `clear` command doesn't work with TERM="dumb" and outputs an error to stderr
 5. The CI test was checking for the root error message, but got the TERM error instead
 
 ### Fix Applied
@@ -39,8 +39,8 @@ print_banner() {
 **After:**
 ```bash
 print_banner() {
-    # Only clear if TERM is set (avoid errors in CI environments without TTY)
-    if [ -n "${TERM:-}" ]; then
+    # Only clear if TERM is set and not "dumb" (avoid errors in CI environments without TTY)
+    if [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ]; then
         clear
     fi
     print_verbose "Displaying banner..."
@@ -48,6 +48,7 @@ print_banner() {
 
 This fix:
 - ✅ Checks if TERM is set before calling `clear`
+- ✅ Also checks if TERM is not "dumb" (the default for non-interactive bash)
 - ✅ Gracefully skips clearing in CI environments
 - ✅ Allows the root check error to display correctly
 - ✅ Maintains functionality in normal terminal environments

@@ -117,8 +117,8 @@ print_verbose() {
 }
 
 print_banner() {
-    # Only clear if TERM is set (avoid errors in CI environments without TTY)
-    if [ -n "${TERM:-}" ]; then
+    # Only clear if TERM is set and not "dumb" (avoid errors in CI environments without TTY)
+    if [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ]; then
         clear
     fi
     print_verbose "Displaying banner..."
@@ -1927,7 +1927,10 @@ fi
 # Final Banner
 next_step "Installation Complete! 🎉"
 
-clear
+# Only clear if TERM is set and not "dumb" (avoid errors in CI environments without TTY)
+if [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ]; then
+    clear
+fi
 print_banner
 
 print_box "Installation Successful!" "$GREEN"

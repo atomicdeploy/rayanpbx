@@ -78,9 +78,14 @@ The test expects the install.sh script to output "This script must be run as roo
 # In install.sh around line 562:
 print_banner
 
-# In print_banner() function around line 119-120:
-clear  # <-- This previously failed when TERM is not set
+# In print_banner() function around line 119-122:
+clear  # <-- This previously failed when TERM is not set OR set to "dumb"
 ```
+
+**The Issue:**
+When bash runs in non-interactive mode (like in CI), it sets TERM to "dumb" by default. The `clear` command doesn't work with TERM="dumb" and outputs "TERM environment variable not set." to stderr, which interfered with the test that was checking for the root error message.
+
+**Solution:** Check if TERM is both set AND not "dumb" before calling `clear`.
 
 **Solution:** The `clear` command should be wrapped in a check for TERM availability, or use a fallback that doesn't depend on TERM.
 
