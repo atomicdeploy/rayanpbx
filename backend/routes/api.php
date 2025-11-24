@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\TrafficController;
 use App\Http\Controllers\Api\AsteriskStatusController;
 use App\Http\Controllers\Api\ValidationController;
 use App\Http\Controllers\Api\GrandStreamController;
+use App\Http\Controllers\Api\PhoneController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\PjsipConfigController;
 use App\Http\Controllers\Api\ConfigController;
@@ -33,8 +34,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put('/extensions/{id}', [ExtensionController::class, 'update']);
     Route::delete('/extensions/{id}', [ExtensionController::class, 'destroy']);
     Route::post('/extensions/{id}/toggle', [ExtensionController::class, 'toggle']);
-    Route::get('/extensions/{id}/verify', [ExtensionController::class, 'verify']);
-    Route::get('/extensions/asterisk/endpoints', [ExtensionController::class, 'asteriskEndpoints']);
+    Route::get('/extensions/{id}/verify', [ExtensionController::class, 'verify'])->name('api.extensions.verify');
+    Route::get('/extensions/{id}/diagnostics', [ExtensionController::class, 'diagnostics']);
+    Route::get('/extensions/asterisk/endpoints', [ExtensionController::class, 'asteriskEndpoints'])->name('api.extensions.asterisk.endpoints');
     
     // Trunks
     Route::get('/trunks', [TrunkController::class, 'index']);
@@ -109,6 +111,22 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/assign-extension', [GrandStreamController::class, 'assignExtension']);
     Route::get('/grandstream/models', [GrandStreamController::class, 'getSupportedModels']);
     Route::get('/grandstream/hooks', [GrandStreamController::class, 'getProvisioningHooks']);
+    
+    // GrandStream Phone Control
+    Route::post('/grandstream/reboot', [GrandStreamController::class, 'rebootPhone']);
+    Route::post('/grandstream/factory-reset', [GrandStreamController::class, 'factoryResetPhone']);
+    Route::post('/grandstream/config/get', [GrandStreamController::class, 'getPhoneConfig']);
+    Route::post('/grandstream/config/set', [GrandStreamController::class, 'setPhoneConfig']);
+    Route::post('/grandstream/provision-direct', [GrandStreamController::class, 'provisionExtensionDirect']);
+    
+    // Unified Phone Management API
+    Route::get('/phones', [PhoneController::class, 'index']);
+    Route::get('/phones/{identifier}', [PhoneController::class, 'show']);
+    Route::post('/phones/control', [PhoneController::class, 'control']);
+    Route::post('/phones/provision', [PhoneController::class, 'provision']);
+    Route::post('/phones/tr069/manage', [PhoneController::class, 'tr069Manage']);
+    Route::get('/phones/tr069/devices', [PhoneController::class, 'tr069Devices']);
+    Route::post('/phones/webhook', [PhoneController::class, 'webhook']);
     
     // AMI Event Monitoring
     Route::get('/events', [EventController::class, 'index']);
