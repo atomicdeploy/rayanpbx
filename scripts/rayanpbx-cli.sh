@@ -452,6 +452,27 @@ cmd_system_update() {
     print_warn "Restart services to apply changes"
 }
 
+cmd_system_upgrade() {
+    print_header "${ROCKET} Upgrading RayanPBX"
+    
+    # Check if upgrade script exists
+    local upgrade_script="$SCRIPT_DIR/upgrade.sh"
+    if [ ! -f "$upgrade_script" ]; then
+        # Try installed path
+        upgrade_script="/opt/rayanpbx/scripts/upgrade.sh"
+    fi
+    
+    if [ ! -f "$upgrade_script" ]; then
+        print_error "Upgrade script not found"
+        print_info "Expected location: $SCRIPT_DIR/upgrade.sh or /opt/rayanpbx/scripts/upgrade.sh"
+        exit 1
+    fi
+    
+    # Execute the upgrade script
+    print_info "Launching upgrade script..."
+    exec sudo bash "$upgrade_script" "$@"
+}
+
 cmd_system_set_mode() {
     local mode=$1
     
@@ -875,6 +896,7 @@ cmd_help() {
         
         echo -e "${CYAN}🖥️  system${NC} ${DIM}- System operations${NC}"
         echo -e "   ${GREEN}update${NC}                            Update RayanPBX from repository"
+        echo -e "   ${GREEN}upgrade${NC}                           Run system upgrade (calls upgrade script)"
         echo -e "   ${GREEN}set-mode${NC} <mode>                   Set application mode (production/development/local)"
         echo -e "   ${GREEN}toggle-debug${NC}                      Toggle debug mode on/off"
         echo ""
@@ -1057,6 +1079,7 @@ main() {
         system)
             case "${2:-}" in
                 update) cmd_system_update ;;
+                upgrade) shift; shift; cmd_system_upgrade "$@" ;;
                 set-mode) cmd_system_set_mode "$3" ;;
                 toggle-debug) cmd_system_toggle_debug ;;
                 *) echo "Unknown system command: ${2:-}"; exit 2 ;;
