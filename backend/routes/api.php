@@ -25,7 +25,10 @@ Route::post('/auth/refresh', [AuthController::class, 'refresh']);
 // Protected routes
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::post('/auth/logout-all', [AuthController::class, 'logoutAll']);
     Route::get('/auth/user', [AuthController::class, 'user']);
+    Route::get('/auth/sessions', [AuthController::class, 'sessions']);
+    Route::delete('/auth/sessions/{session}', [AuthController::class, 'revokeSession']);
     
     // Extensions
     Route::get('/extensions', [ExtensionController::class, 'index']);

@@ -2,15 +2,19 @@
 
 namespace App\Services;
 
+use Exception;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
-use Exception;
+use Illuminate\Support\Str;
 
 class JWTService
 {
     private string $secret;
+
     private string $algorithm;
+
     private int $expiration;
+
     private int $refreshExpiration;
 
     public function __construct()
@@ -22,9 +26,17 @@ class JWTService
     }
 
     /**
-     * Generate JWT token
+     * Generate a unique JTI (JWT ID) for token identification
      */
-    public function generateToken(array $payload): string
+    public function generateJti(): string
+    {
+        return Str::random(64);
+    }
+
+    /**
+     * Generate JWT token with JTI
+     */
+    public function generateToken(array $payload, ?string $jti = null): string
     {
         $issuedAt = time();
         $expire = $issuedAt + $this->expiration;
@@ -33,15 +45,16 @@ class JWTService
             'iat' => $issuedAt,
             'exp' => $expire,
             'iss' => env('APP_URL', 'http://localhost'),
+            'jti' => $jti ?? $this->generateJti(),
         ], $payload);
 
         return JWT::encode($data, $this->secret, $this->algorithm);
     }
 
     /**
-     * Generate refresh token
+     * Generate refresh token with JTI
      */
-    public function generateRefreshToken(array $payload): string
+    public function generateRefreshToken(array $payload, ?string $jti = null): string
     {
         $issuedAt = time();
         $expire = $issuedAt + $this->refreshExpiration;
@@ -51,9 +64,26 @@ class JWTService
             'exp' => $expire,
             'iss' => env('APP_URL', 'http://localhost'),
             'type' => 'refresh',
+            'jti' => $jti ?? $this->generateJti(),
         ], $payload);
 
         return JWT::encode($data, $this->secret, $this->algorithm);
+    }
+
+    /**
+     * Get the expiration duration in seconds
+     */
+    public function getExpiration(): int
+    {
+        return $this->expiration;
+    }
+
+    /**
+     * Get the refresh token expiration duration in seconds
+     */
+    public function getRefreshExpiration(): int
+    {
+        return $this->refreshExpiration;
     }
 
     /**
@@ -101,7 +131,7 @@ class JWTService
     /**
      * Create token response with cookie
      */
-    public function createTokenResponse(string $token, string $refreshToken = null): array
+    public function createTokenResponse(string $token, ?string $refreshToken = null): array
     {
         $response = [
             'token' => $token,
