@@ -155,17 +155,47 @@ class ExtensionController extends Controller
         
         $extension->update($validated);
         
-        // Regenerate configuration
-        $config = $this->asterisk->generatePjsipEndpoint($extension);
-        $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
-        $this->asterisk->reload();
+        $configWriteSuccess = true;
+        $reloadSuccess = true;
+        $configError = null;
+        
+        try {
+            // Regenerate configuration
+            $config = $this->asterisk->generatePjsipEndpoint($extension);
+            $configWriteSuccess = $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+            
+            if (!$configWriteSuccess) {
+                $configError = 'Failed to write PJSIP configuration';
+            }
+            
+            // Regenerate dialplan for all enabled extensions
+            $allExtensions = Extension::where('enabled', true)->get();
+            $dialplanConfig = $this->asterisk->generateInternalDialplan($allExtensions);
+            $dialplanWriteSuccess = $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
+            
+            if (!$dialplanWriteSuccess) {
+                $configError = ($configError ? $configError . '; ' : '') . 'Failed to write dialplan configuration';
+            }
+            
+            $reloadSuccess = $this->asterisk->reload();
+            
+            if (!$reloadSuccess) {
+                $configError = ($configError ? $configError . '; ' : '') . 'Failed to reload Asterisk';
+            }
+        } catch (\Exception $e) {
+            $configError = 'Exception during configuration update: ' . $e->getMessage();
+            $reloadSuccess = false;
+        }
         
         // Broadcast event
         $this->broadcaster->broadcastExtensionUpdated($extension->toArray());
         
         return response()->json([
             'message' => 'Extension updated successfully',
-            'extension' => $extension
+            'extension' => $extension,
+            'config_write_success' => $configWriteSuccess,
+            'reload_success' => $reloadSuccess,
+            'error' => $configError,
         ]);
     }
     
@@ -202,23 +232,51 @@ class ExtensionController extends Controller
         $extension->enabled = !$extension->enabled;
         $extension->save();
         
-        // Regenerate configuration
-        $config = $this->asterisk->generatePjsipEndpoint($extension);
-        $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+        $configWriteSuccess = true;
+        $dialplanWriteSuccess = true;
+        $reloadSuccess = true;
+        $configError = null;
         
-        // Regenerate dialplan for all enabled extensions
-        $allExtensions = Extension::where('enabled', true)->get();
-        $dialplanConfig = $this->asterisk->generateInternalDialplan($allExtensions);
-        $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
-        
-        $this->asterisk->reload();
+        try {
+            // Regenerate configuration
+            $config = $this->asterisk->generatePjsipEndpoint($extension);
+            $configWriteSuccess = $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+            
+            if (!$configWriteSuccess) {
+                $configError = 'Failed to write PJSIP configuration';
+            }
+            
+            // Regenerate dialplan for all enabled extensions
+            $allExtensions = Extension::where('enabled', true)->get();
+            $dialplanConfig = $this->asterisk->generateInternalDialplan($allExtensions);
+            $dialplanWriteSuccess = $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
+            
+            if (!$dialplanWriteSuccess) {
+                $configError = ($configError ? $configError . '; ' : '') . 'Failed to write dialplan configuration';
+            }
+            
+            // Reload Asterisk
+            $reloadSuccess = $this->asterisk->reload();
+            
+            if (!$reloadSuccess) {
+                $configError = ($configError ? $configError . '; ' : '') . 'Failed to reload Asterisk';
+            }
+        } catch (\Exception $e) {
+            $configError = 'Exception during configuration update: ' . $e->getMessage();
+            $reloadSuccess = false;
+        }
         
         // Broadcast event
         $this->broadcaster->broadcastExtensionUpdated($extension->toArray());
         
+        $statusText = $extension->enabled ? 'enabled' : 'disabled';
+        
         return response()->json([
-            'message' => 'Extension status updated',
-            'extension' => $extension
+            'message' => "Extension {$statusText} successfully",
+            'extension' => $extension,
+            'config_write_success' => $configWriteSuccess && $dialplanWriteSuccess,
+            'reload_success' => $reloadSuccess,
+            'error' => $configError,
         ]);
     }
     
