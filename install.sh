@@ -2220,7 +2220,8 @@ if next_step "Installation Complete! 🎉" "complete"; then
 
     # Only clear if TERM is set and not "dumb" (avoid errors in CI environments without TTY)
     if [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ]; then
-        clear
+        # clear
+        # print_banner
     fi
 
     print_box "Installation Successful!" "$GREEN"
