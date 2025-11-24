@@ -1671,6 +1671,16 @@ print_success "TUI built: /usr/local/bin/rayanpbx-tui"
 
 # WebSocket Server Setup
 print_progress "Building WebSocket server..."
+# IMPORTANT: DO NOT REMOVE THE FOLLOWING LINE
+# This regression has been repeatedly made: the websocket.go and config.go files
+# require dependencies (go-redis/redis/v8, golang-jwt/jwt/v5, gorilla/websocket)
+# that must be downloaded before building. While go mod download was run above
+# for the TUI build, we must ensure dependencies are available here as well because:
+# 1. The build uses individual .go files instead of building the entire module
+# 2. Environment variables like GOFLAGS=-mod=vendor can cause builds to fail
+# 3. Ensures dependencies are cached even if the TUI build was skipped
+# If you see errors like "no required module provides package", you likely removed this line.
+go mod download
 go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
 chmod +x /usr/local/bin/rayanpbx-ws
 
