@@ -86,13 +86,13 @@ Run the test suite:
 
 ```bash
 # Unit tests
-./scripts/test-verbose-flag-preservation.sh
+./tests/test-verbose-flag-preservation.sh
 
 # Integration test
-./scripts/test-verbose-integration.sh
+./tests/test-verbose-integration.sh
 
 # Existing tests
-./scripts/test-install-fixes.sh
+./tests/test-install-fixes.sh
 ```
 
 Or manually test:
@@ -180,14 +180,14 @@ exec "$INSTALL_SCRIPT" $INSTALL_ARGS "${PASSTHROUGH_ARGS[@]}"
 Run the test suite to verify the fix:
 
 ```bash
-./scripts/test-upgrade-verbose-flag.sh
+./tests/test-upgrade-verbose-flag.sh
 ```
 
 ## Related Files
 
 - `install.sh` - Main installation script (lines 500, 628)
 - `scripts/upgrade.sh` - Upgrade wrapper script (fixed argument parsing)
-- `scripts/test-verbose-flag-preservation.sh` - Unit test suite for install.sh
-- `scripts/test-upgrade-verbose-flag.sh` - Unit test suite for upgrade.sh
-- `scripts/test-verbose-integration.sh` - Integration test
-- `scripts/test-install-fixes.sh` - Existing test suite (still passes)
+- `tests/test-verbose-flag-preservation.sh` - Unit test suite for install.sh
+- `tests/test-upgrade-verbose-flag.sh` - Unit test suite for upgrade.sh
+- `tests/test-verbose-integration.sh` - Integration test
+- `tests/test-install-fixes.sh` - Existing test suite (still passes)

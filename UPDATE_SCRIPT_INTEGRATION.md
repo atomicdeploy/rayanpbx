@@ -246,7 +246,7 @@ The following functionality from `old update script` was **already present** in 
 
 All existing tests pass:
 ```bash
-$ bash scripts/test-install-fixes.sh
+$ bash tests/test-install-fixes.sh
 ✅ All 8 tests passed
 ```
 

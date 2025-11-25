@@ -246,8 +246,8 @@ jobs:
       
       - name: 🧪 Test install.sh step execution
         run: |
-          chmod +x scripts/test-step-execution.sh
-          ./scripts/test-step-execution.sh
+          chmod +x tests/test-step-execution.sh
+          ./tests/test-step-execution.sh
       
       - name: 🧪 Test install.sh dry-run (non-root checks)
         run: |
