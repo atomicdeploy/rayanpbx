@@ -438,10 +438,7 @@ func (am *AsteriskManager) StartServiceQuiet() (string, error) {
 		}
 		return "", fmt.Errorf("failed to start service: %v", err)
 	}
-	if outputStr != "" {
-		return outputStr, nil
-	}
-	return "Service start command completed", nil
+	return outputStr, nil
 }
 
 // StopServiceQuiet stops the Asterisk service without printing to stdout (for TUI use)
@@ -456,10 +453,7 @@ func (am *AsteriskManager) StopServiceQuiet() (string, error) {
 		}
 		return "", fmt.Errorf("failed to stop service: %v", err)
 	}
-	if outputStr != "" {
-		return outputStr, nil
-	}
-	return "Service stop command completed", nil
+	return outputStr, nil
 }
 
 // RestartServiceQuiet restarts the Asterisk service without printing to stdout (for TUI use)
@@ -474,10 +468,7 @@ func (am *AsteriskManager) RestartServiceQuiet() (string, error) {
 		}
 		return "", fmt.Errorf("failed to restart service: %v", err)
 	}
-	if outputStr != "" {
-		return outputStr, nil
-	}
-	return "Service restart command completed", nil
+	return outputStr, nil
 }
 
 // ReloadPJSIPQuiet reloads PJSIP configuration without printing to stdout (for TUI use)

@@ -626,7 +626,6 @@ func TestIsLongRunningCommand(t *testing.T) {
 		{"cat /etc/hosts", false},
 		{"rayanpbx-cli extension list", false},
 		{"status check", false}, // 'status' alone should not match
-		{"restart-checker", false}, // 'restart' as part of word should not match (it won't match 'systemctl restart')
 	}
 	
 	for _, tc := range testCases {

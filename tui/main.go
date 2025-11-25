@@ -1641,7 +1641,7 @@ func (m *model) runCommandExternally(command string) tea.Cmd {
 		if err != nil {
 			return commandFinishedMsg{output: "", err: err}
 		}
-		return commandFinishedMsg{output: "Command completed. Press any key to continue.", err: nil}
+		return commandFinishedMsg{output: fmt.Sprintf("Command '%s' completed successfully.", command), err: nil}
 	})
 }
 
