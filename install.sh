@@ -2485,6 +2485,93 @@ if next_step "Service Verification & Health Checks" "health-check"; then
     fi
     echo ""
 
+    # Check AMI socket (critical for RayanPBX functionality)
+    print_progress "Checking Asterisk AMI socket (port 5038)..."
+    
+    # Get AMI credentials from .env if available
+    AMI_HOST="127.0.0.1"
+    AMI_PORT="5038"
+    AMI_USERNAME="admin"
+    AMI_SECRET="rayanpbx_ami_secret"
+    
+    if [ -f "/opt/rayanpbx/.env" ]; then
+        AMI_HOST=$(grep "^ASTERISK_AMI_HOST=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "127.0.0.1")
+        AMI_PORT=$(grep "^ASTERISK_AMI_PORT=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "5038")
+        AMI_USERNAME=$(grep "^ASTERISK_AMI_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+        AMI_SECRET=$(grep "^ASTERISK_AMI_SECRET=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx_ami_secret")
+        print_verbose "Using AMI credentials from .env: host=$AMI_HOST, port=$AMI_PORT, user=$AMI_USERNAME"
+    fi
+    
+    # Use the check_and_fix_ami function if available, otherwise inline check
+    if type check_and_fix_ami &>/dev/null; then
+        # Use the comprehensive check from health-check.sh
+        AMI_CHECK_RESULT=$(check_and_fix_ami "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET" "true" 2>&1)
+        AMI_CHECK_EXIT_CODE=$?
+        
+        if [ $AMI_CHECK_EXIT_CODE -eq 0 ]; then
+            print_success "✓ AMI socket is working correctly"
+        elif [ $AMI_CHECK_EXIT_CODE -eq 2 ]; then
+            # Unfixable
+            print_error "✗ AMI socket is not working and could not be fixed automatically"
+            FAILED_SERVICES+=("Asterisk AMI")
+            echo ""
+            echo -e "${YELLOW}${BOLD}⚠️  WARNING: AMI Socket Issue Detected!${RESET}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+            echo -e "${WHITE}The Asterisk Manager Interface (AMI) is not responding.${RESET}"
+            echo -e "${WHITE}This is critical for RayanPBX to communicate with Asterisk.${RESET}"
+            echo ""
+            echo -e "${CYAN}Please check the following:${RESET}"
+            echo -e "  ${DIM}1.${RESET} Verify /etc/asterisk/manager.conf exists and is configured correctly"
+            echo -e "  ${DIM}2.${RESET} Ensure AMI is enabled: ${WHITE}enabled = yes${RESET} in [general] section"
+            echo -e "  ${DIM}3.${RESET} Check that port ${WHITE}5038${RESET} is not blocked by firewall"
+            echo -e "  ${DIM}4.${RESET} Verify Asterisk service is running: ${WHITE}systemctl status asterisk${RESET}"
+            echo -e "  ${DIM}5.${RESET} Reload Asterisk: ${WHITE}asterisk -rx 'manager reload'${RESET}"
+            echo ""
+            echo -e "${CYAN}Manual fix commands:${RESET}"
+            echo -e "  ${WHITE}sudo rayanpbx-cli diag check-ami${RESET}"
+            echo -e "  ${WHITE}sudo /opt/rayanpbx/scripts/health-check.sh check-ami${RESET}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+            echo ""
+        else
+            # Other failure
+            print_warning "✗ AMI socket check encountered an issue"
+            FAILED_SERVICES+=("Asterisk AMI")
+        fi
+    else
+        # Fallback: simple port check if health-check.sh functions not available
+        if is_port_listening "$AMI_PORT"; then
+            print_success "✓ AMI port $AMI_PORT is listening"
+            
+            # Try a simple connection test
+            if command -v nc &> /dev/null; then
+                AMI_RESPONSE=$(echo -e "Action: Login\r\nUsername: $AMI_USERNAME\r\nSecret: $AMI_SECRET\r\n\r\n" | timeout 5 nc "$AMI_HOST" "$AMI_PORT" 2>/dev/null | head -10)
+                if echo "$AMI_RESPONSE" | grep -qi "Success"; then
+                    print_success "✓ AMI authentication successful"
+                else
+                    print_warning "✗ AMI is listening but authentication failed"
+                    echo ""
+                    echo -e "${YELLOW}${BOLD}⚠️  WARNING: AMI Authentication Issue!${RESET}"
+                    echo -e "${WHITE}Check that /etc/asterisk/manager.conf has correct credentials:${RESET}"
+                    echo -e "  ${DIM}Username:${RESET} ${WHITE}$AMI_USERNAME${RESET}"
+                    echo -e "  ${DIM}Secret:${RESET} ${WHITE}(check /opt/rayanpbx/.env for ASTERISK_AMI_SECRET)${RESET}"
+                    echo ""
+                    FAILED_SERVICES+=("Asterisk AMI")
+                fi
+            else
+                print_info "  (Could not verify authentication - nc not installed)"
+            fi
+        else
+            print_error "✗ AMI port $AMI_PORT is not listening"
+            echo ""
+            echo -e "${YELLOW}${BOLD}⚠️  WARNING: AMI Socket Not Available!${RESET}"
+            echo -e "${WHITE}Asterisk Manager Interface is not running on port $AMI_PORT.${RESET}"
+            echo -e "${WHITE}Please check /etc/asterisk/manager.conf and restart Asterisk.${RESET}"
+            echo ""
+            FAILED_SERVICES+=("Asterisk AMI")
+        fi
+    fi
+    echo ""
+
     # Display health check summary
     if [ ${#FAILED_SERVICES[@]} -eq 0 ]; then
         print_box "All Services Healthy! ✅" "$GREEN"
