@@ -46,12 +46,19 @@ if [[ -f /etc/asterisk/pjsip.conf ]]; then
         
         cat >> /etc/asterisk/pjsip.conf << 'EOF'
 
-; BEGIN MANAGED - RayanPBX Transport
+; BEGIN MANAGED - RayanPBX Transports
 [transport-udp]
 type=transport
 protocol=udp
 bind=0.0.0.0:5060
-; END MANAGED - RayanPBX Transport
+allow_reload=yes
+
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:5060
+allow_reload=yes
+; END MANAGED - RayanPBX Transports
 EOF
         echo -e "${GREEN}   ✓ Transport configuration added${NC}"
     fi
@@ -67,12 +74,19 @@ type=global
 max_forwards=70
 keep_alive_interval=90
 
-; BEGIN MANAGED - RayanPBX Transport
+; BEGIN MANAGED - RayanPBX Transports
 [transport-udp]
 type=transport
 protocol=udp
 bind=0.0.0.0:5060
-; END MANAGED - RayanPBX Transport
+allow_reload=yes
+
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:5060
+allow_reload=yes
+; END MANAGED - RayanPBX Transports
 
 EOF
     echo -e "${GREEN}   ✓ Basic pjsip.conf created${NC}"
@@ -130,16 +144,25 @@ echo -e "${CYAN}6. Checking PJSIP transports...${NC}"
 TRANSPORTS=$(asterisk -rx "pjsip show transports" 2>/dev/null)
 if echo "$TRANSPORTS" | grep -q "transport-udp"; then
     echo -e "${GREEN}   ✓ UDP transport is active${NC}"
+else
+    echo -e "${YELLOW}   ⚠ UDP transport not found${NC}"
+fi
+if echo "$TRANSPORTS" | grep -q "transport-tcp"; then
+    echo -e "${GREEN}   ✓ TCP transport is active${NC}"
+else
+    echo -e "${YELLOW}   ⚠ TCP transport not found${NC}"
+fi
+if echo "$TRANSPORTS" | grep -q "transport-udp\|transport-tcp"; then
     echo ""
     echo "$TRANSPORTS"
 else
-    echo -e "${RED}   ✗ No transports found${NC}"
+    echo -e "${RED}   ✗ No UDP or TCP transports found${NC}"
 fi
 
 echo ""
 echo -e "${CYAN}7. Network connectivity check...${NC}"
 if netstat -tunlp 2>/dev/null | grep -q ":5060"; then
-    LISTENING=$(netstat -tunlp 2>/dev/null | grep ":5060" | head -1)
+    LISTENING=$(netstat -tunlp 2>/dev/null | grep ":5060")
     echo -e "${GREEN}   ✓ Asterisk is listening on port 5060${NC}"
     echo -e "   ${LISTENING}"
 else
