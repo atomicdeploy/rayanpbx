@@ -263,7 +263,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		diagnosticsMenu: []string{
 			"🏥 Run System Health Check",
 			"💻 Show System Information",
-			"📡 Check SIP Port (5060)",
+			"📡 Check SIP Port",
 			"🔍 Enable SIP Debugging",
 			"🔇 Disable SIP Debugging",
 			"📞 Test Extension Registration",
@@ -2321,7 +2321,7 @@ func (m *model) handleDiagnosticsMenuSelection() {
 		m.successMsg = "Health check completed"
 	case 1: // Show System Information
 		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
-	case 2: // Check SIP Port (5060)
+	case 2: // Check SIP Port
 		m.diagnosticsOutput = m.diagnosticsManager.CheckSIPPort(5060)
 		m.successMsg = "SIP port check completed"
 	case 3: // Enable SIP Debugging
