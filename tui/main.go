@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -126,6 +128,8 @@ const (
 	extensionDetailsScreen
 	extensionInfoScreen
 	sipHelpScreen
+	docsListScreen
+	docsViewScreen
 	systemSettingsScreen
 	configManagementScreen
 	configEditScreen
@@ -197,6 +201,11 @@ type model struct {
 	diagnosticsMenuCursor int
 	asteriskMenuCursor    int
 	sipTestMenuCursor     int
+	
+	// Documentation browser
+	docsList          []string
+	selectedDocIdx    int
+	currentDocContent string
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -364,6 +373,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
 				}
+			} else if m.currentScreen == docsListScreen {
+				// Navigate docs list
+				if m.selectedDocIdx > 0 {
+					m.selectedDocIdx--
+				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
 				m.handleVoIPPhonesKeyPress("up")
@@ -401,6 +415,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate extensions list
 				if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
+				}
+			} else if m.currentScreen == docsListScreen {
+				// Navigate docs list
+				if m.selectedDocIdx < len(m.docsList)-1 {
+					m.selectedDocIdx++
 				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
@@ -465,6 +484,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.successMsg = ""
 			}
 		
+		case "D":
+			// Show documentation browser (uppercase D only from sipHelpScreen)
+			if m.currentScreen == sipHelpScreen {
+				m.loadDocsList()
+				m.currentScreen = docsListScreen
+				m.selectedDocIdx = 0
+				m.errorMsg = ""
+				m.successMsg = ""
+			}
+		
 		case "r":
 			// Reload Asterisk PJSIP
 			if m.currentScreen == extensionInfoScreen {
@@ -478,10 +507,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			// Enable SIP debugging
 			if m.currentScreen == extensionInfoScreen {
-				if err := m.diagnosticsManager.EnableSIPDebugQuiet(); err != nil {
+				output, err := m.diagnosticsManager.EnableSIPDebugQuiet()
+				if err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
 				} else {
 					m.successMsg = "SIP debugging enabled - check Asterisk console"
+					if output != "" {
+						m.diagnosticsOutput = output
+					}
 				}
 			}
 		
@@ -573,6 +606,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
 				m.handleSystemSettingsAction()
+			} else if m.currentScreen == docsListScreen {
+				// Open selected document
+				if m.selectedDocIdx < len(m.docsList) {
+					m.loadDocContent(m.docsList[m.selectedDocIdx])
+					m.currentScreen = docsViewScreen
+				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone enter key
 				m.handleVoIPPhonesKeyPress("enter")
@@ -633,6 +672,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == configAddScreen || m.currentScreen == configEditScreen {
 					m.currentScreen = configManagementScreen
 					m.inputMode = false
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == docsListScreen {
+					m.currentScreen = sipHelpScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == docsViewScreen {
+					m.currentScreen = docsListScreen
+					m.currentDocContent = ""
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipPhoneControlScreen || 
@@ -736,6 +784,10 @@ func (m model) View() string {
 		s += m.renderExtensionInfo()
 	case sipHelpScreen:
 		s += m.renderSipHelp()
+	case docsListScreen:
+		s += m.renderDocsList()
+	case docsViewScreen:
+		s += m.renderDocView()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
 	case systemSettingsScreen:
@@ -769,7 +821,11 @@ func (m model) View() string {
 	} else if m.currentScreen == extensionInfoScreen {
 		s += helpStyle.Render("r: Reload PJSIP • t: Test Suite • s: SIP Debug • h: Help Guide • ESC: Back • q: Quit")
 	} else if m.currentScreen == sipHelpScreen {
-		s += helpStyle.Render("ESC: Back • q: Quit")
+		s += helpStyle.Render("D: Browse Docs • ESC: Back • q: Quit")
+	} else if m.currentScreen == docsListScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: View • ESC: Back • q: Quit")
+	} else if m.currentScreen == docsViewScreen {
+		s += helpStyle.Render("ESC: Back to List • q: Quit")
 	} else if m.currentScreen == trunksScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
@@ -2176,9 +2232,21 @@ func (m model) renderExtensionInfo() string {
 	return menuStyle.Render(content)
 }
 
-// renderSipHelp displays the static SIP help guide
+// renderSipHelp displays the dynamic SIP help guide with real system info
 func (m model) renderSipHelp() string {
 	content := titleStyle.Render("📚 SIP Client Setup Guide") + "\n\n"
+	
+	// System Info section - dynamic data
+	content += infoStyle.Render("🖥️ Your PBX Server:") + "\n"
+	hostname := GetSystemHostname()
+	content += fmt.Sprintf("  • Hostname: %s\n", successStyle.Render(hostname))
+	
+	ips := GetLocalIPAddresses()
+	content += "  • IP Addresses:\n"
+	for _, ip := range ips {
+		content += fmt.Sprintf("    - %s\n", successStyle.Render(ip))
+	}
+	content += "\n"
 	
 	// Popular SIP Clients section
 	content += infoStyle.Render("📱 Popular SIP Clients:") + "\n"
@@ -2187,11 +2255,15 @@ func (m model) renderSipHelp() string {
 	content += "  • GrandStream phones: Enterprise hardware phones\n"
 	content += "  • Yealink phones: Enterprise hardware phones\n\n"
 	
-	// Required Configuration section
+	// Required Configuration section with actual server info
 	content += infoStyle.Render("⚙️ Required Configuration:") + "\n"
 	content += "  • Username: (extension number)\n"
 	content += "  • Password: (your configured secret)\n"
-	content += "  • SIP Server: (your PBX IP address)\n"
+	if len(ips) > 0 {
+		content += fmt.Sprintf("  • SIP Server: %s\n", successStyle.Render(ips[0]))
+	} else {
+		content += fmt.Sprintf("  • SIP Server: %s\n", successStyle.Render(hostname))
+	}
 	content += "  • Port: 5060 (default)\n"
 	content += "  • Transport: UDP (default)\n\n"
 	
@@ -2209,14 +2281,28 @@ func (m model) renderSipHelp() string {
 	content += "  • Check network connectivity to PBX\n"
 	content += "  • Ensure port 5060 is not blocked by firewall\n"
 	content += "  • Check Asterisk logs: /var/log/asterisk/full\n"
-	content += "  • Enable SIP debug: asterisk -rx 'pjsip set logger on'\n\n"
+	content += "  • Press 's' to enable SIP debugging\n\n"
 	
-	// Codec information
-	content += infoStyle.Render("🔊 Codec Information:") + "\n"
-	content += "  • ulaw (G.711u): Standard US codec, 64kbps\n"
-	content += "  • alaw (G.711a): Standard EU codec, 64kbps\n"
-	content += "  • g722: HD audio codec, 64kbps, 16kHz\n"
-	content += "  • opus: Modern codec, variable bitrate\n\n"
+	// Codec information - dynamic from Asterisk
+	content += infoStyle.Render("🔊 Available Codecs:") + "\n"
+	if m.diagnosticsManager != nil {
+		codecs, _ := m.diagnosticsManager.GetEnabledCodecs()
+		for _, codec := range codecs {
+			desc := GetCodecDescription(codec)
+			content += fmt.Sprintf("  • %s\n", desc)
+		}
+	} else {
+		content += "  • ulaw (G.711u): Standard US codec, 64kbps\n"
+		content += "  • alaw (G.711a): Standard EU codec, 64kbps\n"
+		content += "  • g722: HD audio codec, 64kbps, 16kHz\n"
+	}
+	content += "\n"
+	
+	// Documentation reference
+	content += infoStyle.Render("📄 Documentation:") + "\n"
+	content += "  • Press 'D' to browse full documentation\n"
+	content += "  • See SIP_TESTING_GUIDE.md for detailed testing info\n"
+	content += "  • See PJSIP_SETUP_GUIDE.md for setup instructions\n"
 	
 	return menuStyle.Render(content)
 }
@@ -2234,16 +2320,24 @@ func (m *model) handleDiagnosticsMenuSelection() {
 	case 1: // Show System Information
 		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
 	case 2: // Enable SIP Debugging
-		if err := m.diagnosticsManager.EnableSIPDebugQuiet(); err != nil {
+		output, err := m.diagnosticsManager.EnableSIPDebugQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
 		} else {
 			m.successMsg = "SIP debugging enabled"
+			if output != "" {
+				m.diagnosticsOutput = "SIP Debug Output:\n" + output
+			}
 		}
 	case 3: // Disable SIP Debugging
-		if err := m.diagnosticsManager.DisableSIPDebugQuiet(); err != nil {
+		output, err := m.diagnosticsManager.DisableSIPDebugQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to disable SIP debug: %v", err)
 		} else {
 			m.successMsg = "SIP debugging disabled"
+			if output != "" {
+				m.diagnosticsOutput = "SIP Debug Output:\n" + output
+			}
 		}
 	case 4: // Test Extension Registration
 		m.currentScreen = diagTestExtensionScreen
@@ -2768,6 +2862,107 @@ func replaceEnvValue(content, key, value string) string {
 		content += "\n"
 	}
 	return content + replacement + "\n"
+}
+
+// loadDocsList loads the list of markdown documentation files
+func (m *model) loadDocsList() {
+	m.docsList = []string{}
+	
+	// Look for markdown files in common locations
+	paths := []string{
+		"/opt/rayanpbx",
+		".",
+		"..",
+	}
+	
+	for _, basePath := range paths {
+		files, err := os.ReadDir(basePath)
+		if err != nil {
+			continue
+		}
+		
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
+				fullPath := filepath.Join(basePath, file.Name())
+				m.docsList = append(m.docsList, fullPath)
+			}
+		}
+		
+		// If we found files, stop looking
+		if len(m.docsList) > 0 {
+			break
+		}
+	}
+	
+	// Sort the list
+	sort.Strings(m.docsList)
+}
+
+// loadDocContent loads the content of a documentation file
+func (m *model) loadDocContent(filePath string) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		m.currentDocContent = fmt.Sprintf("Error reading file: %v", err)
+		return
+	}
+	m.currentDocContent = string(content)
+}
+
+// renderDocsList renders the documentation files list
+func (m model) renderDocsList() string {
+	content := titleStyle.Render("📚 Documentation Browser") + "\n\n"
+	
+	if len(m.docsList) == 0 {
+		content += "No documentation files found.\n"
+		content += "Looking in: /opt/rayanpbx, current directory\n"
+		return menuStyle.Render(content)
+	}
+	
+	content += infoStyle.Render(fmt.Sprintf("Found %d documentation files:", len(m.docsList))) + "\n\n"
+	
+	for i, doc := range m.docsList {
+		cursor := " "
+		if i == m.selectedDocIdx {
+			cursor = "▶"
+		}
+		
+		// Just show the filename, not the full path
+		filename := filepath.Base(doc)
+		line := fmt.Sprintf("%s %s\n", cursor, filename)
+		
+		if i == m.selectedDocIdx {
+			content += successStyle.Render(line)
+		} else {
+			content += line
+		}
+	}
+	
+	return menuStyle.Render(content)
+}
+
+// renderDocView renders the content of a documentation file
+func (m model) renderDocView() string {
+	if m.selectedDocIdx >= len(m.docsList) {
+		return menuStyle.Render("No document selected")
+	}
+	
+	filename := filepath.Base(m.docsList[m.selectedDocIdx])
+	content := titleStyle.Render(fmt.Sprintf("📄 %s", filename)) + "\n\n"
+	
+	// Display the content with some basic formatting
+	docContent := m.currentDocContent
+	
+	// Limit the display height to avoid overwhelming the terminal
+	lines := strings.Split(docContent, "\n")
+	maxLines := 40
+	if len(lines) > maxLines {
+		docContent = strings.Join(lines[:maxLines], "\n")
+		docContent += fmt.Sprintf("\n\n... (%d more lines)", len(lines)-maxLines)
+	}
+	
+	content += docContent
+	
+	return menuStyle.Render(content)
 }
 
 func main() {

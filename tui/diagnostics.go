@@ -37,12 +37,13 @@ func (dm *DiagnosticsManager) EnableSIPDebug() error {
 }
 
 // EnableSIPDebugQuiet enables SIP debugging without printing to stdout (for TUI use)
-func (dm *DiagnosticsManager) EnableSIPDebugQuiet() error {
-	_, err := dm.asterisk.ExecuteCLICommand("pjsip set logger on")
+// Returns the output from Asterisk for display in TUI
+func (dm *DiagnosticsManager) EnableSIPDebugQuiet() (string, error) {
+	output, err := dm.asterisk.ExecuteCLICommand("pjsip set logger on")
 	if err != nil {
-		return fmt.Errorf("failed to enable SIP debug: %v", err)
+		return "", fmt.Errorf("failed to enable SIP debug: %v", err)
 	}
-	return nil
+	return output, nil
 }
 
 // DisableSIPDebug disables SIP debugging
@@ -61,12 +62,13 @@ func (dm *DiagnosticsManager) DisableSIPDebug() error {
 }
 
 // DisableSIPDebugQuiet disables SIP debugging without printing to stdout (for TUI use)
-func (dm *DiagnosticsManager) DisableSIPDebugQuiet() error {
-	_, err := dm.asterisk.ExecuteCLICommand("pjsip set logger off")
+// Returns the output from Asterisk for display in TUI
+func (dm *DiagnosticsManager) DisableSIPDebugQuiet() (string, error) {
+	output, err := dm.asterisk.ExecuteCLICommand("pjsip set logger off")
 	if err != nil {
-		return fmt.Errorf("failed to disable SIP debug: %v", err)
+		return "", fmt.Errorf("failed to disable SIP debug: %v", err)
 	}
-	return nil
+	return output, nil
 }
 
 // TestExtensionRegistration tests if an extension is registered
@@ -425,4 +427,131 @@ func (dm *DiagnosticsManager) GetAsteriskErrorsSummary() ([]string, error) {
 	}
 
 	return errors, nil
+}
+
+// GetSystemHostname returns the system hostname
+func GetSystemHostname() string {
+	cmd := exec.Command("hostname", "-f")
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to simple hostname
+		cmd = exec.Command("hostname")
+		output, err = cmd.Output()
+		if err != nil {
+			return "localhost"
+		}
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// GetLocalIPAddresses returns all local IP addresses
+func GetLocalIPAddresses() []string {
+	var ips []string
+	
+	// Try to get IP addresses using hostname -I
+	cmd := exec.Command("hostname", "-I")
+	output, err := cmd.Output()
+	if err == nil {
+		parts := strings.Fields(string(output))
+		for _, ip := range parts {
+			ip = strings.TrimSpace(ip)
+			if ip != "" && !strings.HasPrefix(ip, "127.") {
+				ips = append(ips, ip)
+			}
+		}
+	}
+	
+	// Fallback: Try ip addr command
+	if len(ips) == 0 {
+		cmd = exec.Command("ip", "-4", "addr", "show")
+		output, err = cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "inet ") && !strings.Contains(line, "127.0.0.1") {
+					parts := strings.Fields(line)
+					for i, part := range parts {
+						if part == "inet" && i+1 < len(parts) {
+							ip := strings.Split(parts[i+1], "/")[0]
+							ips = append(ips, ip)
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	if len(ips) == 0 {
+		return []string{"127.0.0.1"}
+	}
+	return ips
+}
+
+// GetEnabledCodecs queries Asterisk for enabled codecs
+func (dm *DiagnosticsManager) GetEnabledCodecs() ([]string, error) {
+	output, err := dm.asterisk.ExecuteCLICommand("pjsip show endpoints")
+	if err != nil {
+		// Fallback to showing common codecs
+		return []string{"ulaw", "alaw", "g722"}, nil
+	}
+	
+	// Try to parse codecs from endpoint output
+	codecs := make(map[string]bool)
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		lineLower := strings.ToLower(line)
+		// Check for common codec names
+		codecNames := []string{"ulaw", "alaw", "g722", "g729", "opus", "speex", "gsm", "ilbc"}
+		for _, codec := range codecNames {
+			if strings.Contains(lineLower, codec) {
+				codecs[codec] = true
+			}
+		}
+	}
+	
+	// If no codecs found, try core show codecs
+	if len(codecs) == 0 {
+		output, err = dm.asterisk.ExecuteCLICommand("core show codecs")
+		if err == nil {
+			lines := strings.Split(output, "\n")
+			for _, line := range lines {
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					codec := strings.ToLower(parts[0])
+					if codec != "codec" && codec != "----" && len(codec) > 0 && len(codec) < 10 {
+						codecs[codec] = true
+					}
+				}
+			}
+		}
+	}
+	
+	// Convert map to slice
+	var result []string
+	for codec := range codecs {
+		result = append(result, codec)
+	}
+	
+	if len(result) == 0 {
+		return []string{"ulaw", "alaw", "g722"}, nil
+	}
+	return result, nil
+}
+
+// GetCodecDescription returns a description for a codec
+func GetCodecDescription(codec string) string {
+	descriptions := map[string]string{
+		"ulaw":  "G.711μ - Standard US codec, 64kbps, 8kHz",
+		"alaw":  "G.711a - Standard EU codec, 64kbps, 8kHz",
+		"g722":  "G.722 - HD audio codec, 64kbps, 16kHz",
+		"g729":  "G.729 - Low bandwidth codec, 8kbps (licensed)",
+		"opus":  "Opus - Modern codec, variable bitrate, wideband",
+		"speex": "Speex - Open source, variable bitrate",
+		"gsm":   "GSM - Low bandwidth, 13kbps",
+		"ilbc":  "iLBC - Internet Low Bitrate Codec, 15.2kbps",
+	}
+	if desc, ok := descriptions[strings.ToLower(codec)]; ok {
+		return desc
+	}
+	return codec + " - Audio codec"
 }
