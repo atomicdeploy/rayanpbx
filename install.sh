@@ -2490,15 +2490,25 @@ if next_step "Service Verification & Health Checks" "health-check"; then
             DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx")
         fi
         
-        # Test database connectivity
+        # Test database connectivity using a temporary config file to avoid password exposure in process list
         if [ -n "$DB_PASS" ]; then
-            if mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" -e "SELECT 1" "$DB_NAME" &>/dev/null; then
+            # Create temporary config file with restrictive permissions
+            DB_TMP_CNF=$(mktemp)
+            chmod 600 "$DB_TMP_CNF"
+            cat > "$DB_TMP_CNF" <<EOF
+[client]
+host=$DB_HOST
+user=$DB_USER
+password=$DB_PASS
+EOF
+            if mysql --defaults-extra-file="$DB_TMP_CNF" -e "SELECT 1" "$DB_NAME" &>/dev/null; then
                 print_success "✓ Database connectivity verified"
             else
                 print_warning "✗ Database connectivity issue"
                 echo -e "${YELLOW}  Could not connect to database '$DB_NAME' as user '$DB_USER'${RESET}"
                 FAILED_SERVICES+=("Database")
             fi
+            rm -f "$DB_TMP_CNF"
         else
             print_info "  (Skipping connectivity test - no password available)"
         fi
