@@ -212,6 +212,22 @@ Non-interactive configuration:
 ./scripts/config-tui.sh /opt/rayanpbx/.env /opt/rayanpbx/.env.example --non-interactive
 ```
 
+### 🚀 Hello World Setup - Your First Call
+
+After installation, get your first phone call working in minutes with the automated Hello World Setup:
+
+```bash
+# Launch TUI with root permissions
+sudo rayanpbx-tui
+
+# Select "Hello World Setup" from the menu
+# Click "Run Complete Setup" - everything is automated!
+# Note the SIP credentials: Username: 101, Password: 101pass
+# Configure your SIP phone and dial 100 to hear "Hello World!"
+```
+
+📖 **See the full guide:** [docs/HELLO_WORLD_GUIDE.md](docs/HELLO_WORLD_GUIDE.md)
+
 ## 📖 Usage
 
 ### Web Interface
@@ -339,6 +355,10 @@ go build -o rayanpbx-tui main.go config.go
 │  🧪 SIP Testing Guide:  docs/sip-testing.md              │
 │  🖥️ UI Documentation:   docs/ui.md                       │
 │  📞 VoIP Management:    docs/voip-management.md          │
+│  🔐 Security:           docs/security.md                 │
+│  📊 Implementation:     docs/implemention.md             │
+│  🚀 Deployment:         docs/deployment.md               │
+│  🏗️ Architecture:       docs/architecture.md             │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
