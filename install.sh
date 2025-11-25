@@ -2318,7 +2318,7 @@ if next_step "Backend API Setup" "backend"; then
 
     # Check and fix database collation
     print_progress "Checking database collation..."
-    # Use || true pattern to prevent set -e from exiting on non-zero return
+    # Use && ... || ... pattern to capture exit code without triggering set -e
     COLLATION_CHECK_OUTPUT=$(php artisan db:check-collation 2>&1) && COLLATION_EXIT_CODE=0 || COLLATION_EXIT_CODE=$?
     if [ $COLLATION_EXIT_CODE -eq 0 ]; then
         print_success "Database collation is correct"
@@ -2785,7 +2785,7 @@ EOF
     # Use the check_and_fix_ami function if available, otherwise inline check
     if type check_and_fix_ami &>/dev/null; then
         # Use the comprehensive check from health-check.sh
-        # Use || true to prevent set -e from exiting on non-zero return
+        # Use && ... || ... pattern to capture exit code without triggering set -e
         AMI_CHECK_RESULT=$(check_and_fix_ami "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET" "true" 2>&1) && AMI_CHECK_EXIT_CODE=0 || AMI_CHECK_EXIT_CODE=$?
         
         if [ $AMI_CHECK_EXIT_CODE -eq 0 ]; then
