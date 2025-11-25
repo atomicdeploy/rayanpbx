@@ -563,6 +563,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.successMsg = ""
 				case 1:
 					// Load extensions
+					m.mainMenuCursor = m.cursor // Save main menu position
 					if exts, err := GetExtensions(m.db); err == nil {
 						m.extensions = exts
 						m.currentScreen = extensionsScreen
@@ -571,6 +572,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case 2:
 					// Load trunks
+					m.mainMenuCursor = m.cursor // Save main menu position
 					if trunks, err := GetTrunks(m.db); err == nil {
 						m.trunks = trunks
 						m.currentScreen = trunksScreen
@@ -579,6 +581,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case 3:
 					// VoIP Phones Management
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
 				case 4:
 					m.mainMenuCursor = m.cursor // Save main menu position
@@ -597,10 +600,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
 				case 6:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = statusScreen
 				case 7:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = logsScreen
 				case 8:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
