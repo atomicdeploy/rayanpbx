@@ -839,11 +839,11 @@ EOF
         if [ "$user_section_exists" = true ]; then
             echo -e "${CYAN}[$ami_username] section:${RESET}"
             
-            # secret (masked)
+            # secret (masked for security)
             if [ "$current_secret" = "$ami_secret" ]; then
-                echo -e "  secret     : ${GREEN}***matches***${RESET} ${DIM}(expected value)${RESET} ✓"
+                echo -e "  secret     : ${GREEN}***matches***${RESET} ${DIM}(verified, hidden for security)${RESET} ✓"
             else
-                echo -e "  secret     : ${RED}***mismatch***${RESET} ${DIM}(different from expected)${RESET} ✗"
+                echo -e "  secret     : ${RED}***mismatch***${RESET} ${DIM}(different from expected, hidden for security)${RESET} ✗"
             fi
             
             # deny

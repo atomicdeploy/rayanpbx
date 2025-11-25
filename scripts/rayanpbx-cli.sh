@@ -117,6 +117,12 @@ RAYANPBX_ROOT="${RAYANPBX_ROOT:-/opt/rayanpbx}"
 API_BASE_URL="http://localhost:8000/api"
 VERBOSE=false
 
+# Default AMI configuration values (used when .env is not available)
+DEFAULT_AMI_HOST="127.0.0.1"
+DEFAULT_AMI_PORT="5038"
+DEFAULT_AMI_USERNAME="admin"
+DEFAULT_AMI_SECRET="rayanpbx_ami_secret"
+
 # Helper function to find project root by looking for VERSION file
 find_project_root() {
     local current_dir="$(pwd)"
@@ -588,17 +594,17 @@ cmd_diag_check_ami() {
         exit 1
     fi
     
-    # Get AMI credentials from .env if available
-    local ami_host="127.0.0.1"
-    local ami_port="5038"
-    local ami_username="admin"
-    local ami_secret="rayanpbx_ami_secret"
+    # Get AMI credentials from .env if available, fallback to defaults
+    local ami_host="$DEFAULT_AMI_HOST"
+    local ami_port="$DEFAULT_AMI_PORT"
+    local ami_username="$DEFAULT_AMI_USERNAME"
+    local ami_secret="$DEFAULT_AMI_SECRET"
     
     if [ -f "$ENV_FILE" ]; then
-        ami_host=$(grep "^ASTERISK_AMI_HOST=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "127.0.0.1")
-        ami_port=$(grep "^ASTERISK_AMI_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "5038")
-        ami_username=$(grep "^ASTERISK_AMI_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
-        ami_secret=$(grep "^ASTERISK_AMI_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx_ami_secret")
+        ami_host=$(grep "^ASTERISK_AMI_HOST=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_AMI_HOST")
+        ami_port=$(grep "^ASTERISK_AMI_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_AMI_PORT")
+        ami_username=$(grep "^ASTERISK_AMI_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_AMI_USERNAME")
+        ami_secret=$(grep "^ASTERISK_AMI_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_AMI_SECRET")
         print_verbose "Using AMI credentials from .env: host=$ami_host, port=$ami_port, user=$ami_username"
     fi
     
@@ -612,16 +618,16 @@ cmd_diag_reapply_ami() {
     
     local manager_conf="/etc/asterisk/manager.conf"
     local ami_secret=""
-    local ami_username="admin"
+    local ami_username="$DEFAULT_AMI_USERNAME"
     
     # Get expected credentials from .env if available
     if [ -f "$ENV_FILE" ]; then
-        ami_username=$(grep "^ASTERISK_AMI_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
-        ami_secret=$(grep "^ASTERISK_AMI_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx_ami_secret")
+        ami_username=$(grep "^ASTERISK_AMI_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_AMI_USERNAME")
+        ami_secret=$(grep "^ASTERISK_AMI_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_AMI_SECRET")
         print_info "Expected AMI username from .env: $ami_username"
-        print_verbose "Expected AMI secret from .env: (hidden)"
+        print_verbose "Expected AMI secret from .env: (hidden for security)"
     else
-        ami_secret="rayanpbx_ami_secret"
+        ami_secret="$DEFAULT_AMI_SECRET"
         print_warn ".env file not found, using default credentials"
     fi
     
@@ -707,11 +713,10 @@ cmd_diag_reapply_ami() {
         print_success "All AMI configuration values are correct!"
         echo ""
         
-        # Test AMI connection
+        # Test AMI connection using default host
         print_info "Testing AMI connection..."
         if command -v nc &> /dev/null; then
-            local ami_host="127.0.0.1"
-            local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$ami_host" "5038" 2>/dev/null | head -10)
+            local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$DEFAULT_AMI_HOST" "$DEFAULT_AMI_PORT" 2>/dev/null | head -10)
             
             if echo "$ami_response" | grep -qi "Success"; then
                 print_success "AMI connection and authentication successful!"
@@ -769,8 +774,7 @@ cmd_diag_reapply_ami() {
             # Verify the fix worked
             print_info "Verifying AMI connection..."
             if command -v nc &> /dev/null; then
-                local ami_host="127.0.0.1"
-                local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$ami_host" "5038" 2>/dev/null | head -10)
+                local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$DEFAULT_AMI_HOST" "$DEFAULT_AMI_PORT" 2>/dev/null | head -10)
                 
                 if echo "$ami_response" | grep -qi "Success"; then
                     print_success "AMI connection and authentication now working!"
