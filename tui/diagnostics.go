@@ -487,6 +487,124 @@ func GetLocalIPAddresses() []string {
 	return ips
 }
 
+// CheckSIPPort validates that Asterisk is listening on the SIP port
+// Returns a detailed status string for TUI display
+func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
+	var result strings.Builder
+	
+	result.WriteString("📞 SIP Port Health Check\n")
+	result.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	
+	// Step 1: Check if Asterisk is running
+	status, err := dm.asterisk.GetServiceStatus()
+	if err != nil || status != "running" {
+		result.WriteString("❌ Asterisk service is not running\n")
+		result.WriteString("   Start with: systemctl start asterisk\n")
+		return result.String()
+	}
+	result.WriteString("✅ Asterisk service is running\n")
+	
+	// Step 2: Check PJSIP transports
+	transports, err := dm.asterisk.ExecuteCLICommand("pjsip show transports")
+	if err != nil || (!strings.Contains(transports, "transport-udp") && !strings.Contains(transports, "transport-tcp")) {
+		result.WriteString("⚠️  PJSIP transports not configured\n")
+		result.WriteString("   Check /etc/asterisk/pjsip.conf\n")
+	} else {
+		result.WriteString("✅ PJSIP transports configured\n")
+	}
+	
+	// Step 3: Check if port is listening using system commands
+	portListening := false
+	var listenInfo string
+	
+	// Try ss command first (modern systems)
+	cmd := exec.Command("ss", "-tunlp")
+	output, err := cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		portStr := fmt.Sprintf(":%d", port)
+		for _, line := range lines {
+			if strings.Contains(line, portStr) {
+				portListening = true
+				listenInfo = strings.TrimSpace(line)
+				break
+			}
+		}
+	} else {
+		// Fallback to netstat
+		cmd = exec.Command("netstat", "-tunlp")
+		output, err = cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			portStr := fmt.Sprintf(":%d", port)
+			for _, line := range lines {
+				if strings.Contains(line, portStr) {
+					portListening = true
+					listenInfo = strings.TrimSpace(line)
+					break
+				}
+			}
+		}
+	}
+	
+	if portListening {
+		result.WriteString(fmt.Sprintf("✅ SIP port %d is listening\n", port))
+		if listenInfo != "" {
+			result.WriteString(fmt.Sprintf("   %s\n", listenInfo))
+		}
+		result.WriteString("\n")
+		
+		// Show SIP endpoint info for client configuration
+		ips := GetLocalIPAddresses()
+		result.WriteString("📱 SIP Endpoint for Clients:\n")
+		if len(ips) > 0 {
+			result.WriteString(fmt.Sprintf("   Address: %s:%d\n", ips[0], port))
+		}
+		result.WriteString("   Protocol: UDP/TCP\n")
+		result.WriteString("   Configure your SIP phones to connect to this address\n")
+	} else {
+		result.WriteString(fmt.Sprintf("❌ SIP port %d is NOT listening!\n", port))
+		result.WriteString("\n")
+		result.WriteString("⚠️  SIP clients will get 'connection refused'\n\n")
+		result.WriteString("Possible causes:\n")
+		result.WriteString("  • PJSIP transport not configured\n")
+		result.WriteString("  • Another process using the port\n")
+		result.WriteString("  • Asterisk failed to bind\n")
+		result.WriteString("\nTroubleshooting:\n")
+		result.WriteString("  • Check transports: asterisk -rx 'pjsip show transports'\n")
+		result.WriteString("  • Reload PJSIP: asterisk -rx 'pjsip reload'\n")
+		result.WriteString("  • Check logs: journalctl -u asterisk | grep bind\n")
+	}
+	
+	result.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	
+	return result.String()
+}
+
+// CheckSIPPortQuiet returns just the status without formatting (for programmatic use)
+func (dm *DiagnosticsManager) CheckSIPPortQuiet() (bool, string, error) {
+	// Check if port 5060 is listening
+	cmd := exec.Command("ss", "-tunlp")
+	output, err := cmd.Output()
+	if err != nil {
+		cmd = exec.Command("netstat", "-tunlp")
+		output, err = cmd.Output()
+		if err != nil {
+			return false, "", fmt.Errorf("could not check port status: %v", err)
+		}
+	}
+	
+	if strings.Contains(string(output), ":5060") {
+		ips := GetLocalIPAddresses()
+		if len(ips) > 0 {
+			return true, fmt.Sprintf("%s:5060", ips[0]), nil
+		}
+		return true, "0.0.0.0:5060", nil
+	}
+	
+	return false, "", nil
+}
+
 // GetEnabledCodecs queries Asterisk for enabled codecs
 func (dm *DiagnosticsManager) GetEnabledCodecs() ([]string, error) {
 	output, err := dm.asterisk.ExecuteCLICommand("pjsip show endpoints")
