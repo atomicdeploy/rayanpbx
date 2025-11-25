@@ -200,6 +200,7 @@ class AsteriskStatusController extends Controller
             'count' => count($errors),
             'has_errors' => count($errors) > 0,
         ]);
+    }
 
     /**
      * Get all PJSIP transports
