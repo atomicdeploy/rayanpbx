@@ -130,12 +130,20 @@
       </div>
 
       <!-- Quick Actions -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
         <NuxtLink to="/extensions" class="card hover:shadow-xl cursor-pointer transition-shadow">
           <div class="text-center">
             <div class="text-5xl mb-4">📱</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.extensions') }}</h3>
-            <p class="text-gray-600 dark:text-gray-400">Manage SIP extensions</p>
+            <p class="text-gray-600 dark:text-gray-400">{{ $t('dashboard.manageExtensions') }}</p>
+          </div>
+        </NuxtLink>
+
+        <NuxtLink to="/phones" class="card hover:shadow-xl cursor-pointer transition-shadow">
+          <div class="text-center">
+            <div class="text-5xl mb-4">☎️</div>
+            <h3 class="text-xl font-bold mb-2">{{ $t('nav.phones') }}</h3>
+            <p class="text-gray-600 dark:text-gray-400">{{ $t('dashboard.managePhones') }}</p>
           </div>
         </NuxtLink>
 
@@ -143,15 +151,15 @@
           <div class="text-center">
             <div class="text-5xl mb-4">🔗</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.trunks') }}</h3>
-            <p class="text-gray-600 dark:text-gray-400">Configure trunk routing</p>
+            <p class="text-gray-600 dark:text-gray-400">{{ $t('dashboard.configureTrunks') }}</p>
           </div>
         </NuxtLink>
 
         <NuxtLink to="/console" class="card hover:shadow-xl cursor-pointer transition-shadow">
           <div class="text-center">
             <div class="text-5xl mb-4">🖥️</div>
-            <h3 class="text-xl font-bold mb-2">Console</h3>
-            <p class="text-gray-600 dark:text-gray-400">Asterisk CLI</p>
+            <h3 class="text-xl font-bold mb-2">{{ $t('nav.console') }}</h3>
+            <p class="text-gray-600 dark:text-gray-400">{{ $t('dashboard.asteriskCLI') }}</p>
           </div>
         </NuxtLink>
 
@@ -159,7 +167,7 @@
           <div class="text-center">
             <div class="text-5xl mb-4">📋</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.logs') }}</h3>
-            <p class="text-gray-600 dark:text-gray-400">View system logs</p>
+            <p class="text-gray-600 dark:text-gray-400">{{ $t('dashboard.viewLogs') }}</p>
           </div>
         </NuxtLink>
       </div>

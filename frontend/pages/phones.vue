@@ -1,7 +1,10 @@
 <template>
   <div class="phones-container">
     <div class="header">
-      <h1>📱 VoIP Phones Management</h1>
+      <div class="header-title">
+        <NuxtLink to="/" class="back-link">← Dashboard</NuxtLink>
+        <h1>📱 VoIP Phones Management</h1>
+      </div>
       <div class="header-actions">
         <button @click="refreshPhones" class="btn btn-primary">
           🔄 Refresh
@@ -249,6 +252,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
+definePageMeta({
+  middleware: 'auth'
+})
+
+const api = useApi()
+const authStore = useAuthStore()
+const router = useRouter()
+
 const phones = ref([])
 const selectedPhone = ref(null)
 const phoneStatus = ref(null)
@@ -273,7 +284,12 @@ const credentials = ref({
   password: ''
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await authStore.checkAuth()
+  if (!authStore.isAuthenticated) {
+    router.push('/login')
+    return
+  }
   refreshPhones()
   loadExtensions()
 })
@@ -281,14 +297,9 @@ onMounted(() => {
 async function refreshPhones() {
   loading.value = true
   try {
-    const response = await fetch('/api/phones', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      }
-    })
-    const data = await response.json()
+    const data = await api.getPhones()
     if (data.success) {
-      phones.value = data.phones
+      phones.value = data.phones || []
     }
   } catch (error) {
     showNotification('Failed to load phones', 'error')
@@ -304,15 +315,7 @@ async function scanNetwork() {
   const network = localStorage.getItem('network_range') || '192.168.1.0/24'
   
   try {
-    const response = await fetch('/api/grandstream/scan', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ network })
-    })
-    const data = await response.json()
+    const data = await api.scanGrandstreamNetwork(network)
     if (data.success) {
       showNotification('Network scan completed', 'success')
       refreshPhones()
@@ -333,19 +336,11 @@ async function refreshPhoneStatus() {
   if (!selectedPhone.value) return
   
   try {
-    const response = await fetch('/api/phones/control', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ip: selectedPhone.value.ip,
-        action: 'get_status',
-        credentials: credentials.value
-      })
-    })
-    const data = await response.json()
+    const data = await api.controlPhone(
+      selectedPhone.value.ip,
+      'get_status',
+      credentials.value
+    )
     if (data.success !== false) {
       phoneStatus.value = data
     } else if (data.error && data.error.includes('401')) {
@@ -369,26 +364,14 @@ async function performAction(action) {
   }
 
   try {
-    const requestBody = {
-      ip: selectedPhone.value.ip,
-      action: action,
-      credentials: credentials.value
-    }
-    
-    // Add confirmation flag for destructive actions
-    if (action === 'factory_reset') {
-      requestBody.confirm_destructive = true
-    }
-
-    const response = await fetch('/api/phones/control', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    })
-    const data = await response.json()
+    const confirmDestructive = action === 'factory_reset'
+    const data = await api.controlPhone(
+      selectedPhone.value.ip,
+      action,
+      credentials.value,
+      {},
+      confirmDestructive
+    )
     
     if (data.success) {
       if (action === 'get_config') {
@@ -414,13 +397,8 @@ async function submitCredentials() {
 
 async function loadExtensions() {
   try {
-    const response = await fetch('/api/extensions', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-      }
-    })
-    const data = await response.json()
-    extensions.value = data
+    const response = await api.getExtensions()
+    extensions.value = response.extensions || response || []
   } catch (error) {
     // Only log error message to avoid exposing sensitive data
     console.error('Failed to load extensions:', error?.message || 'Unknown error')
@@ -443,33 +421,25 @@ async function provisionExtension(forceActionUrls = false) {
       include_action_urls: includeActionUrls.value
     }
 
-    // Use complete provisioning if Action URLs are included
-    const endpoint = includeActionUrls.value ? '/api/grandstream/provision-complete' : '/api/phones/provision'
-    
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ip: selectedPhone.value.ip,
-        extension_id: selectedExtension.value,
-        account_number: accountNumber.value,
-        credentials: credentials.value,
-        force_action_urls: forceActionUrls
-      })
-    })
-    const data = await response.json()
-    
-    if (!response.ok && response.status !== 409) {
-      // Server error - show detailed message
-      const errorMessage = data.error || data.message || `Provisioning failed (HTTP ${response.status})`
-      showNotification(errorMessage, 'error')
-      return
+    let data
+    if (includeActionUrls.value) {
+      data = await api.provisionPhoneComplete(
+        selectedPhone.value.ip,
+        selectedExtension.value,
+        accountNumber.value,
+        credentials.value,
+        forceActionUrls
+      )
+    } else {
+      data = await api.provisionPhone(
+        selectedPhone.value.ip,
+        selectedExtension.value,
+        accountNumber.value,
+        credentials.value
+      )
     }
     
-    if (response.status === 409 && data.action_urls_result?.requires_confirmation) {
+    if (data.action_urls_result?.requires_confirmation) {
       // Action URLs have conflicts - show confirmation modal
       actionUrlConflicts.value = data.action_urls_result.conflicts
       showActionUrlConfirmModal.value = true
@@ -510,23 +480,10 @@ async function checkActionUrls() {
   if (!selectedPhone.value) return
   
   try {
-    const response = await fetch('/api/grandstream/action-urls/check', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ip: selectedPhone.value.ip,
-        credentials: credentials.value
-      })
-    })
-    const data = await response.json()
-    
-    if (!response.ok) {
-      showNotification(data.error || `Failed to check Action URLs (${response.status})`, 'error')
-      return
-    }
+    const data = await api.checkPhoneActionUrls(
+      selectedPhone.value.ip,
+      credentials.value
+    )
     
     if (data.success) {
       actionUrlStatus.value = data
@@ -543,29 +500,18 @@ async function updateActionUrls(force = false) {
   if (!selectedPhone.value) return
   
   try {
-    const response = await fetch('/api/grandstream/action-urls/update', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ip: selectedPhone.value.ip,
-        credentials: credentials.value,
-        force: force
-      })
-    })
-    const data = await response.json()
+    const data = await api.updatePhoneActionUrls(
+      selectedPhone.value.ip,
+      credentials.value,
+      force
+    )
     
-    if (response.status === 409 && data.requires_confirmation) {
+    if (data.requires_confirmation) {
       // Conflicts found - show confirmation modal (without provision context)
       provisionContext.value = null
       actionUrlConflicts.value = data.conflicts
       showActionUrlConfirmModal.value = true
       showNotification('Action URL conflicts found - confirmation required', 'warning')
-    } else if (!response.ok) {
-      const errorMessage = data.error || data.message || `Failed to update Action URLs (HTTP ${response.status})`
-      showNotification(errorMessage, 'error')
     } else if (data.success) {
       provisionContext.value = null
       showActionUrlConfirmModal.value = false
@@ -610,6 +556,27 @@ function showNotification(message, type = 'info') {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 30px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.back-link {
+  color: #7D56F4;
+  text-decoration: none;
+  font-size: 14px;
+  padding: 6px 12px;
+  border: 1px solid #7D56F4;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.back-link:hover {
+  background: #7D56F4;
+  color: white;
 }
 
 .header h1 {
