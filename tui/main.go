@@ -84,10 +84,15 @@ const (
 	DefaultSIPPort = "5060"
 )
 
-// Default paths
-const (
-	SipTestScriptPath = "../scripts/sip-test-suite.sh"
-)
+// Default paths - these are checked in order of preference
+var sipTestScriptPaths = []string{
+	"/opt/rayanpbx/scripts/sip-test-suite.sh",
+	"../scripts/sip-test-suite.sh",
+	"./scripts/sip-test-suite.sh",
+}
+
+// SIP testing tools that can be installed
+var sipTools = []string{"pjsua", "sipsak", "sipp"}
 
 // Default extension values
 const (
@@ -2428,6 +2433,67 @@ func (m *model) handleDiagnosticsMenuSelection() {
 	}
 }
 
+// getSipTestScriptPath finds the SIP test suite script in available locations
+func getSipTestScriptPath() string {
+	for _, path := range sipTestScriptPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return "" // Not found
+}
+
+// checkToolInstalled checks if a tool is installed using type/which commands
+func checkToolInstalled(tool string) bool {
+	// Try 'type' first (more portable)
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("type %s", tool))
+	if err := cmd.Run(); err == nil {
+		return true
+	}
+	// Fallback to 'which'
+	cmd = exec.Command("which", tool)
+	return cmd.Run() == nil
+}
+
+// getToolPath returns the path of an installed tool, or empty string if not found
+func getToolPath(tool string) string {
+	cmd := exec.Command("which", tool)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// getSipToolsStatus returns a formatted status of all SIP testing tools
+func getSipToolsStatus() string {
+	var output strings.Builder
+	
+	output.WriteString("🔧 SIP Testing Tools Status:\n")
+	output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	
+	installedCount := 0
+	for _, tool := range sipTools {
+		if checkToolInstalled(tool) {
+			path := getToolPath(tool)
+			output.WriteString(fmt.Sprintf("✅ %s: Installed (%s)\n", tool, path))
+			installedCount++
+		} else {
+			output.WriteString(fmt.Sprintf("❌ %s: Not installed\n", tool))
+		}
+	}
+	
+	output.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	output.WriteString(fmt.Sprintf("Installed: %d/%d tools\n", installedCount, len(sipTools)))
+	
+	if installedCount == 0 {
+		output.WriteString("\n💡 No SIP testing tools found.\n")
+		output.WriteString("   Use 'Install SIP Tool' option to install them.\n")
+	}
+	
+	return output.String()
+}
+
 // handleSipTestMenuSelection handles SIP test menu selection
 func (m *model) handleSipTestMenuSelection() {
 	m.errorMsg = ""
@@ -2437,18 +2503,52 @@ func (m *model) handleSipTestMenuSelection() {
 	switch m.cursor {
 	case 0: // Check Available Tools
 		m.currentScreen = sipTestToolsScreen
-		// Run the tools check command
-		cmd := exec.Command("bash", SipTestScriptPath, "tools")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			details := ParseCommandError(err, output)
-			m.sipTestOutput = FormatVerboseError(details)
-		} else {
-			m.sipTestOutput = string(output)
-		}
+		// Use our built-in tool detection (more reliable than script)
+		m.sipTestOutput = getSipToolsStatus()
 	case 1: // Install SIP Tool
-		// This would require an input screen, for now show a message
-		m.sipTestOutput = "To install a tool, use CLI:\nrayanpbx-cli sip-test install <tool>\n\nAvailable tools: pjsua, sipsak, sipp"
+		// Automatically detect which tools are missing and offer to install them
+		var missingTools []string
+		var installedTools []string
+		
+		for _, tool := range sipTools {
+			if checkToolInstalled(tool) {
+				installedTools = append(installedTools, tool)
+			} else {
+				missingTools = append(missingTools, tool)
+			}
+		}
+		
+		var output strings.Builder
+		output.WriteString("📦 SIP Tool Installation\n")
+		output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+		
+		if len(installedTools) > 0 {
+			output.WriteString("✅ Already installed:\n")
+			for _, tool := range installedTools {
+				path := getToolPath(tool)
+				output.WriteString(fmt.Sprintf("   • %s (%s)\n", tool, path))
+			}
+			output.WriteString("\n")
+		}
+		
+		if len(missingTools) > 0 {
+			output.WriteString("📥 Missing tools that can be installed:\n")
+			for _, tool := range missingTools {
+				output.WriteString(fmt.Sprintf("   • %s\n", tool))
+			}
+			output.WriteString("\n")
+			output.WriteString("To install, run in terminal:\n")
+			output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			for _, tool := range missingTools {
+				output.WriteString(fmt.Sprintf("  rayanpbx-cli sip-test install %s\n", tool))
+			}
+			output.WriteString("\nOr install all at once:\n")
+			output.WriteString("  sudo apt-get update && sudo apt-get install -y pjsua sipsak sipp\n")
+		} else {
+			output.WriteString("🎉 All SIP testing tools are installed!\n")
+		}
+		
+		m.sipTestOutput = output.String()
 	case 2: // Test Registration
 		m.currentScreen = sipTestRegisterScreen
 		m.inputMode = true
@@ -2647,7 +2747,19 @@ func (m *model) executeSipTestRegister() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "register", ext, pass, server)
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = "❌ SIP test suite script not found.\n\nLooking in:\n" +
+			"  • /opt/rayanpbx/scripts/sip-test-suite.sh\n" +
+			"  • ../scripts/sip-test-suite.sh\n" +
+			"  • ./scripts/sip-test-suite.sh\n\n" +
+			"Please ensure the script is installed in one of these locations."
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "register", ext, pass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -2678,7 +2790,19 @@ func (m *model) executeSipTestCall() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "call", fromExt, fromPass, toExt, toPass, server)
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = "❌ SIP test suite script not found.\n\nLooking in:\n" +
+			"  • /opt/rayanpbx/scripts/sip-test-suite.sh\n" +
+			"  • ../scripts/sip-test-suite.sh\n" +
+			"  • ./scripts/sip-test-suite.sh\n\n" +
+			"Please ensure the script is installed in one of these locations."
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "call", fromExt, fromPass, toExt, toPass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -2709,7 +2833,19 @@ func (m *model) executeSipTestFull() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "full", ext1, pass1, ext2, pass2, server)
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = "❌ SIP test suite script not found.\n\nLooking in:\n" +
+			"  • /opt/rayanpbx/scripts/sip-test-suite.sh\n" +
+			"  • ../scripts/sip-test-suite.sh\n" +
+			"  • ./scripts/sip-test-suite.sh\n\n" +
+			"Please ensure the script is installed in one of these locations."
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "full", ext1, pass1, ext2, pass2, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
