@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -214,7 +215,7 @@ func TestConfigManagementScrolling(t *testing.T) {
 	configs := make([]EnvConfig, 50)
 	for i := 0; i < 50; i++ {
 		configs[i] = EnvConfig{
-			Key:   "TEST_KEY_" + string(rune('A'+i%26)),
+			Key:   fmt.Sprintf("TEST_KEY_%d", i),
 			Value: "value",
 		}
 	}

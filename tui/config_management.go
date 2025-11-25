@@ -639,8 +639,9 @@ func viewConfigManagement(m model) string {
 					cursor = "▶"
 				}
 				
-				// Add separator before menu options
-				if menuIdx == 0 && i == startIdx || (menuIdx == 0 && i > 0) {
+				// Add separator before first menu option if visible
+				isFirstMenuOption := menuIdx == 0
+				if isFirstMenuOption {
 					s.WriteString("\n")
 				}
 				
