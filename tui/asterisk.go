@@ -2,8 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os/exec"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -89,10 +94,110 @@ func (am *AsteriskManager) ExecuteCLICommand(command string) (string, error) {
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to execute command: %v", err)
+		return "", fmt.Errorf("command failed: asterisk -rx %q\nOutput: %s\n%s",
+			command,
+			strings.TrimSpace(string(output)),
+			getAsteriskErrorHelp(err))
 	}
 
 	return string(output), nil
+}
+
+// getAsteriskErrorHelp provides helpful troubleshooting info for Asterisk CLI errors
+func getAsteriskErrorHelp(err error) string {
+	var help strings.Builder
+	help.WriteString("Possible causes:\n")
+
+	errStr := err.Error()
+
+	// Use word boundary regex patterns for precise exit code matching
+	exitCode127 := regexp.MustCompile(`\bexit status 127\b`)
+	exitCode126 := regexp.MustCompile(`\bexit status 126\b`)
+	exitCode1 := regexp.MustCompile(`\bexit status 1\b`)
+
+	// Check for specific exit codes (more specific checks first to avoid false matches)
+	if exitCode127.MatchString(errStr) {
+		help.WriteString("  - 'asterisk' command not found. Is Asterisk installed?\n")
+		help.WriteString("  - Check if asterisk is in your PATH\n")
+	} else if exitCode126.MatchString(errStr) {
+		help.WriteString("  - Permission denied to execute asterisk binary\n")
+		help.WriteString("  - Try running with sudo or check file permissions\n")
+	} else if exitCode1.MatchString(errStr) {
+		help.WriteString("  - Asterisk may not be running. Check with: systemctl status asterisk\n")
+		help.WriteString("  - Invalid command syntax or Asterisk internal error\n")
+		help.WriteString("  - Permission denied to access Asterisk socket\n")
+	} else if strings.Contains(strings.ToLower(errStr), "permission denied") {
+		help.WriteString("  - Current user lacks permission to run Asterisk commands\n")
+		help.WriteString("  - Add user to 'asterisk' group or run as root\n")
+	}
+
+	// Get AI-powered solution from pollinations.ai
+	aiSolution := getAISolution(errStr)
+	if aiSolution != "" {
+		help.WriteString("\nAI-Suggested Solution:\n")
+		help.WriteString(aiSolution)
+		help.WriteString("\n")
+	}
+
+	help.WriteString("\nTroubleshooting:\n")
+	help.WriteString("  - Check Asterisk status: systemctl status asterisk\n")
+	help.WriteString("  - View Asterisk logs: tail -f /var/log/asterisk/full\n")
+	help.WriteString("  - Restart Asterisk: systemctl restart asterisk\n")
+
+	return help.String()
+}
+
+// getAISolution fetches an AI-powered solution from pollinations.ai
+func getAISolution(errorStr string) string {
+	// Build query for pollinations.ai
+	query := fmt.Sprintf("Brief fix for Asterisk CLI error: %s", errorStr)
+	if len(query) > 150 {
+		query = query[:150]
+	}
+
+	apiURL := "https://text.pollinations.ai/" + url.PathEscape(query)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+
+	response := strings.TrimSpace(string(body))
+	if response == "" {
+		return ""
+	}
+
+	// Limit response to first 5 lines and format
+	lines := strings.Split(response, "\n")
+	if len(lines) > 5 {
+		lines = lines[:5]
+	}
+
+	var formatted strings.Builder
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			formatted.WriteString("  ")
+			formatted.WriteString(line)
+			formatted.WriteString("\n")
+		}
+	}
+
+	return formatted.String()
 }
 
 // ReloadPJSIP reloads PJSIP configuration

@@ -231,12 +231,92 @@ class SystemctlService
         $output = [];
         $returnCode = 0;
         
-        exec($escapedCommand, $output, $returnCode);
+        exec($escapedCommand . ' 2>&1', $output, $returnCode);
         
         if ($returnCode !== 0 && $returnCode !== 3) { // 3 = inactive service
-            throw new Exception("Command failed with code {$returnCode}: {$command}");
+            $outputStr = implode("\n", $output);
+            $errorDetails = $this->getErrorDetails($returnCode, $outputStr);
+            throw new Exception("Command failed with code {$returnCode}: {$command}\n{$errorDetails}");
         }
         
         return implode("\n", $output);
+    }
+
+    /**
+     * Get verbose error details based on exit code and output
+     */
+    private function getErrorDetails(int $exitCode, string $output): string
+    {
+        $details = [];
+
+        // Add output if available
+        if (!empty(trim($output))) {
+            $details[] = "Output: " . $output;
+        }
+
+        // Common exit code explanations
+        $exitCodeHelp = match ($exitCode) {
+            1 => "General error - The command may not exist, Asterisk may not be running, or permission was denied.",
+            2 => "Misuse of shell command - Invalid command syntax.",
+            126 => "Permission denied - Cannot execute the command. Try running with sudo.",
+            127 => "Command not found - The 'asterisk' binary may not be in PATH.",
+            130 => "Script terminated by Ctrl+C.",
+            default => null,
+        };
+
+        if ($exitCodeHelp) {
+            $details[] = "Possible cause: " . $exitCodeHelp;
+        }
+
+        // Get AI-powered solution from pollinations.ai
+        $aiSolution = $this->getAISolution($exitCode, $output);
+        if ($aiSolution) {
+            $details[] = "\nAI-Suggested Solution:\n" . $aiSolution;
+        }
+
+        // Add troubleshooting tips
+        $details[] = "\nTroubleshooting:";
+        $details[] = "  - Check if Asterisk is running: systemctl status asterisk";
+        $details[] = "  - Verify user has permission to run Asterisk CLI commands";
+        $details[] = "  - Check Asterisk logs: /var/log/asterisk/full";
+
+        return implode("\n", $details);
+    }
+
+    /**
+     * Get AI-powered solution from pollinations.ai
+     */
+    private function getAISolution(int $exitCode, string $output): ?string
+    {
+        try {
+            $query = "Brief fix for Asterisk CLI exit code {$exitCode}";
+            if (!empty(trim($output))) {
+                // Limit output length for the query
+                $truncatedOutput = substr(trim($output), 0, 100);
+                $query .= " with output: {$truncatedOutput}";
+            }
+            
+            $url = "https://text.pollinations.ai/" . rawurlencode($query);
+            
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 5, // 5 second timeout
+                    'ignore_errors' => true,
+                ]
+            ]);
+            
+            $response = @file_get_contents($url, false, $context);
+            
+            if ($response !== false && !empty(trim($response))) {
+                // Limit response length and format it
+                $lines = explode("\n", trim($response));
+                $limitedLines = array_slice($lines, 0, 5);
+                return "  " . implode("\n  ", $limitedLines);
+            }
+        } catch (\Throwable $e) {
+            // Silently fail - AI solution is optional
+        }
+        
+        return null;
     }
 }
