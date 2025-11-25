@@ -164,7 +164,9 @@ echo -e "${CYAN}7. Network connectivity check...${NC}"
 if netstat -tunlp 2>/dev/null | grep -q ":5060"; then
     LISTENING=$(netstat -tunlp 2>/dev/null | grep ":5060")
     echo -e "${GREEN}   ✓ Asterisk is listening on port 5060${NC}"
-    echo -e "   ${LISTENING}"
+    echo "$LISTENING" | while read line; do
+        echo -e "   $line"
+    done
 else
     echo -e "${RED}   ✗ Port 5060 is not listening${NC}"
 fi
