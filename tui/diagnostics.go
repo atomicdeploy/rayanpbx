@@ -612,8 +612,13 @@ func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
 }
 
 // CheckSIPPortQuiet returns just the status without formatting (for programmatic use)
-func (dm *DiagnosticsManager) CheckSIPPortQuiet() (bool, string, error) {
-	// Check if port 5060 is listening
+// port parameter specifies which port to check (default 5060)
+func (dm *DiagnosticsManager) CheckSIPPortQuiet(port int) (bool, string, error) {
+	if port <= 0 {
+		port = 5060 // default SIP port
+	}
+	
+	// Check if port is listening
 	cmd := exec.Command("ss", "-tunlp")
 	output, err := cmd.Output()
 	if err != nil {
@@ -625,16 +630,17 @@ func (dm *DiagnosticsManager) CheckSIPPortQuiet() (bool, string, error) {
 	}
 	
 	// Check for exact port match to avoid false positives
+	portSuffix := fmt.Sprintf(":%d", port)
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		for _, field := range fields {
-			if strings.HasSuffix(field, ":5060") {
+			if strings.HasSuffix(field, portSuffix) {
 				ips := GetLocalIPAddresses()
 				if len(ips) > 0 {
-					return true, fmt.Sprintf("%s:5060", ips[0]), nil
+					return true, fmt.Sprintf("%s:%d", ips[0], port), nil
 				}
-				return true, "0.0.0.0:5060", nil
+				return true, fmt.Sprintf("0.0.0.0:%d", port), nil
 			}
 		}
 	}
