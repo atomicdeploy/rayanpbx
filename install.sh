@@ -2506,6 +2506,7 @@ if next_step "Installation Complete! 🎉" "complete"; then
     if [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ]; then
         # clear
         # print_banner
+        :  # no-op placeholder - if block requires at least one command
     fi
 
     print_box "Installation Successful!" "$GREEN"
