@@ -212,6 +212,13 @@ type model struct {
 	helloWorldSetup  *HelloWorldSetup
 	helloWorldStatus HelloWorldStatus
 	helloWorldMenu   []string
+
+	// Configuration Management scrolling state
+	configScrollOffset  int          // Current scroll offset for config list
+	configVisibleRows   int          // Number of visible rows in viewport
+	configItems         []EnvConfig  // Cached config items
+	configCursor        int          // Cursor position within config items
+	configSearchQuery   string       // Search/filter query
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -613,7 +620,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 9:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
-					m.cursor = 0
+					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
 				case 10:

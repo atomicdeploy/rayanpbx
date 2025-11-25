@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // EnvConfig represents a single environment variable
@@ -314,60 +315,183 @@ func reloadAllServices() string {
 	return strings.Join(messages, " | ")
 }
 
+// Default visible rows for configuration table
+const defaultConfigVisibleRows = 15
+
+// initConfigManagement initializes the configuration management screen
+func initConfigManagement(m *model) {
+	configManager := NewConfigManager(m.verbose)
+	if err := configManager.LoadConfigs(); err == nil {
+		configs := configManager.GetConfigs()
+		// Sort configs alphabetically
+		sort.Slice(configs, func(i, j int) bool {
+			return configs[i].Key < configs[j].Key
+		})
+		m.configItems = configs
+	} else {
+		m.configItems = []EnvConfig{}
+		m.errorMsg = fmt.Sprintf("Error loading configs: %v", err)
+	}
+	m.configCursor = 0
+	m.configScrollOffset = 0
+	m.configSearchQuery = ""
+	// Set visible rows based on terminal height, accounting for header/footer
+	if m.height > 20 {
+		m.configVisibleRows = m.height - 18 // Leave room for title, header, footer, etc.
+	} else {
+		m.configVisibleRows = defaultConfigVisibleRows
+	}
+}
+
+// getFilteredConfigs returns configs filtered by search query
+func getFilteredConfigs(configs []EnvConfig, query string) []EnvConfig {
+	if query == "" {
+		return configs
+	}
+	
+	queryLower := strings.ToLower(query)
+	var filtered []EnvConfig
+	for _, config := range configs {
+		if strings.Contains(strings.ToLower(config.Key), queryLower) ||
+			strings.Contains(strings.ToLower(config.Value), queryLower) {
+			filtered = append(filtered, config)
+		}
+	}
+	return filtered
+}
+
 // Update function to handle config management screen
 func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Load configs if not already loaded
+		if len(m.configItems) == 0 {
+			initConfigManagement(&m)
+		}
+		
+		// Get filtered configs
+		filteredConfigs := getFilteredConfigs(m.configItems, m.configSearchQuery)
+		totalItems := len(filteredConfigs) + 3 // configs + 3 menu options (add, reload, back)
+		
 		switch msg.String() {
 		case "q", "esc":
 			m.currentScreen = mainMenu
-			m.cursor = 0
+			m.cursor = m.mainMenuCursor
+			m.configItems = nil // Clear cached items
+			m.configSearchQuery = ""
 			return m, nil
 			
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+			if m.configCursor > 0 {
+				m.configCursor--
+				// Adjust scroll if cursor goes above visible area
+				if m.configCursor < m.configScrollOffset {
+					m.configScrollOffset = m.configCursor
+				}
 			}
 			
 		case "down", "j":
-			configManager := NewConfigManager(m.verbose)
-			if err := configManager.LoadConfigs(); err == nil {
-				configs := configManager.GetConfigs()
-				// Add menu options count (3: back, add, reload)
-				if m.cursor < len(configs)+2 {
-					m.cursor++
+			if m.configCursor < totalItems-1 {
+				m.configCursor++
+				// Adjust scroll if cursor goes below visible area
+				if m.configCursor >= m.configScrollOffset+m.configVisibleRows {
+					m.configScrollOffset = m.configCursor - m.configVisibleRows + 1
 				}
 			}
 			
-		case "enter":
-			// Handle selection
-			configManager := NewConfigManager(m.verbose)
-			if err := configManager.LoadConfigs(); err == nil {
-				configs := configManager.GetConfigs()
-				
-				if m.cursor < len(configs) {
-					// Edit config
-					m.currentScreen = configEditScreen
-					m.inputMode = true
-					m.inputFields = []string{"Key", "Value"}
-					m.inputValues = []string{configs[m.cursor].Key, configs[m.cursor].Value}
-					m.inputCursor = 0
-				} else if m.cursor == len(configs) {
-					// Add new config
-					m.currentScreen = configAddScreen
-					m.inputMode = true
-					m.inputFields = []string{"Key", "Value"}
-					m.inputValues = []string{"", ""}
-					m.inputCursor = 0
-				} else if m.cursor == len(configs)+1 {
-					// Reload services
-					m.successMsg = reloadAllServices()
-				} else {
-					// Back
-					m.currentScreen = mainMenu
-					m.cursor = 0
-				}
+		case "pgup", "ctrl+b":
+			// Page up - move cursor up by visible rows
+			m.configCursor -= m.configVisibleRows
+			if m.configCursor < 0 {
+				m.configCursor = 0
 			}
+			// Adjust scroll
+			m.configScrollOffset -= m.configVisibleRows
+			if m.configScrollOffset < 0 {
+				m.configScrollOffset = 0
+			}
+			
+		case "pgdown", "ctrl+f":
+			// Page down - move cursor down by visible rows
+			m.configCursor += m.configVisibleRows
+			if m.configCursor >= totalItems {
+				m.configCursor = totalItems - 1
+			}
+			// Adjust scroll
+			maxOffset := totalItems - m.configVisibleRows
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			m.configScrollOffset += m.configVisibleRows
+			if m.configScrollOffset > maxOffset {
+				m.configScrollOffset = maxOffset
+			}
+			
+		case "home", "g":
+			// Go to top
+			m.configCursor = 0
+			m.configScrollOffset = 0
+			
+		case "end", "G":
+			// Go to bottom
+			m.configCursor = totalItems - 1
+			maxOffset := totalItems - m.configVisibleRows
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			m.configScrollOffset = maxOffset
+		
+		case "/":
+			// Toggle search mode - for now just show help
+			m.successMsg = "Search: Type to filter, press '/' again to clear"
+			if m.configSearchQuery != "" {
+				m.configSearchQuery = ""
+				m.configCursor = 0
+				m.configScrollOffset = 0
+			}
+			
+		case "r":
+			// Refresh config list
+			initConfigManagement(&m)
+			m.successMsg = "Configuration reloaded"
+			
+		case "enter":
+			configCount := len(filteredConfigs)
+			
+			if m.configCursor < configCount {
+				// Edit config
+				m.currentScreen = configEditScreen
+				m.inputMode = true
+				m.inputFields = []string{"Key", "Value"}
+				m.inputValues = []string{filteredConfigs[m.configCursor].Key, filteredConfigs[m.configCursor].Value}
+				m.inputCursor = 0
+			} else if m.configCursor == configCount {
+				// Add new config
+				m.currentScreen = configAddScreen
+				m.inputMode = true
+				m.inputFields = []string{"Key", "Value"}
+				m.inputValues = []string{"", ""}
+				m.inputCursor = 0
+			} else if m.configCursor == configCount+1 {
+				// Reload services
+				m.successMsg = reloadAllServices()
+			} else {
+				// Back
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				m.configItems = nil
+				m.configSearchQuery = ""
+			}
+		}
+	
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		// Recalculate visible rows based on new terminal size
+		if m.height > 20 {
+			m.configVisibleRows = m.height - 18
+		} else {
+			m.configVisibleRows = defaultConfigVisibleRows
 		}
 	}
 	
@@ -381,74 +505,164 @@ func viewConfigManagement(m model) string {
 	s.WriteString(titleStyle.Render("🔧 Configuration Management"))
 	s.WriteString("\n\n")
 	
-	configManager := NewConfigManager(m.verbose)
-	if err := configManager.LoadConfigs(); err != nil {
-		s.WriteString(errorStyle.Render(fmt.Sprintf("Error loading configs: %v", err)))
-		s.WriteString("\n\n")
-		s.WriteString(helpStyle.Render("Press 'q' or 'esc' to go back"))
-		return menuStyle.Render(s.String())
+	// Initialize configs if not loaded
+	if len(m.configItems) == 0 {
+		configManager := NewConfigManager(m.verbose)
+		if err := configManager.LoadConfigs(); err != nil {
+			s.WriteString(errorStyle.Render(fmt.Sprintf("Error loading configs: %v", err)))
+			s.WriteString("\n\n")
+			s.WriteString(helpStyle.Render("Press 'q' or 'esc' to go back"))
+			return menuStyle.Render(s.String())
+		}
 	}
 	
-	configs := configManager.GetConfigs()
+	// Get filtered configs
+	filteredConfigs := getFilteredConfigs(m.configItems, m.configSearchQuery)
+	configCount := len(filteredConfigs)
+	totalItems := configCount + 3 // configs + 3 menu options
 	
-	// Sort configs alphabetically
-	sort.Slice(configs, func(i, j int) bool {
-		return configs[i].Key < configs[j].Key
-	})
+	// Show search query if active
+	if m.configSearchQuery != "" {
+		s.WriteString(infoStyle.Render(fmt.Sprintf("🔍 Filter: %s", m.configSearchQuery)))
+		s.WriteString("\n")
+	}
 	
-	s.WriteString(infoStyle.Render(fmt.Sprintf("Total: %d configurations", len(configs))))
+	// Statistics
+	if m.configSearchQuery != "" {
+		s.WriteString(infoStyle.Render(fmt.Sprintf("Showing %d of %d configurations", configCount, len(m.configItems))))
+	} else {
+		s.WriteString(infoStyle.Render(fmt.Sprintf("Total: %d configurations", configCount)))
+	}
+	s.WriteString("\n")
+	
+	// Show scroll position indicator
+	if totalItems > m.configVisibleRows {
+		percentage := 0
+		if totalItems > 1 {
+			percentage = (m.configCursor * 100) / (totalItems - 1)
+		}
+		s.WriteString(helpStyle.Render(fmt.Sprintf("[%d/%d] %d%%", m.configCursor+1, totalItems, percentage)))
+	}
 	s.WriteString("\n\n")
 	
-	// Display configs
-	for i, config := range configs {
-		cursor := " "
-		if m.cursor == i {
-			cursor = ">"
+	// Table header
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7D56F4")).
+		Bold(true)
+	
+	// Calculate max key width for alignment
+	maxKeyWidth := 30
+	for _, config := range filteredConfigs {
+		if len(config.Key) > maxKeyWidth {
+			maxKeyWidth = len(config.Key)
 		}
-		
-		displayValue := config.Value
-		if config.Sensitive {
-			displayValue = "********"
-		}
-		
-		line := fmt.Sprintf("%s %s = %s", cursor, config.Key, displayValue)
-		
-		if m.cursor == i {
-			s.WriteString(selectedItemStyle.Render(line))
-		} else {
-			s.WriteString(line)
-		}
+	}
+	if maxKeyWidth > 40 {
+		maxKeyWidth = 40 // Cap at 40 chars
+	}
+	
+	s.WriteString(headerStyle.Render(fmt.Sprintf("  %-*s │ %s", maxKeyWidth, "KEY", "VALUE")))
+	s.WriteString("\n")
+	s.WriteString(headerStyle.Render(strings.Repeat("─", maxKeyWidth+2) + "┼" + strings.Repeat("─", 40)))
+	s.WriteString("\n")
+	
+	// Calculate visible range
+	visibleRows := m.configVisibleRows
+	if visibleRows <= 0 {
+		visibleRows = defaultConfigVisibleRows
+	}
+	
+	startIdx := m.configScrollOffset
+	endIdx := startIdx + visibleRows
+	if endIdx > totalItems {
+		endIdx = totalItems
+	}
+	
+	// Show scroll indicators
+	if startIdx > 0 {
+		s.WriteString(helpStyle.Render("  ▲ more above..."))
 		s.WriteString("\n")
-		
-		if config.Description != "" && m.cursor == i {
-			s.WriteString(helpStyle.Render("  └─ " + config.Description))
+	}
+	
+	// Display configs within visible range
+	for i := startIdx; i < endIdx; i++ {
+		if i < configCount {
+			config := filteredConfigs[i]
+			cursor := " "
+			if m.configCursor == i {
+				cursor = "▶"
+			}
+			
+			// Truncate key if too long
+			displayKey := config.Key
+			if len(displayKey) > maxKeyWidth {
+				displayKey = displayKey[:maxKeyWidth-3] + "..."
+			}
+			
+			// Handle value display
+			displayValue := config.Value
+			if config.Sensitive {
+				displayValue = "********"
+			}
+			// Truncate value if too long
+			maxValueWidth := 35
+			if len(displayValue) > maxValueWidth {
+				displayValue = displayValue[:maxValueWidth-3] + "..."
+			}
+			
+			line := fmt.Sprintf("%s %-*s │ %s", cursor, maxKeyWidth, displayKey, displayValue)
+			
+			if m.configCursor == i {
+				s.WriteString(selectedItemStyle.Render(line))
+			} else {
+				s.WriteString(line)
+			}
 			s.WriteString("\n")
-		}
-	}
-	
-	s.WriteString("\n")
-	
-	// Menu options
-	menuOptions := []string{
-		"➕ Add New Configuration",
-		"🔄 Reload Services",
-		"🔙 Back to Main Menu",
-	}
-	
-	for i, option := range menuOptions {
-		cursor := " "
-		idx := len(configs) + i
-		if m.cursor == idx {
-			cursor = ">"
-			s.WriteString(selectedItemStyle.Render(cursor + " " + option))
+			
+			// Show description for selected item
+			if config.Description != "" && m.configCursor == i {
+				s.WriteString(helpStyle.Render(fmt.Sprintf("  └─ %s", config.Description)))
+				s.WriteString("\n")
+			}
 		} else {
-			s.WriteString(cursor + " " + option)
+			// Menu options (Add, Reload, Back)
+			menuIdx := i - configCount
+			menuOptions := []string{
+				"➕ Add New Configuration",
+				"🔄 Reload Services",
+				"🔙 Back to Main Menu",
+			}
+			
+			if menuIdx < len(menuOptions) {
+				cursor := " "
+				if m.configCursor == i {
+					cursor = "▶"
+				}
+				
+				// Add separator before menu options
+				if menuIdx == 0 && i == startIdx || (menuIdx == 0 && i > 0) {
+					s.WriteString("\n")
+				}
+				
+				line := cursor + " " + menuOptions[menuIdx]
+				if m.configCursor == i {
+					s.WriteString(selectedItemStyle.Render(line))
+				} else {
+					s.WriteString(line)
+				}
+				s.WriteString("\n")
+			}
 		}
+	}
+	
+	// Show scroll indicator at bottom
+	if endIdx < totalItems {
+		s.WriteString(helpStyle.Render("  ▼ more below..."))
 		s.WriteString("\n")
 	}
 	
 	s.WriteString("\n")
-	s.WriteString(helpStyle.Render("↑/↓: Navigate | Enter: Select/Edit | q/esc: Back"))
+	s.WriteString(helpStyle.Render("↑/↓/j/k: Navigate │ PgUp/PgDn: Page │ g/G: Top/Bottom │ Enter: Edit │ r: Refresh │ q/esc: Back"))
 	
 	if m.successMsg != "" {
 		s.WriteString("\n\n")
