@@ -487,6 +487,167 @@ func GetLocalIPAddresses() []string {
 	return ips
 }
 
+// CheckSIPPort validates that Asterisk is listening on the SIP port
+// Returns a detailed status string for TUI display
+func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
+	var result strings.Builder
+	
+	result.WriteString("📞 SIP Port Health Check\n")
+	result.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	
+	// Step 1: Check if Asterisk is running
+	status, err := dm.asterisk.GetServiceStatus()
+	if err != nil || status != "running" {
+		result.WriteString("❌ Asterisk service is not running\n")
+		result.WriteString("   Start with: systemctl start asterisk\n")
+		return result.String()
+	}
+	result.WriteString("✅ Asterisk service is running\n")
+	
+	// Step 2: Check PJSIP transports
+	transports, err := dm.asterisk.ExecuteCLICommand("pjsip show transports")
+	hasUDP := strings.Contains(transports, "transport-udp")
+	hasTCP := strings.Contains(transports, "transport-tcp")
+	
+	if err != nil || (!hasUDP && !hasTCP) {
+		// Neither transport is configured
+		result.WriteString("⚠️  PJSIP transports not configured\n")
+		result.WriteString("   Check /etc/asterisk/pjsip.conf\n")
+	} else if hasUDP && hasTCP {
+		result.WriteString("✅ PJSIP transports configured (UDP and TCP)\n")
+	} else if hasUDP {
+		result.WriteString("✅ PJSIP transport configured (UDP only)\n")
+	} else if hasTCP {
+		result.WriteString("✅ PJSIP transport configured (TCP only)\n")
+	}
+	
+	// Step 3: Check if port is listening using system commands
+	portListening := false
+	var listenInfo string
+	
+	// Try ss command first (modern systems)
+	cmd := exec.Command("ss", "-tunlp")
+	output, err := cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		// Use word boundary matching: port followed by space or end of field
+		portPattern := fmt.Sprintf(":%d ", port) // Port followed by space
+		portPatternEnd := fmt.Sprintf(":%d\t", port) // Port followed by tab
+		portSuffix := fmt.Sprintf(":%d", port)
+		for _, line := range lines {
+			// Match :PORT followed by whitespace to avoid false positives like :15060
+			if strings.Contains(line, portPattern) || strings.Contains(line, portPatternEnd) {
+				portListening = true
+				listenInfo = strings.TrimSpace(line)
+				break
+			}
+			// Also check for exact port in each field (ss output format)
+			fields := strings.Fields(line)
+			for _, field := range fields {
+				if strings.HasSuffix(field, portSuffix) {
+					portListening = true
+					listenInfo = strings.TrimSpace(line)
+					break
+				}
+			}
+			if portListening {
+				break
+			}
+		}
+	} else {
+		// Fallback to netstat
+		cmd = exec.Command("netstat", "-tunlp")
+		output, err = cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				// Check each field for exact port match
+				fields := strings.Fields(line)
+				for _, field := range fields {
+					if strings.HasSuffix(field, fmt.Sprintf(":%d", port)) {
+						portListening = true
+						listenInfo = strings.TrimSpace(line)
+						break
+					}
+				}
+				if portListening {
+					break
+				}
+			}
+		}
+	}
+	
+	if portListening {
+		result.WriteString(fmt.Sprintf("✅ SIP port %d is listening\n", port))
+		if listenInfo != "" {
+			result.WriteString(fmt.Sprintf("   %s\n", listenInfo))
+		}
+		result.WriteString("\n")
+		
+		// Show SIP endpoint info for client configuration
+		ips := GetLocalIPAddresses()
+		result.WriteString("📱 SIP Endpoint for Clients:\n")
+		if len(ips) > 0 {
+			result.WriteString(fmt.Sprintf("   Address: %s:%d\n", ips[0], port))
+		}
+		result.WriteString("   Protocol: UDP/TCP\n")
+		result.WriteString("   Configure your SIP phones to connect to this address\n")
+	} else {
+		result.WriteString(fmt.Sprintf("❌ SIP port %d is NOT listening!\n", port))
+		result.WriteString("\n")
+		result.WriteString("⚠️  SIP clients will get 'connection refused'\n\n")
+		result.WriteString("Possible causes:\n")
+		result.WriteString("  • PJSIP transport not configured\n")
+		result.WriteString("  • Another process using the port\n")
+		result.WriteString("  • Asterisk failed to bind\n")
+		result.WriteString("\nTroubleshooting:\n")
+		result.WriteString("  • Check transports: asterisk -rx 'pjsip show transports'\n")
+		result.WriteString("  • Reload PJSIP: asterisk -rx 'pjsip reload'\n")
+		result.WriteString("  • Check logs: journalctl -u asterisk | grep bind\n")
+	}
+	
+	result.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	
+	return result.String()
+}
+
+// CheckSIPPortQuiet returns just the status without formatting (for programmatic use)
+// port parameter specifies which port to check (default 5060)
+func (dm *DiagnosticsManager) CheckSIPPortQuiet(port int) (bool, string, error) {
+	if port <= 0 {
+		port = 5060 // default SIP port
+	}
+	
+	// Check if port is listening
+	cmd := exec.Command("ss", "-tunlp")
+	output, err := cmd.Output()
+	if err != nil {
+		cmd = exec.Command("netstat", "-tunlp")
+		output, err = cmd.Output()
+		if err != nil {
+			return false, "", fmt.Errorf("could not check port status: %v", err)
+		}
+	}
+	
+	// Check for exact port match to avoid false positives
+	portSuffix := fmt.Sprintf(":%d", port)
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		for _, field := range fields {
+			if strings.HasSuffix(field, portSuffix) {
+				ips := GetLocalIPAddresses()
+				if len(ips) > 0 {
+					return true, fmt.Sprintf("%s:%d", ips[0], port), nil
+				}
+				return true, fmt.Sprintf("0.0.0.0:%d", port), nil
+			}
+		}
+	}
+	
+	return false, "", nil
+}
+
 // GetEnabledCodecs queries Asterisk for enabled codecs
 func (dm *DiagnosticsManager) GetEnabledCodecs() ([]string, error) {
 	output, err := dm.asterisk.ExecuteCLICommand("pjsip show endpoints")

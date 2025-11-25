@@ -2681,6 +2681,9 @@ EOF
 
     # Check Asterisk
     print_progress "Checking Asterisk..."
+    SIP_LISTENING_ADDRESS=""
+    SIP_LISTENING_PORT="5060"
+    
     if systemctl is-active --quiet asterisk; then
         print_success "✓ Asterisk is running"
         ASTERISK_VERSION=$(asterisk -V 2>/dev/null | head -n 1)
@@ -2689,29 +2692,70 @@ EOF
         # Check PJSIP transport (port 5060)
         print_progress "Checking PJSIP transport (port 5060)..."
         PJSIP_TRANSPORTS=$(asterisk -rx "pjsip show transports" 2>/dev/null || echo "")
+        SIP_PORT_LISTENING=false
+        
         if echo "$PJSIP_TRANSPORTS" | grep -q "transport-udp\|transport-tcp"; then
             print_success "✓ PJSIP transports configured"
-            if command -v netstat &> /dev/null; then
-                PORT_CHECK=$(netstat -tunlp 2>/dev/null | grep ":5060" || echo "")
-                if [ -n "$PORT_CHECK" ]; then
-                    print_success "✓ Asterisk listening on port 5060"
-                    echo -e "${DIM}   $PORT_CHECK${RESET}"
-                else
-                    print_warning "⚠ Port 5060 not detected in netstat output"
+            
+            # Check if port 5060 is actually listening (validate connection refused scenario)
+            if is_port_listening 5060; then
+                SIP_PORT_LISTENING=true
+                print_success "✓ Asterisk listening on SIP port 5060"
+                
+                # Get the actual listening address for display
+                if command -v ss &> /dev/null; then
+                    PORT_CHECK=$(ss -tunlp 2>/dev/null | grep ":5060" | head -1 || echo "")
+                elif command -v netstat &> /dev/null; then
+                    PORT_CHECK=$(netstat -tunlp 2>/dev/null | grep ":5060" | head -1 || echo "")
                 fi
-            elif command -v ss &> /dev/null; then
-                PORT_CHECK=$(ss -tunlp 2>/dev/null | grep ":5060" || echo "")
+                
                 if [ -n "$PORT_CHECK" ]; then
-                    print_success "✓ Asterisk listening on port 5060"
                     echo -e "${DIM}   $PORT_CHECK${RESET}"
+                fi
+            else
+                print_warning "⚠ Port 5060 is not listening - attempting to fix..."
+                
+                # Try to reload PJSIP to activate transports
+                asterisk -rx "pjsip reload" > /dev/null 2>&1 || true
+                sleep 2
+                
+                # Re-check after reload
+                if is_port_listening 5060; then
+                    SIP_PORT_LISTENING=true
+                    print_success "✓ Asterisk SIP port 5060 now listening after reload"
                 else
-                    print_warning "⚠ Port 5060 not detected in ss output"
+                    print_error "✗ Asterisk SIP port 5060 is NOT listening"
+                    print_warning "SIP clients will get 'connection refused' errors!"
+                    echo ""
+                    echo -e "${YELLOW}${BOLD}⚠️  WARNING: SIP Port Not Listening!${RESET}"
+                    echo -e "${WHITE}Asterisk is running but not accepting SIP connections.${RESET}"
+                    echo -e "${WHITE}Check the following:${RESET}"
+                    echo -e "  ${DIM}1.${RESET} Verify PJSIP transport config: ${WHITE}cat /etc/asterisk/pjsip.conf | grep -A5 transport${RESET}"
+                    echo -e "  ${DIM}2.${RESET} Check for bind errors: ${WHITE}journalctl -u asterisk | grep -i bind${RESET}"
+                    echo -e "  ${DIM}3.${RESET} Ensure port is not in use: ${WHITE}ss -tunlp | grep :5060${RESET}"
+                    echo ""
+                    FAILED_SERVICES+=("Asterisk SIP")
                 fi
             fi
         else
             print_warning "⚠ PJSIP transports not found, attempting to configure..."
             configure_pjsip_transport
             asterisk -rx "pjsip reload" > /dev/null 2>&1 || true
+            sleep 2
+            
+            # Check if port is now listening
+            if is_port_listening 5060; then
+                SIP_PORT_LISTENING=true
+                print_success "✓ Asterisk SIP port 5060 now listening after configuration"
+            else
+                print_error "✗ Asterisk SIP port 5060 still not listening after configuration"
+                FAILED_SERVICES+=("Asterisk SIP")
+            fi
+        fi
+        
+        # Store the SIP listening address for final display
+        if [ "$SIP_PORT_LISTENING" = true ]; then
+            SIP_LISTENING_ADDRESS=$(hostname -I | awk '{print $1}')
         fi
     else
         print_error "✗ Asterisk service failed"
@@ -2840,6 +2884,24 @@ if next_step "Installation Complete! 🎉" "complete"; then
     echo -e "  ${GREEN}✓${RESET} TUI Terminal    : ${WHITE}rayanpbx-tui${RESET}"
     echo ""
 
+    echo -e "${BOLD}${CYAN}📞 SIP Endpoint for Clients:${RESET}"
+    # Use the SIP_LISTENING_ADDRESS set during health check if available
+    if [ -n "$SIP_LISTENING_ADDRESS" ]; then
+        echo -e "  ${GREEN}✓${RESET} SIP Server      : ${WHITE}${SIP_LISTENING_ADDRESS}:5060${RESET} (UDP/TCP)"
+        echo -e "  ${DIM}   Connect your SIP phones and softphones to this address${RESET}"
+    else
+        # Fallback - get current IP if not set
+        local sip_ip=$(hostname -I | awk '{print $1}')
+        if is_port_listening 5060 2>/dev/null; then
+            echo -e "  ${GREEN}✓${RESET} SIP Server      : ${WHITE}${sip_ip}:5060${RESET} (UDP/TCP)"
+            echo -e "  ${DIM}   Connect your SIP phones and softphones to this address${RESET}"
+        else
+            echo -e "  ${RED}✗${RESET} SIP Server      : ${YELLOW}Not listening - check Asterisk configuration${RESET}"
+            echo -e "  ${DIM}   Run: rayanpbx-cli diag check-sip${RESET}"
+        fi
+    fi
+    echo ""
+
     echo -e "${BOLD}${CYAN}🔐 Default Login (Development):${RESET}"
     echo -e "  ${YELLOW}Username:${RESET} admin"
     echo -e "  ${YELLOW}Password:${RESET} admin"
@@ -2855,6 +2917,7 @@ if next_step "Installation Complete! 🎉" "complete"; then
     echo -e "  ${DIM}RayanPBX TUI:${RESET}      ${WHITE}rayanpbx-tui${RESET}   ${GREEN}(Interactive Terminal UI!)${RESET}"
     echo -e "  ${DIM}RayanPBX CLI:${RESET}      ${WHITE}rayanpbx-cli help${RESET}"
     echo -e "  ${DIM}Health check:${RESET}      ${WHITE}rayanpbx-cli diag health-check${RESET}"
+    echo -e "  ${DIM}SIP check:${RESET}         ${WHITE}rayanpbx-cli diag check-sip${RESET}"
     echo -e "  ${DIM}View services:${RESET}     pm2 list"
     echo -e "  ${DIM}View logs:${RESET}         pm2 logs"
     echo -e "  ${DIM}Asterisk CLI:${RESET}      asterisk -rvvv   ${GREEN}(Recommended!)${RESET}"
