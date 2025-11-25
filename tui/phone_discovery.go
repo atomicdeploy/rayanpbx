@@ -22,6 +22,19 @@ const (
 // VoIP vendor list
 var voipVendors = []string{"grandstream", "yealink", "polycom", "cisco", "snom", "panasonic", "fanvil"}
 
+// Pre-compiled regular expressions for performance
+var (
+	// GrandStream model patterns: GXP, GRP, GXV, DP, WP, GAC, HT series
+	grandstreamModelRegex = regexp.MustCompile(`(?i)\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*`)
+	// Other vendor model patterns
+	yealinkModelRegex   = regexp.MustCompile(`(?i)sip-t\d+[a-z]*`)
+	polycomModelRegex   = regexp.MustCompile(`(?i)(soundpoint|vvx\d+[a-z]*)`)
+	ciscoModelRegex     = regexp.MustCompile(`(?i)(cp-\d+[a-z]*|spa\d+[a-z]*)`)
+	snomModelRegex      = regexp.MustCompile(`(?i)snom\d+[a-z]*`)
+	panasonicModelRegex = regexp.MustCompile(`(?i)kx-[\w]+`)
+	fanvilModelRegex    = regexp.MustCompile(`(?i)x\d+[a-z]*`)
+)
+
 // DiscoveredPhone represents a phone discovered on the network
 type DiscoveredPhone struct {
 	IP            string    `json:"ip"`
@@ -213,7 +226,6 @@ func (pd *PhoneDiscovery) parseLLDPCliShowNeighbors(output string) ([]Discovered
 	
 	lines := strings.Split(output, "\n")
 	var currentPhone *DiscoveredPhone
-	var currentInterface string
 	
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -228,12 +240,6 @@ func (pd *PhoneDiscovery) parseLLDPCliShowNeighbors(output string) ([]Discovered
 			// Save previous phone if it exists and is a VoIP phone
 			if currentPhone != nil && pd.isVoIPPhone(currentPhone) {
 				phones = append(phones, *currentPhone)
-			}
-			
-			// Parse interface line: "Interface:    eno1, via: LLDP, RID: 1, Time: 0 day, 21:21:23"
-			ifMatch := regexp.MustCompile(`Interface:\s*([^,]+),`).FindStringSubmatch(trimmed)
-			if len(ifMatch) > 1 {
-				currentInterface = strings.TrimSpace(ifMatch[1])
 			}
 			
 			currentPhone = &DiscoveredPhone{
@@ -338,9 +344,6 @@ func (pd *PhoneDiscovery) parseLLDPCliShowNeighbors(output string) ([]Discovered
 			// TTL is available but we don't store it currently
 			continue
 		}
-		
-		// Handle unused interface variable (for potential future use)
-		_ = currentInterface
 	}
 	
 	// Don't forget the last phone
@@ -500,42 +503,42 @@ func (pd *PhoneDiscovery) parseSystemDescription(desc string) (vendor string, mo
 
 	// GrandStream patterns - check for model prefix first (e.g., "GXP1630 1.0.7.64")
 	// GrandStream models start with GXP, GRP, GXV, DP, WP, GAC, or HT
-	if match := regexp.MustCompile(`(?i)\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*`).FindString(desc); match != "" {
+	if match := grandstreamModelRegex.FindString(desc); match != "" {
 		vendor = "GrandStream"
 		model = strings.ToUpper(match)
 	} else if strings.Contains(descLower, "grandstream") {
 		vendor = "GrandStream"
-		if match := regexp.MustCompile(`gxp\d+[a-z]*`).FindString(descLower); match != "" {
+		if match := grandstreamModelRegex.FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
 	} else if strings.Contains(descLower, "yealink") {
 		vendor = "Yealink"
-		if match := regexp.MustCompile(`sip-t\d+[a-z]*`).FindString(descLower); match != "" {
+		if match := yealinkModelRegex.FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
 	} else if strings.Contains(descLower, "polycom") {
 		vendor = "Polycom"
-		if match := regexp.MustCompile(`soundpoint|vvx\d+[a-z]*`).FindString(descLower); match != "" {
+		if match := polycomModelRegex.FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
 	} else if strings.Contains(descLower, "cisco") {
 		vendor = "Cisco"
-		if match := regexp.MustCompile(`cp-\d+[a-z]*|spa\d+[a-z]*`).FindString(descLower); match != "" {
+		if match := ciscoModelRegex.FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
 	} else if strings.Contains(descLower, "snom") {
 		vendor = "Snom"
-		if match := regexp.MustCompile(`snom\d+[a-z]*`).FindString(descLower); match != "" {
+		if match := snomModelRegex.FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
 	} else if strings.Contains(descLower, "panasonic") {
 		vendor = "Panasonic"
-		if match := regexp.MustCompile(`kx-[\w]+`).FindString(descLower); match != "" {
+		if match := panasonicModelRegex.FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
 	} else if strings.Contains(descLower, "fanvil") {
 		vendor = "Fanvil"
-		if match := regexp.MustCompile(`(?i)x\d+[a-z]*`).FindString(desc); match != "" {
+		if match := fanvilModelRegex.FindString(desc); match != "" {
 			model = strings.ToUpper(match)
 		}
 	}

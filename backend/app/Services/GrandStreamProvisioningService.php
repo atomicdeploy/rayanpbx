@@ -17,6 +17,12 @@ use Illuminate\Support\Facades\Http;
  */
 class GrandStreamProvisioningService
 {
+    /**
+     * Regex pattern to match GrandStream phone models
+     * GrandStream models start with: GXP, GRP, GXV, DP, WP, GAC, or HT
+     */
+    protected const GRANDSTREAM_MODEL_PATTERN = '/\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*/i';
+    
     protected $supportedModels = [
         'GXP1625' => [
             'lines' => 2,
@@ -629,14 +635,14 @@ class GrandStreamProvisioningService
         
         // Check for GrandStream model prefixes first (e.g., "GXP1630 1.0.7.64")
         // GrandStream models start with GXP, GRP, GXV, DP, WP, GAC, or HT
-        if (preg_match('/\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*/i', $description, $matches)) {
+        if (preg_match(self::GRANDSTREAM_MODEL_PATTERN, $description, $matches)) {
             $vendor = 'GrandStream';
             $model = strtoupper($matches[0]);
         }
         // Check for explicit GrandStream mention
         elseif (strpos($descriptionLower, 'grandstream') !== false) {
             $vendor = 'GrandStream';
-            if (preg_match('/gxp\d+[a-z]*/i', $description, $matches)) {
+            if (preg_match(self::GRANDSTREAM_MODEL_PATTERN, $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }

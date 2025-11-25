@@ -375,9 +375,18 @@ async function discoverLldpNeighbors() {
 }
 
 function addLldpNeighborToPhones(neighbor) {
+  // Generate a unique identifier for the phone
+  // Use hostname if available, otherwise use MAC address or timestamp-based ID
+  let extension = neighbor.hostname
+  if (!extension) {
+    const macSuffix = neighbor.mac?.replace(/:/g, '').slice(-6) || ''
+    const timestamp = Date.now().toString(36).slice(-4)
+    extension = macSuffix ? `LLDP-${macSuffix}-${timestamp}` : `LLDP-${timestamp}`
+  }
+  
   // Add LLDP neighbor to phones list
   const newPhone = {
-    extension: neighbor.hostname || `LLDP-${neighbor.mac?.replace(/:/g, '').slice(-6) || 'unknown'}`,
+    extension: extension,
     ip: neighbor.ip,
     status: 'discovered',
     user_agent: `${neighbor.vendor || 'Unknown'} ${neighbor.model || ''}`.trim(),
@@ -385,8 +394,12 @@ function addLldpNeighborToPhones(neighbor) {
     discovery_type: 'lldp',
   }
   
-  // Check if already in list
-  const exists = phones.value.some(p => p.ip === neighbor.ip || p.mac === neighbor.mac)
+  // Check if already in list by IP or MAC
+  const exists = phones.value.some(p => 
+    (neighbor.ip && p.ip === neighbor.ip) || 
+    (neighbor.mac && p.mac === neighbor.mac)
+  )
+  
   if (!exists) {
     phones.value.push(newPhone)
     showNotification(`Added ${neighbor.model || neighbor.ip} to phones list`, 'success')
