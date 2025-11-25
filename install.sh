@@ -2602,9 +2602,9 @@ if next_step "Service Verification & Health Checks" "health-check"; then
         print_success "✓ Database service is running"
         
         # Default database credentials (used if .env is not available)
-        local DEFAULT_DB_HOST="127.0.0.1"
-        local DEFAULT_DB_USER="rayanpbx"
-        local DEFAULT_DB_NAME="rayanpbx"
+        DEFAULT_DB_HOST="127.0.0.1"
+        DEFAULT_DB_USER="rayanpbx"
+        DEFAULT_DB_NAME="rayanpbx"
         
         # Get database credentials from .env if available
         DB_HOST="$DEFAULT_DB_HOST"
@@ -2622,7 +2622,7 @@ if next_step "Service Verification & Health Checks" "health-check"; then
         # Test database connectivity using a temporary config file to avoid password exposure in process list
         if [ -n "$DB_PASS" ]; then
             # Create temporary config file with restrictive permissions from the start using umask
-            local old_umask=$(umask)
+            old_umask=$(umask)
             umask 077
             DB_TMP_CNF=$(mktemp) || { umask "$old_umask"; print_warning "  (Could not create temp file for secure connection)"; }
             umask "$old_umask"
@@ -2891,7 +2891,7 @@ if next_step "Installation Complete! 🎉" "complete"; then
         echo -e "  ${DIM}   Connect your SIP phones and softphones to this address${RESET}"
     else
         # Fallback - get current IP if not set
-        local sip_ip=$(hostname -I | awk '{print $1}')
+        sip_ip=$(hostname -I | awk '{print $1}')
         if is_port_listening 5060 2>/dev/null; then
             echo -e "  ${GREEN}✓${RESET} SIP Server      : ${WHITE}${sip_ip}:5060${RESET} (UDP/TCP)"
             echo -e "  ${DIM}   Connect your SIP phones and softphones to this address${RESET}"
