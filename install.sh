@@ -2477,24 +2477,35 @@ if next_step "Service Verification & Health Checks" "health-check"; then
     if systemctl is-active --quiet mysql || systemctl is-active --quiet mariadb; then
         print_success "✓ Database service is running"
         
+        # Default database credentials (used if .env is not available)
+        local DEFAULT_DB_HOST="127.0.0.1"
+        local DEFAULT_DB_USER="rayanpbx"
+        local DEFAULT_DB_NAME="rayanpbx"
+        
         # Get database credentials from .env if available
-        DB_HOST="127.0.0.1"
-        DB_USER="rayanpbx"
+        DB_HOST="$DEFAULT_DB_HOST"
+        DB_USER="$DEFAULT_DB_USER"
         DB_PASS=""
-        DB_NAME="rayanpbx"
+        DB_NAME="$DEFAULT_DB_NAME"
         
         if [ -f "/opt/rayanpbx/.env" ]; then
-            DB_HOST=$(grep "^DB_HOST=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "127.0.0.1")
-            DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx")
+            DB_HOST=$(grep "^DB_HOST=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_DB_HOST")
+            DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_DB_USER")
             DB_PASS=$(grep "^DB_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-            DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx")
+            DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "$DEFAULT_DB_NAME")
         fi
         
         # Test database connectivity using a temporary config file to avoid password exposure in process list
         if [ -n "$DB_PASS" ]; then
-            # Create temporary config file with restrictive permissions
+            # Create temporary config file with restrictive permissions from the start using umask
+            local old_umask=$(umask)
+            umask 077
             DB_TMP_CNF=$(mktemp)
-            chmod 600 "$DB_TMP_CNF"
+            umask "$old_umask"
+            
+            # Set trap to ensure cleanup even on unexpected exit
+            trap "rm -f '$DB_TMP_CNF'" RETURN
+            
             cat > "$DB_TMP_CNF" <<EOF
 [client]
 host=$DB_HOST
