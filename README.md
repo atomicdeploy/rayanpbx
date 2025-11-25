@@ -226,7 +226,7 @@ sudo rayanpbx-tui
 # Configure your SIP phone and dial 100 to hear "Hello World!"
 ```
 
-📖 **See the full guide:** [HELLO_WORLD_GUIDE.md](HELLO_WORLD_GUIDE.md)
+📖 **See the full guide:** [docs/HELLO_WORLD_GUIDE.md](docs/HELLO_WORLD_GUIDE.md)
 
 ## 📖 Usage
 
@@ -343,7 +343,7 @@ go build -o rayanpbx-tui main.go config.go
 
 ```
 ╭──────────────────────────────────────────────────────────╮
-│  🚀 Hello World Setup:   HELLO_WORLD_GUIDE.md            │
+│  🚀 Hello World Setup:   docs/HELLO_WORLD_GUIDE.md       │
 │  📖 User Guide:          /docs/user-guide.md             │
 │  🔧 API Docs:            /docs/api.md                    │
 │  🏗️ Architecture:        /docs/architecture.md           │
