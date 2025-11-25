@@ -104,8 +104,17 @@ func (pd *PhoneDiscovery) DiscoverPhones(network string) ([]DiscoveredPhone, err
 
 // discoverViaLLDP discovers phones using LLDP protocol
 func (pd *PhoneDiscovery) discoverViaLLDP() ([]DiscoveredPhone, error) {
-	// Use lldpctl command if available (lldpd package)
-	output, err := exec.Command("lldpctl", "-f", "keyvalue").Output()
+	// Try lldpcli show neighbors first (human-readable format)
+	output, err := exec.Command("lldpcli", "show", "neighbors").Output()
+	if err == nil {
+		phones, parseErr := pd.parseLLDPCliShowNeighbors(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			return phones, nil
+		}
+	}
+
+	// Fallback to lldpctl -f keyvalue format
+	output, err = exec.Command("lldpctl", "-f", "keyvalue").Output()
 	if err != nil {
 		// LLDP daemon not available, try tcpdump approach
 		return pd.captureLLDPPackets()
@@ -180,6 +189,165 @@ func (pd *PhoneDiscovery) parseLLDPCtlOutput(output string) ([]DiscoveredPhone, 
 		}
 	}
 
+	return phones, nil
+}
+
+// parseLLDPCliShowNeighbors parses the human-readable output of "lldpcli show neighbors"
+// Example format:
+// -------------------------------------------------------------------------------
+// LLDP neighbors:
+// -------------------------------------------------------------------------------
+// Interface:    eno1, via: LLDP, RID: 1, Time: 0 day, 21:21:23
+//   Chassis:
+//     ChassisID:    ip 172.20.6.150
+//     SysName:      GXP1630_ec:74:d7:2f:7e:a2
+//     SysDescr:     GXP1630 1.0.7.64
+//     Capability:   Bridge, on
+//     Capability:   Tel, on
+//   Port:
+//     PortID:       mac ec:74:d7:2f:7e:a2
+//     PortDescr:    eth0
+//     TTL:          120
+func (pd *PhoneDiscovery) parseLLDPCliShowNeighbors(output string) ([]DiscoveredPhone, error) {
+	var phones []DiscoveredPhone
+	
+	lines := strings.Split(output, "\n")
+	var currentPhone *DiscoveredPhone
+	var currentInterface string
+	
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		
+		// Skip empty lines and separators
+		if trimmed == "" || strings.HasPrefix(trimmed, "---") || trimmed == "LLDP neighbors:" {
+			continue
+		}
+		
+		// New interface/neighbor block
+		if strings.HasPrefix(trimmed, "Interface:") {
+			// Save previous phone if it exists and is a VoIP phone
+			if currentPhone != nil && pd.isVoIPPhone(currentPhone) {
+				phones = append(phones, *currentPhone)
+			}
+			
+			// Parse interface line: "Interface:    eno1, via: LLDP, RID: 1, Time: 0 day, 21:21:23"
+			ifMatch := regexp.MustCompile(`Interface:\s*([^,]+),`).FindStringSubmatch(trimmed)
+			if len(ifMatch) > 1 {
+				currentInterface = strings.TrimSpace(ifMatch[1])
+			}
+			
+			currentPhone = &DiscoveredPhone{
+				DiscoveryType: "lldp",
+				LastSeen:      time.Now(),
+			}
+			continue
+		}
+		
+		if currentPhone == nil {
+			continue
+		}
+		
+		// Parse ChassisID - can be "ip X.X.X.X" or "mac XX:XX:XX:XX:XX:XX"
+		if strings.HasPrefix(trimmed, "ChassisID:") {
+			value := strings.TrimPrefix(trimmed, "ChassisID:")
+			value = strings.TrimSpace(value)
+			
+			if strings.HasPrefix(value, "ip ") {
+				// ChassisID is an IP address
+				ip := strings.TrimPrefix(value, "ip ")
+				currentPhone.IP = strings.TrimSpace(ip)
+			} else if strings.HasPrefix(value, "mac ") {
+				// ChassisID is a MAC address
+				mac := strings.TrimPrefix(value, "mac ")
+				currentPhone.MAC = strings.TrimSpace(mac)
+			}
+			continue
+		}
+		
+		// Parse SysName - e.g., "GXP1630_ec:74:d7:2f:7e:a2"
+		if strings.HasPrefix(trimmed, "SysName:") {
+			value := strings.TrimPrefix(trimmed, "SysName:")
+			currentPhone.Hostname = strings.TrimSpace(value)
+			
+			// Try to extract vendor/model from SysName (e.g., "GXP1630_ec:74:d7:2f:7e:a2")
+			if currentPhone.Vendor == "" || currentPhone.Model == "" {
+				vendor, model := pd.parseSystemDescription(currentPhone.Hostname)
+				if vendor != "" {
+					currentPhone.Vendor = vendor
+				}
+				if model != "" {
+					currentPhone.Model = model
+				}
+			}
+			continue
+		}
+		
+		// Parse SysDescr - e.g., "GXP1630 1.0.7.64"
+		if strings.HasPrefix(trimmed, "SysDescr:") {
+			value := strings.TrimPrefix(trimmed, "SysDescr:")
+			value = strings.TrimSpace(value)
+			vendor, model := pd.parseSystemDescription(value)
+			if vendor != "" {
+				currentPhone.Vendor = vendor
+			}
+			if model != "" {
+				currentPhone.Model = model
+			}
+			continue
+		}
+		
+		// Parse Capability - e.g., "Bridge, on" or "Tel, on"
+		if strings.HasPrefix(trimmed, "Capability:") {
+			value := strings.TrimPrefix(trimmed, "Capability:")
+			value = strings.TrimSpace(value)
+			// Parse "Bridge, on" format
+			parts := strings.Split(value, ",")
+			if len(parts) >= 2 && strings.TrimSpace(parts[1]) == "on" {
+				cap := strings.TrimSpace(parts[0])
+				currentPhone.Capabilities = append(currentPhone.Capabilities, cap)
+			}
+			continue
+		}
+		
+		// Parse PortID - e.g., "mac ec:74:d7:2f:7e:a2"
+		if strings.HasPrefix(trimmed, "PortID:") {
+			value := strings.TrimPrefix(trimmed, "PortID:")
+			value = strings.TrimSpace(value)
+			if strings.HasPrefix(value, "mac ") {
+				mac := strings.TrimPrefix(value, "mac ")
+				// If we don't have a MAC from ChassisID, use PortID MAC
+				if currentPhone.MAC == "" {
+					currentPhone.MAC = strings.TrimSpace(mac)
+				}
+			}
+			currentPhone.PortID = value
+			continue
+		}
+		
+		// Parse PortDescr - e.g., "eth0"
+		if strings.HasPrefix(trimmed, "PortDescr:") {
+			value := strings.TrimPrefix(trimmed, "PortDescr:")
+			if currentPhone.PortID == "" {
+				currentPhone.PortID = strings.TrimSpace(value)
+			}
+			continue
+		}
+		
+		// Parse TTL
+		if strings.HasPrefix(trimmed, "TTL:") {
+			// TTL is available but we don't store it currently
+			continue
+		}
+		
+		// Handle unused interface variable (for potential future use)
+		_ = currentInterface
+	}
+	
+	// Don't forget the last phone
+	if currentPhone != nil && pd.isVoIPPhone(currentPhone) {
+		phones = append(phones, *currentPhone)
+	}
+	
 	return phones, nil
 }
 
@@ -328,37 +496,46 @@ func (pd *PhoneDiscovery) parseNmapOutput(output string) ([]DiscoveredPhone, err
 
 // parseSystemDescription extracts vendor and model from LLDP system description
 func (pd *PhoneDiscovery) parseSystemDescription(desc string) (vendor string, model string) {
-	desc = strings.ToLower(desc)
+	descLower := strings.ToLower(desc)
 
-	// GrandStream patterns
-	if strings.Contains(desc, "grandstream") {
+	// GrandStream patterns - check for model prefix first (e.g., "GXP1630 1.0.7.64")
+	// GrandStream models start with GXP, GRP, GXV, DP, WP, GAC, or HT
+	if match := regexp.MustCompile(`(?i)\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*`).FindString(desc); match != "" {
 		vendor = "GrandStream"
-		if match := regexp.MustCompile(`gxp\d+[a-z]*`).FindString(desc); match != "" {
+		model = strings.ToUpper(match)
+	} else if strings.Contains(descLower, "grandstream") {
+		vendor = "GrandStream"
+		if match := regexp.MustCompile(`gxp\d+[a-z]*`).FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
-	} else if strings.Contains(desc, "yealink") {
+	} else if strings.Contains(descLower, "yealink") {
 		vendor = "Yealink"
-		if match := regexp.MustCompile(`sip-t\d+[a-z]*`).FindString(desc); match != "" {
+		if match := regexp.MustCompile(`sip-t\d+[a-z]*`).FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
-	} else if strings.Contains(desc, "polycom") {
+	} else if strings.Contains(descLower, "polycom") {
 		vendor = "Polycom"
-		if match := regexp.MustCompile(`soundpoint|vvx\d+[a-z]*`).FindString(desc); match != "" {
+		if match := regexp.MustCompile(`soundpoint|vvx\d+[a-z]*`).FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
-	} else if strings.Contains(desc, "cisco") {
+	} else if strings.Contains(descLower, "cisco") {
 		vendor = "Cisco"
-		if match := regexp.MustCompile(`cp-\d+[a-z]*|spa\d+[a-z]*`).FindString(desc); match != "" {
+		if match := regexp.MustCompile(`cp-\d+[a-z]*|spa\d+[a-z]*`).FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
-	} else if strings.Contains(desc, "snom") {
+	} else if strings.Contains(descLower, "snom") {
 		vendor = "Snom"
-		if match := regexp.MustCompile(`snom\d+[a-z]*`).FindString(desc); match != "" {
+		if match := regexp.MustCompile(`snom\d+[a-z]*`).FindString(descLower); match != "" {
 			model = strings.ToUpper(match)
 		}
-	} else if strings.Contains(desc, "panasonic") {
+	} else if strings.Contains(descLower, "panasonic") {
 		vendor = "Panasonic"
-		if match := regexp.MustCompile(`kx-[\w]+`).FindString(desc); match != "" {
+		if match := regexp.MustCompile(`kx-[\w]+`).FindString(descLower); match != "" {
+			model = strings.ToUpper(match)
+		}
+	} else if strings.Contains(descLower, "fanvil") {
+		vendor = "Fanvil"
+		if match := regexp.MustCompile(`(?i)x\d+[a-z]*`).FindString(desc); match != "" {
 			model = strings.ToUpper(match)
 		}
 	}

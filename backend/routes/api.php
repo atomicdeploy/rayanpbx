@@ -187,6 +187,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     
     // Unified Phone Management API
     Route::get('/phones', [PhoneController::class, 'index']);
+    Route::get('/phones/lldp/neighbors', [PhoneController::class, 'lldpNeighbors']);
     Route::get('/phones/{identifier}', [PhoneController::class, 'show']);
     Route::post('/phones/control', [PhoneController::class, 'control']);
     Route::post('/phones/provision', [PhoneController::class, 'provision']);

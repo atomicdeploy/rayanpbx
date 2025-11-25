@@ -12,6 +12,58 @@
         <button @click="scanNetwork" class="btn btn-secondary">
           🔍 Scan Network
         </button>
+        <button @click="discoverLldpNeighbors" class="btn btn-info">
+          📡 LLDP Discovery
+        </button>
+      </div>
+    </div>
+
+    <!-- LLDP Neighbors Panel -->
+    <div v-if="showLldpPanel && !selectedPhone" class="lldp-panel">
+      <div class="panel-header">
+        <h3>📡 LLDP Neighbors</h3>
+        <button @click="showLldpPanel = false" class="btn btn-close">✕</button>
+      </div>
+      
+      <div v-if="lldpLoading" class="loading">
+        Discovering LLDP neighbors...
+      </div>
+      
+      <div v-else-if="lldpNeighbors.length === 0" class="empty-state">
+        <p>📭 No LLDP neighbors found</p>
+        <p class="help-text">Ensure lldpd service is running and VoIP phones support LLDP</p>
+      </div>
+      
+      <div v-else class="neighbor-cards">
+        <div
+          v-for="neighbor in lldpNeighbors"
+          :key="neighbor.mac || neighbor.ip"
+          class="neighbor-card"
+        >
+          <div class="neighbor-icon">
+            {{ neighbor.vendor === 'GrandStream' ? '📞' : '📱' }}
+          </div>
+          <div class="neighbor-info">
+            <h4>{{ neighbor.model || neighbor.hostname || 'Unknown Device' }}</h4>
+            <p class="neighbor-ip">IP: {{ neighbor.ip || 'N/A' }}</p>
+            <p class="neighbor-mac">MAC: {{ neighbor.mac || 'N/A' }}</p>
+            <p class="neighbor-vendor">Vendor: {{ neighbor.vendor || 'Unknown' }}</p>
+            <div v-if="neighbor.capabilities && neighbor.capabilities.length > 0" class="neighbor-capabilities">
+              <span v-for="cap in neighbor.capabilities" :key="cap" class="capability-badge">
+                {{ cap }}
+              </span>
+            </div>
+          </div>
+          <div class="neighbor-actions">
+            <button 
+              v-if="neighbor.ip" 
+              @click="addLldpNeighborToPhones(neighbor)" 
+              class="btn btn-success btn-sm"
+            >
+              ➕ Add to Phones
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -276,6 +328,11 @@ const notification = ref(null)
 const actionUrlStatus = ref(null)
 const actionUrlConflicts = ref(null)
 
+// LLDP discovery state
+const showLldpPanel = ref(false)
+const lldpNeighbors = ref([])
+const lldpLoading = ref(false)
+
 // Store provision context for re-provisioning with force flag
 const provisionContext = ref(null)
 
@@ -293,6 +350,50 @@ onMounted(async () => {
   refreshPhones()
   loadExtensions()
 })
+
+async function discoverLldpNeighbors() {
+  showLldpPanel.value = true
+  lldpLoading.value = true
+  
+  try {
+    const data = await api.getLldpNeighbors()
+    if (data.success) {
+      lldpNeighbors.value = data.neighbors || []
+      if (data.neighbors && data.neighbors.length > 0) {
+        showNotification(`Found ${data.neighbors.length} LLDP neighbor(s)`, 'success')
+      } else {
+        showNotification(data.message || 'No LLDP neighbors found', 'info')
+      }
+    } else {
+      showNotification(data.error || 'LLDP discovery failed', 'error')
+    }
+  } catch (error) {
+    showNotification('LLDP discovery failed', 'error')
+  } finally {
+    lldpLoading.value = false
+  }
+}
+
+function addLldpNeighborToPhones(neighbor) {
+  // Add LLDP neighbor to phones list
+  const newPhone = {
+    extension: neighbor.hostname || `LLDP-${neighbor.mac?.replace(/:/g, '').slice(-6) || 'unknown'}`,
+    ip: neighbor.ip,
+    status: 'discovered',
+    user_agent: `${neighbor.vendor || 'Unknown'} ${neighbor.model || ''}`.trim(),
+    mac: neighbor.mac,
+    discovery_type: 'lldp',
+  }
+  
+  // Check if already in list
+  const exists = phones.value.some(p => p.ip === neighbor.ip || p.mac === neighbor.mac)
+  if (!exists) {
+    phones.value.push(newPhone)
+    showNotification(`Added ${neighbor.model || neighbor.ip} to phones list`, 'success')
+  } else {
+    showNotification('Phone already in list', 'info')
+  }
+}
 
 async function refreshPhones() {
   loading.value = true
@@ -959,5 +1060,103 @@ function showNotification(message, type = 'info') {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* LLDP Panel Styles */
+.lldp-panel {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eee;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.btn-close {
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.btn-close:hover {
+  background: #f0f0f0;
+}
+
+.neighbor-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 15px;
+}
+
+.neighbor-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 15px;
+  display: flex;
+  gap: 15px;
+  background: #fafafa;
+}
+
+.neighbor-icon {
+  font-size: 28px;
+}
+
+.neighbor-info {
+  flex: 1;
+}
+
+.neighbor-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.neighbor-ip,
+.neighbor-mac,
+.neighbor-vendor {
+  margin: 4px 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.neighbor-capabilities {
+  margin-top: 8px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.capability-badge {
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.neighbor-actions {
+  display: flex;
+  align-items: center;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
 }
 </style>

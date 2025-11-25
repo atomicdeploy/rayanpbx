@@ -276,9 +276,20 @@ class GrandStreamProvisioningService
     {
         $devices = [];
         
-        // Try lldpctl command (requires lldpd package)
+        // Try lldpcli show neighbors first (human-readable format)
         $output = [];
         $returnCode = 0;
+        exec('lldpcli show neighbors 2>&1', $output, $returnCode);
+        
+        if ($returnCode === 0) {
+            $parsedDevices = $this->parseLLDPCliShowNeighbors(implode("\n", $output));
+            if (!empty($parsedDevices)) {
+                return $parsedDevices;
+            }
+        }
+        
+        // Fallback to lldpctl -f keyvalue format
+        $output = [];
         exec('lldpctl -f keyvalue 2>&1', $output, $returnCode);
         
         if ($returnCode !== 0) {
@@ -358,6 +369,139 @@ class GrandStreamProvisioningService
             if ($this->isVoIPPhone($phone)) {
                 $devices[] = $phone;
             }
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Parse lldpcli show neighbors human-readable output
+     * 
+     * Example format:
+     * -------------------------------------------------------------------------------
+     * LLDP neighbors:
+     * -------------------------------------------------------------------------------
+     * Interface:    eno1, via: LLDP, RID: 1, Time: 0 day, 21:21:23
+     *   Chassis:
+     *     ChassisID:    ip 172.20.6.150
+     *     SysName:      GXP1630_ec:74:d7:2f:7e:a2
+     *     SysDescr:     GXP1630 1.0.7.64
+     *     Capability:   Bridge, on
+     *     Capability:   Tel, on
+     *   Port:
+     *     PortID:       mac ec:74:d7:2f:7e:a2
+     *     PortDescr:    eth0
+     *     TTL:          120
+     */
+    protected function parseLLDPCliShowNeighbors($output)
+    {
+        $devices = [];
+        $currentPhone = null;
+        
+        $lines = explode("\n", $output);
+        
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            
+            // Skip empty lines and separators
+            if (empty($trimmed) || strpos($trimmed, '---') === 0 || $trimmed === 'LLDP neighbors:') {
+                continue;
+            }
+            
+            // New interface/neighbor block
+            if (strpos($trimmed, 'Interface:') === 0) {
+                // Save previous phone if it exists and is a VoIP phone
+                if ($currentPhone !== null && $this->isVoIPPhone($currentPhone)) {
+                    $devices[] = $currentPhone;
+                }
+                
+                $currentPhone = [
+                    'discovery_type' => 'lldp',
+                    'last_seen' => now()->toISOString(),
+                    'capabilities' => [],
+                ];
+                continue;
+            }
+            
+            if ($currentPhone === null) {
+                continue;
+            }
+            
+            // Parse ChassisID - can be "ip X.X.X.X" or "mac XX:XX:XX:XX:XX:XX"
+            if (strpos($trimmed, 'ChassisID:') === 0) {
+                $value = trim(substr($trimmed, strlen('ChassisID:')));
+                
+                if (strpos($value, 'ip ') === 0) {
+                    $currentPhone['ip'] = trim(substr($value, 3));
+                } elseif (strpos($value, 'mac ') === 0) {
+                    $currentPhone['mac'] = trim(substr($value, 4));
+                }
+                continue;
+            }
+            
+            // Parse SysName - e.g., "GXP1630_ec:74:d7:2f:7e:a2"
+            if (strpos($trimmed, 'SysName:') === 0) {
+                $value = trim(substr($trimmed, strlen('SysName:')));
+                $currentPhone['hostname'] = $value;
+                
+                // Try to extract vendor/model from SysName
+                if (empty($currentPhone['vendor']) || empty($currentPhone['model'])) {
+                    $vendorModel = $this->parseSystemDescription($value);
+                    if (!empty($vendorModel['vendor'])) {
+                        $currentPhone['vendor'] = $vendorModel['vendor'];
+                    }
+                    if (!empty($vendorModel['model'])) {
+                        $currentPhone['model'] = $vendorModel['model'];
+                    }
+                }
+                continue;
+            }
+            
+            // Parse SysDescr - e.g., "GXP1630 1.0.7.64"
+            if (strpos($trimmed, 'SysDescr:') === 0) {
+                $value = trim(substr($trimmed, strlen('SysDescr:')));
+                $vendorModel = $this->parseSystemDescription($value);
+                if (!empty($vendorModel['vendor'])) {
+                    $currentPhone['vendor'] = $vendorModel['vendor'];
+                }
+                if (!empty($vendorModel['model'])) {
+                    $currentPhone['model'] = $vendorModel['model'];
+                }
+                continue;
+            }
+            
+            // Parse Capability - e.g., "Bridge, on" or "Tel, on"
+            if (strpos($trimmed, 'Capability:') === 0) {
+                $value = trim(substr($trimmed, strlen('Capability:')));
+                $parts = explode(',', $value);
+                if (count($parts) >= 2 && trim($parts[1]) === 'on') {
+                    $currentPhone['capabilities'][] = trim($parts[0]);
+                }
+                continue;
+            }
+            
+            // Parse PortID - e.g., "mac ec:74:d7:2f:7e:a2"
+            if (strpos($trimmed, 'PortID:') === 0) {
+                $value = trim(substr($trimmed, strlen('PortID:')));
+                if (strpos($value, 'mac ') === 0 && empty($currentPhone['mac'])) {
+                    $currentPhone['mac'] = trim(substr($value, 4));
+                }
+                $currentPhone['port_id'] = $value;
+                continue;
+            }
+            
+            // Parse PortDescr - e.g., "eth0"
+            if (strpos($trimmed, 'PortDescr:') === 0) {
+                if (empty($currentPhone['port_id'])) {
+                    $currentPhone['port_id'] = trim(substr($trimmed, strlen('PortDescr:')));
+                }
+                continue;
+            }
+        }
+        
+        // Don't forget the last phone
+        if ($currentPhone !== null && $this->isVoIPPhone($currentPhone)) {
+            $devices[] = $currentPhone;
         }
         
         return $devices;
@@ -479,35 +623,62 @@ class GrandStreamProvisioningService
      */
     protected function parseSystemDescription($description)
     {
-        $description = strtolower($description);
+        $descriptionLower = strtolower($description);
         $vendor = '';
         $model = '';
         
-        // Check for GrandStream
-        if (strpos($description, 'grandstream') !== false) {
+        // Check for GrandStream model prefixes first (e.g., "GXP1630 1.0.7.64")
+        // GrandStream models start with GXP, GRP, GXV, DP, WP, GAC, or HT
+        if (preg_match('/\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*/i', $description, $matches)) {
+            $vendor = 'GrandStream';
+            $model = strtoupper($matches[0]);
+        }
+        // Check for explicit GrandStream mention
+        elseif (strpos($descriptionLower, 'grandstream') !== false) {
             $vendor = 'GrandStream';
             if (preg_match('/gxp\d+[a-z]*/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
         // Check for Yealink
-        elseif (strpos($description, 'yealink') !== false) {
+        elseif (strpos($descriptionLower, 'yealink') !== false) {
             $vendor = 'Yealink';
             if (preg_match('/sip-t\d+[a-z]*/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
         // Check for Polycom
-        elseif (strpos($description, 'polycom') !== false) {
+        elseif (strpos($descriptionLower, 'polycom') !== false) {
             $vendor = 'Polycom';
             if (preg_match('/(soundpoint|vvx\d+[a-z]*)/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
         // Check for Cisco
-        elseif (strpos($description, 'cisco') !== false) {
+        elseif (strpos($descriptionLower, 'cisco') !== false) {
             $vendor = 'Cisco';
             if (preg_match('/(cp-\d+[a-z]*|spa\d+[a-z]*)/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Snom
+        elseif (strpos($descriptionLower, 'snom') !== false) {
+            $vendor = 'Snom';
+            if (preg_match('/snom\d+[a-z]*/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Panasonic
+        elseif (strpos($descriptionLower, 'panasonic') !== false) {
+            $vendor = 'Panasonic';
+            if (preg_match('/kx-[\w]+/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Fanvil
+        elseif (strpos($descriptionLower, 'fanvil') !== false) {
+            $vendor = 'Fanvil';
+            if (preg_match('/x\d+[a-z]*/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }

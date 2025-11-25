@@ -217,5 +217,10 @@ export const useApi = () => {
         body: { ip, extension_id: extensionId, account_number: accountNumber, credentials, force_action_urls: forceActionUrls },
       })
     },
+
+    // LLDP Neighbors
+    async getLldpNeighbors() {
+      return apiFetch('/phones/lldp/neighbors')
+    },
   }
 }

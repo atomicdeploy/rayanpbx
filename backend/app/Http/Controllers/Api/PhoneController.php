@@ -228,6 +228,40 @@ class PhoneController extends Controller
     }
 
     /**
+     * Get LLDP neighbors (discovered VoIP phones via LLDP protocol)
+     */
+    public function lldpNeighbors(Request $request)
+    {
+        try {
+            $phones = $this->grandstreamService->discoverPhones();
+            
+            // Filter for LLDP-discovered devices only
+            $lldpDevices = array_filter($phones['devices'] ?? [], function ($device) {
+                return ($device['discovery_type'] ?? '') === 'lldp';
+            });
+            
+            return response()->json([
+                'success' => true,
+                'neighbors' => array_values($lldpDevices),
+                'total' => count($lldpDevices),
+                'message' => count($lldpDevices) > 0 
+                    ? 'LLDP neighbors discovered successfully' 
+                    : 'No LLDP neighbors found. Ensure lldpd is running.',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('LLDP discovery failed', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'neighbors' => [],
+                'total' => 0,
+                'error' => $e->getMessage(),
+                'message' => 'LLDP discovery failed. Ensure lldpd is installed and running.',
+            ]);
+        }
+    }
+
+    /**
      * Resolve phone IP from identifier (IP, MAC, or extension)
      */
     protected function resolvePhoneIP($identifier)
