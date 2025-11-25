@@ -58,6 +58,12 @@ type UsageCommand struct {
 	Description string
 }
 
+// commandFinishedMsg is sent when an external command finishes
+type commandFinishedMsg struct {
+	output string
+	err    error
+}
+
 // Field indices for extension creation form
 const (
 	extFieldNumber = iota
@@ -163,8 +169,10 @@ type model struct {
 	inputCursor int
 
 	// CLI usage navigation
-	usageCommands []UsageCommand
-	usageCursor   int
+	usageCommands    []UsageCommand
+	usageCursor      int
+	usageOutput      string // Output from executed command
+	pendingCommand   string // Command waiting to be executed externally
 
 	// Diagnostics
 	diagnosticsManager *DiagnosticsManager
@@ -626,7 +634,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == usageScreen {
 				// Execute selected command
 				if m.usageCursor < len(m.usageCommands) {
-					m.executeCommand(m.usageCommands[m.usageCursor].Command)
+					cmd := m.executeCommand(m.usageCommands[m.usageCursor].Command)
+					if cmd != nil {
+						return m, cmd
+					}
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
 				// Save diagnostics menu position before handling
@@ -757,6 +768,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+	case commandFinishedMsg:
+		// Handle completion of external command execution
+		if msg.err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to execute command: %v", msg.err)
+			m.usageOutput = ""
+		} else {
+			m.successMsg = "Command executed successfully"
+			m.usageOutput = msg.output
+			m.errorMsg = ""
+		}
+		m.pendingCommand = ""
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -1405,6 +1429,16 @@ func (m model) renderSipTestFull() string {
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
 
+	// Display command output if any
+	if m.usageOutput != "" {
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+		content += m.usageOutput
+		if !strings.HasSuffix(m.usageOutput, "\n") {
+			content += "\n"
+		}
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+	}
+
 	if len(m.usageCommands) == 0 {
 		content += "Loading commands...\n"
 	} else {
@@ -1462,13 +1496,85 @@ func getUsageCommands() []UsageCommand {
 	}
 }
 
-// executeCommand shows a message about executing the command
-// TODO: Implement actual command execution using exec.Command for better user experience
-func (m *model) executeCommand(command string) {
-	// For now, just show that the command would be executed
-	// In a real implementation, this could use exec.Command to run it
-	m.successMsg = fmt.Sprintf("Command ready to execute: %s", command)
-	m.errorMsg = "Note: Command execution is simulated in TUI. Please run in terminal."
+// executeCommand executes a CLI command and captures its output.
+// For most commands, output is captured and displayed in the TUI.
+// For long-running commands (start, stop, restart, update), the command
+// is run outside the TUI so the user can see the output.
+// Returns a tea.Cmd if the command should be run externally, nil otherwise.
+func (m *model) executeCommand(command string) tea.Cmd {
+	// Clear previous output
+	m.usageOutput = ""
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	// Check if this is a long-running or interactive command that needs to run outside TUI
+	isLongRunning := strings.Contains(command, " start") ||
+		strings.Contains(command, " stop") ||
+		strings.Contains(command, " restart") ||
+		strings.Contains(command, " update")
+	
+	if isLongRunning {
+		// Store the command and return a tea.Cmd to run it externally
+		m.pendingCommand = command
+		return m.runCommandExternally(command)
+	}
+	
+	// For quick commands, execute and capture output immediately
+	output, err := m.runCommandCapture(command)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to execute command: %v", err)
+		return nil
+	}
+	
+	m.successMsg = "Command executed successfully"
+	m.usageOutput = output
+	return nil
+}
+
+// runCommandCapture executes a command and captures its output
+func (m *model) runCommandCapture(command string) (string, error) {
+	// Parse command into parts
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("empty command")
+	}
+	
+	// Create the command
+	cmd := exec.Command(parts[0], parts[1:]...)
+	
+	// Capture output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Include output in error for better debugging
+		if len(output) > 0 {
+			return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
+		}
+		return "", err
+	}
+	
+	return string(output), nil
+}
+
+// runCommandExternally runs a command outside the TUI using tea.ExecProcess
+// This allows the user to see the command output and interact with it
+func (m *model) runCommandExternally(command string) tea.Cmd {
+	// Parse command into parts
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil
+	}
+	
+	// Create the command
+	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd.Stdin = os.Stdin
+	
+	// Use tea.ExecProcess to run the command outside the TUI
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return commandFinishedMsg{output: "", err: err}
+		}
+		return commandFinishedMsg{output: "Command completed. Press any key to continue.", err: nil}
+	})
 }
 
 // initCreateExtension initializes the extension creation form with advanced PJSIP options
@@ -2481,43 +2587,70 @@ func (m *model) handleAsteriskMenuSelection() {
 
 	switch m.cursor {
 	case 0: // Start Asterisk Service
-		if err := m.asteriskManager.StartServiceQuiet(); err != nil {
+		output, err := m.asteriskManager.StartServiceQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to start service: %v", err)
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		} else {
 			m.successMsg = "Asterisk service started successfully"
+			m.asteriskOutput = output
 		}
 	case 1: // Stop Asterisk Service
-		if err := m.asteriskManager.StopServiceQuiet(); err != nil {
+		output, err := m.asteriskManager.StopServiceQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to stop service: %v", err)
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		} else {
 			m.successMsg = "Asterisk service stopped successfully"
+			m.asteriskOutput = output
 		}
 	case 2: // Restart Asterisk Service
-		if err := m.asteriskManager.RestartServiceQuiet(); err != nil {
+		output, err := m.asteriskManager.RestartServiceQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to restart service: %v", err)
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		} else {
 			m.successMsg = "Asterisk service restarted successfully"
+			m.asteriskOutput = output
 		}
 	case 3: // Show Service Status
 		m.asteriskOutput = m.asteriskManager.GetServiceStatusOutput()
 		m.successMsg = "Service status displayed"
 	case 4: // Reload PJSIP Configuration
-		if err := m.asteriskManager.ReloadPJSIPQuiet(); err != nil {
+		output, err := m.asteriskManager.ReloadPJSIPQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
 		} else {
 			m.successMsg = "PJSIP configuration reloaded successfully"
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		}
 	case 5: // Reload Dialplan
-		if err := m.asteriskManager.ReloadDialplanQuiet(); err != nil {
+		output, err := m.asteriskManager.ReloadDialplanQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload dialplan: %v", err)
 		} else {
 			m.successMsg = "Dialplan reloaded successfully"
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		}
 	case 6: // Reload All Modules
-		if err := m.asteriskManager.ReloadAllQuiet(); err != nil {
+		output, err := m.asteriskManager.ReloadAllQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload modules: %v", err)
 		} else {
 			m.successMsg = "All modules reloaded successfully"
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		}
 	case 7: // Show PJSIP Endpoints
 		output, err := m.asteriskManager.ShowEndpoints()
