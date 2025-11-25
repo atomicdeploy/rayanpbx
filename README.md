@@ -212,6 +212,19 @@ Non-interactive configuration:
 ./scripts/config-tui.sh /opt/rayanpbx/.env /opt/rayanpbx/.env.example --non-interactive
 ```
 
+### 🌟 Hello World - Your First Call
+
+After installation, get your first phone call working in minutes:
+
+```bash
+# Quick overview:
+# 1. Create an extension (via Web UI, TUI, or CLI)
+# 2. Register a SIP phone (Zoiper, MicroSIP, etc.)
+# 3. Dial extension 100 to hear "Hello World!"
+```
+
+📖 **See the full guide:** [HELLO_WORLD_GUIDE.md](HELLO_WORLD_GUIDE.md)
+
 ## 📖 Usage
 
 ### Web Interface
@@ -327,6 +340,7 @@ go build -o rayanpbx-tui main.go config.go
 
 ```
 ╭──────────────────────────────────────────────────────────╮
+│  🌟 Hello World Guide:   HELLO_WORLD_GUIDE.md            │
 │  📖 User Guide:          /docs/user-guide.md             │
 │  🔧 API Docs:            /docs/api.md                    │
 │  🏗️ Architecture:        /docs/architecture.md           │

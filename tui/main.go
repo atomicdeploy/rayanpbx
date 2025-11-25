@@ -140,6 +140,7 @@ const (
 	voipPhoneProvisionScreen
 	voipManualIPScreen
 	voipDiscoveryScreen
+	helloWorldScreen
 )
 
 type model struct {
@@ -227,6 +228,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
+			"🌟 Hello World Guide",
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
@@ -528,6 +530,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentScreen == mainMenu {
 				switch m.cursor {
 				case 0:
+					// Hello World Guide
+					m.mainMenuCursor = m.cursor
+					m.currentScreen = helloWorldScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+				case 1:
 					// Load extensions
 					if exts, err := GetExtensions(m.db); err == nil {
 						m.extensions = exts
@@ -535,7 +543,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
 					}
-				case 1:
+				case 2:
 					// Load trunks
 					if trunks, err := GetTrunks(m.db); err == nil {
 						m.trunks = trunks
@@ -543,10 +551,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
-				case 2:
+				case 3:
 					// VoIP Phones Management
 					m.initVoIPPhonesScreen()
-				case 3:
+				case 4:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -554,7 +562,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 4:
+				case 5:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -562,25 +570,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 5:
-					m.currentScreen = statusScreen
 				case 6:
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 7:
+					m.currentScreen = logsScreen
+				case 8:
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 8:
+				case 9:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 9:
+				case 10:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 10:
+				case 11:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -626,6 +634,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
+				} else if m.currentScreen == helloWorldScreen {
+					m.currentScreen = mainMenu
+					m.cursor = m.mainMenuCursor
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else if m.currentScreen == diagnosticsMenuScreen {
 					m.currentScreen = mainMenu
 					m.cursor = m.mainMenuCursor
@@ -810,12 +823,16 @@ func (m model) View() string {
 		s += m.renderVoIPManualIP()
 	case voipDiscoveryScreen:
 		s += m.renderVoIPDiscovery()
+	case helloWorldScreen:
+		s += m.renderHelloWorld()
 	}
 
 	// Footer with emojis
 	s += "\n\n"
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
+	} else if m.currentScreen == helloWorldScreen {
+		s += helpStyle.Render("ESC: Back to Main Menu • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • h: Help • ESC: Back • q: Quit")
 	} else if m.currentScreen == extensionInfoScreen {
@@ -2964,6 +2981,69 @@ func (m model) renderDocView() string {
 	}
 	
 	content += docContent
+	
+	return menuStyle.Render(content)
+}
+
+// renderHelloWorld displays the Hello World quick start guide
+func (m model) renderHelloWorld() string {
+	content := titleStyle.Render("🌟 Hello World - Quick Start Guide") + "\n\n"
+	
+	// System info section
+	content += infoStyle.Render("🖥️ Your PBX Server:") + "\n"
+	hostname := GetSystemHostname()
+	content += fmt.Sprintf("  • Hostname: %s\n", successStyle.Render(hostname))
+	
+	ips := GetLocalIPAddresses()
+	if len(ips) > 0 {
+		content += fmt.Sprintf("  • IP Address: %s\n", successStyle.Render(ips[0]))
+	}
+	content += "\n"
+	
+	// Quick steps
+	content += infoStyle.Render("📋 Quick Steps to Make Your First Call:") + "\n\n"
+	
+	content += successStyle.Render("Step 1: Create an Extension") + "\n"
+	content += "  Press ESC, then select 'Extensions Management'\n"
+	content += "  Press 'a' to add a new extension:\n"
+	content += "    • Extension: 6001\n"
+	content += "    • Name: Hello World Test\n"
+	content += "    • Password: unsecurepassword\n\n"
+	
+	content += successStyle.Render("Step 2: Configure Hello World Dialplan") + "\n"
+	content += "  Run this command in another terminal:\n"
+	content += helpStyle.Render("  cat << 'EOF' | sudo tee -a /etc/asterisk/extensions.conf") + "\n"
+	content += helpStyle.Render("  [from-internal]") + "\n"
+	content += helpStyle.Render("  exten => 100,1,Answer()") + "\n"
+	content += helpStyle.Render("   same => n,Wait(1)") + "\n"
+	content += helpStyle.Render("   same => n,Playback(hello-world)") + "\n"
+	content += helpStyle.Render("   same => n,Hangup()") + "\n"
+	content += helpStyle.Render("  EOF") + "\n"
+	content += helpStyle.Render("  asterisk -rx \"dialplan reload\"") + "\n\n"
+	
+	content += successStyle.Render("Step 3: Configure Your SIP Phone") + "\n"
+	content += "  Download Zoiper from: https://www.zoiper.com/\n"
+	content += "  Configure with:\n"
+	content += fmt.Sprintf("    • Username: 6001\n")
+	content += fmt.Sprintf("    • Password: unsecurepassword\n")
+	if len(ips) > 0 {
+		content += fmt.Sprintf("    • Server: %s\n", successStyle.Render(ips[0]))
+	} else {
+		content += fmt.Sprintf("    • Server: %s\n", successStyle.Render(hostname))
+	}
+	content += fmt.Sprintf("    • Port: 5060\n\n")
+	
+	content += successStyle.Render("Step 4: Make the Call") + "\n"
+	content += "  Dial: " + successStyle.Render("100") + "\n"
+	content += "  You should hear: \"Hello World!\" 🎉\n\n"
+	
+	// Troubleshooting tips
+	content += infoStyle.Render("🔧 Troubleshooting:") + "\n"
+	content += "  • Not registering? Check firewall: sudo ufw allow 5060/udp\n"
+	content += "  • No audio? Verify sound file: ls /var/lib/asterisk/sounds/en/hello-world.*\n"
+	content += "  • Enable debug: asterisk -rx \"pjsip set logger on\"\n\n"
+	
+	content += helpStyle.Render("📖 Full documentation: HELLO_WORLD_GUIDE.md")
 	
 	return menuStyle.Render(content)
 }
