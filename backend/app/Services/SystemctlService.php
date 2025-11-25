@@ -268,12 +268,55 @@ class SystemctlService
             $details[] = "Possible cause: " . $exitCodeHelp;
         }
 
+        // Get AI-powered solution from pollinations.ai
+        $aiSolution = $this->getAISolution($exitCode, $output);
+        if ($aiSolution) {
+            $details[] = "\nAI-Suggested Solution:\n" . $aiSolution;
+        }
+
         // Add troubleshooting tips
-        $details[] = "Troubleshooting:";
+        $details[] = "\nTroubleshooting:";
         $details[] = "  - Check if Asterisk is running: systemctl status asterisk";
         $details[] = "  - Verify user has permission to run Asterisk CLI commands";
         $details[] = "  - Check Asterisk logs: /var/log/asterisk/full";
 
         return implode("\n", $details);
+    }
+
+    /**
+     * Get AI-powered solution from pollinations.ai
+     */
+    private function getAISolution(int $exitCode, string $output): ?string
+    {
+        try {
+            $query = "Brief fix for Asterisk CLI exit code {$exitCode}";
+            if (!empty(trim($output))) {
+                // Limit output length for the query
+                $truncatedOutput = substr(trim($output), 0, 100);
+                $query .= " with output: {$truncatedOutput}";
+            }
+            
+            $url = "https://text.pollinations.ai/" . rawurlencode($query);
+            
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 5, // 5 second timeout
+                    'ignore_errors' => true,
+                ]
+            ]);
+            
+            $response = @file_get_contents($url, false, $context);
+            
+            if ($response !== false && !empty(trim($response))) {
+                // Limit response length and format it
+                $lines = explode("\n", trim($response));
+                $limitedLines = array_slice($lines, 0, 5);
+                return "  " . implode("\n  ", $limitedLines);
+            }
+        } catch (\Throwable $e) {
+            // Silently fail - AI solution is optional
+        }
+        
+        return null;
     }
 }

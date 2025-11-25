@@ -2,9 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -127,12 +131,73 @@ func getAsteriskErrorHelp(err error) string {
 		help.WriteString("  - Add user to 'asterisk' group or run as root\n")
 	}
 
-	help.WriteString("Troubleshooting:\n")
+	// Get AI-powered solution from pollinations.ai
+	aiSolution := getAISolution(errStr)
+	if aiSolution != "" {
+		help.WriteString("\nAI-Suggested Solution:\n")
+		help.WriteString(aiSolution)
+		help.WriteString("\n")
+	}
+
+	help.WriteString("\nTroubleshooting:\n")
 	help.WriteString("  - Check Asterisk status: systemctl status asterisk\n")
 	help.WriteString("  - View Asterisk logs: tail -f /var/log/asterisk/full\n")
 	help.WriteString("  - Restart Asterisk: systemctl restart asterisk\n")
 
 	return help.String()
+}
+
+// getAISolution fetches an AI-powered solution from pollinations.ai
+func getAISolution(errorStr string) string {
+	// Build query for pollinations.ai
+	query := fmt.Sprintf("Brief fix for Asterisk CLI error: %s", errorStr)
+	if len(query) > 150 {
+		query = query[:150]
+	}
+
+	apiURL := "https://text.pollinations.ai/" + url.PathEscape(query)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+
+	response := strings.TrimSpace(string(body))
+	if response == "" {
+		return ""
+	}
+
+	// Limit response to first 5 lines and format
+	lines := strings.Split(response, "\n")
+	if len(lines) > 5 {
+		lines = lines[:5]
+	}
+
+	var formatted strings.Builder
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			formatted.WriteString("  ")
+			formatted.WriteString(line)
+			formatted.WriteString("\n")
+		}
+	}
+
+	return formatted.String()
 }
 
 // ReloadPJSIP reloads PJSIP configuration
