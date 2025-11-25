@@ -141,6 +141,8 @@ const (
 	voipManualIPScreen
 	voipDiscoveryScreen
 	helloWorldScreen
+	extensionSyncScreen
+	extensionSyncDetailScreen
 )
 
 type model struct {
@@ -212,6 +214,12 @@ type model struct {
 	helloWorldSetup  *HelloWorldSetup
 	helloWorldStatus HelloWorldStatus
 	helloWorldMenu   []string
+
+	// Extension Sync
+	extensionSyncManager *ExtensionSyncManager
+	extensionSyncInfos   []ExtensionSyncInfo
+	extensionSyncMenu    []string
+	selectedSyncIdx      int
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -230,6 +238,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
 	configManager := NewAsteriskConfigManager(verbose)
 	helloWorldSetup := NewHelloWorldSetup(configManager, asteriskManager, verbose)
+	extensionSyncManager := NewExtensionSyncManager(db, asteriskManager, configManager)
 	
 	return model{
 		currentScreen: mainMenu,
@@ -247,14 +256,15 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"⚙️  System Settings",
 			"❌ Exit",
 		},
-		cursor:             0,
-		db:                 db,
-		config:             config,
-		asteriskManager:    asteriskManager,
-		diagnosticsManager: diagnosticsManager,
-		configManager:      configManager,
-		helloWorldSetup:    helloWorldSetup,
-		verbose:            verbose,
+		cursor:                0,
+		db:                    db,
+		config:                config,
+		asteriskManager:       asteriskManager,
+		diagnosticsManager:    diagnosticsManager,
+		configManager:         configManager,
+		helloWorldSetup:       helloWorldSetup,
+		extensionSyncManager:  extensionSyncManager,
+		verbose:               verbose,
 		asteriskMenu: []string{
 			"🟢 Start Asterisk Service",
 			"🔴 Stop Asterisk Service",
@@ -295,6 +305,14 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📊 Check Status",
 			"🗑️  Remove Setup",
 			"🔙 Back to Main Menu",
+		},
+		extensionSyncMenu: []string{
+			"🔄 Sync Database → Asterisk (selected)",
+			"🔄 Sync Asterisk → Database (selected)",
+			"📥 Sync All DB → Asterisk",
+			"📤 Sync All Asterisk → DB",
+			"🔍 Refresh Sync Status",
+			"🔙 Back to Extensions",
 		},
 	}
 }
@@ -390,9 +408,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor--
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list
-				if m.selectedExtensionIdx > 0 {
+				// Navigate extensions list (use sync infos if available)
+				if len(m.extensionSyncInfos) > 0 {
+					if m.selectedExtensionIdx > 0 {
+						m.selectedExtensionIdx--
+					}
+				} else if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
+				}
+			} else if m.currentScreen == extensionSyncScreen {
+				// Navigate sync screen (extensions + menu)
+				if m.cursor > 0 {
+					m.cursor--
+					if m.cursor < len(m.extensionSyncInfos) {
+						m.selectedSyncIdx = m.cursor
+					}
 				}
 			} else if m.currentScreen == docsListScreen {
 				// Navigate docs list
@@ -438,9 +468,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor++
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list
-				if m.selectedExtensionIdx < len(m.extensions)-1 {
+				// Navigate extensions list (use sync infos if available)
+				if len(m.extensionSyncInfos) > 0 {
+					if m.selectedExtensionIdx < len(m.extensionSyncInfos)-1 {
+						m.selectedExtensionIdx++
+					}
+				} else if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
+				}
+			} else if m.currentScreen == extensionSyncScreen {
+				// Navigate sync screen (extensions + menu)
+				maxIdx := len(m.extensionSyncInfos) + len(m.extensionSyncMenu) - 1
+				if m.cursor < maxIdx {
+					m.cursor++
+					if m.cursor < len(m.extensionSyncInfos) {
+						m.selectedSyncIdx = m.cursor
+					}
 				}
 			} else if m.currentScreen == docsListScreen {
 				// Navigate docs list
@@ -544,6 +587,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		
+		case "S":
+			// Open Sync Screen (uppercase S to avoid conflict with 's' for SIP debug)
+			if m.currentScreen == extensionsScreen {
+				m.loadExtensionSyncInfo()
+				m.currentScreen = extensionSyncScreen
+				m.cursor = 0
+				m.selectedSyncIdx = 0
+				m.errorMsg = ""
+				m.successMsg = ""
+			}
+		
 		case "y":
 			// Confirm deletion
 			if m.currentScreen == deleteExtensionScreen {
@@ -562,9 +616,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 				case 1:
-					// Load extensions
+					// Load extensions with sync info
 					if exts, err := GetExtensions(m.db); err == nil {
 						m.extensions = exts
+						m.loadExtensionSyncInfo()
 						m.currentScreen = extensionsScreen
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
@@ -652,6 +707,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == helloWorldScreen {
 				// Handle Hello World setup menu selection
 				m.handleHelloWorldMenuSelection()
+			} else if m.currentScreen == extensionSyncScreen {
+				// Handle extension sync menu selection
+				m.handleExtensionSyncSelection()
 			}
 
 		case "esc":
@@ -663,6 +721,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
+				} else if m.currentScreen == extensionSyncScreen {
+					m.currentScreen = extensionsScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else if m.currentScreen == helloWorldScreen {
 					m.currentScreen = mainMenu
 					m.cursor = m.mainMenuCursor
@@ -854,6 +917,8 @@ func (m model) View() string {
 		s += m.renderVoIPDiscovery()
 	case helloWorldScreen:
 		s += m.renderHelloWorld()
+	case extensionSyncScreen:
+		s += m.renderExtensionSync()
 	}
 
 	// Footer with emojis
@@ -863,7 +928,9 @@ func (m model) View() string {
 	} else if m.currentScreen == helloWorldScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute • ESC: Back • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
-		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • h: Help • ESC: Back • q: Quit")
+		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • S: Sync • h: Help • ESC: Back")
+	} else if m.currentScreen == extensionSyncScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Select/Execute • ESC: Back to Extensions • q: Quit")
 	} else if m.currentScreen == extensionInfoScreen {
 		s += helpStyle.Render("r: Reload PJSIP • t: Test Suite • s: SIP Debug • h: Help Guide • ESC: Back • q: Quit")
 	} else if m.currentScreen == sipHelpScreen {
@@ -917,29 +984,112 @@ func (m model) renderMainMenu() string {
 func (m model) renderExtensions() string {
 	content := infoStyle.Render("📱 Extensions Management") + "\n\n"
 
-	if len(m.extensions) == 0 {
+	// Get sync summary and show if there are mismatches
+	if m.extensionSyncManager != nil {
+		total, matched, dbOnly, astOnly, mismatched, err := m.extensionSyncManager.GetSyncSummary()
+		if err == nil && total > 0 {
+			if dbOnly > 0 || astOnly > 0 || mismatched > 0 {
+				content += errorStyle.Render("⚠️  Sync Issues Detected") + "\n"
+				if dbOnly > 0 {
+					content += fmt.Sprintf("   • %d extension(s) in DB only\n", dbOnly)
+				}
+				if astOnly > 0 {
+					content += fmt.Sprintf("   • %d extension(s) in Asterisk only\n", astOnly)
+				}
+				if mismatched > 0 {
+					content += fmt.Sprintf("   • %d extension(s) with mismatched config\n", mismatched)
+				}
+				content += helpStyle.Render("   Press 'S' to open Sync Manager\n")
+				content += "\n"
+			} else if matched > 0 {
+				content += successStyle.Render(fmt.Sprintf("✅ All %d extensions synced", matched)) + "\n\n"
+			}
+		}
+	}
+
+	if len(m.extensions) == 0 && len(m.extensionSyncInfos) == 0 {
 		content += "📭 No extensions configured\n\n"
 	} else {
-		content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
+		// Show combined list from both sources if available
+		if len(m.extensionSyncInfos) > 0 {
+			content += fmt.Sprintf("Total Extensions: %s (from DB and Asterisk)\n\n", 
+				successStyle.Render(fmt.Sprintf("%d", len(m.extensionSyncInfos))))
 
-		for i, ext := range m.extensions {
-			status := "🔴 Disabled"
-			if ext.Enabled {
-				status = "🟢 Enabled"
+			for i, syncInfo := range m.extensionSyncInfos {
+				cursor := " "
+				if i == m.selectedExtensionIdx {
+					cursor = "▶"
+				}
+				
+				// Build status indicators
+				var statusParts []string
+				
+				// Source indicator
+				switch syncInfo.Source {
+				case SourceBoth:
+					if syncInfo.SyncStatus == SyncStatusMatch {
+						statusParts = append(statusParts, "✅")
+					} else {
+						statusParts = append(statusParts, "⚠️")
+					}
+				case SourceDatabase:
+					statusParts = append(statusParts, "📦 DB only")
+				case SourceAsterisk:
+					statusParts = append(statusParts, "⚡ Asterisk only")
+				}
+				
+				// Enabled/disabled status (from DB if available)
+				if syncInfo.DBExtension != nil {
+					if syncInfo.DBExtension.Enabled {
+						statusParts = append(statusParts, "🟢")
+					} else {
+						statusParts = append(statusParts, "🔴")
+					}
+				}
+				
+				// Live registration status (from Asterisk if available)
+				if syncInfo.AsteriskConfig != nil && syncInfo.AsteriskConfig.Registered {
+					statusParts = append(statusParts, "📞 Registered")
+				}
+				
+				// Get name
+				name := fmt.Sprintf("Extension %s", syncInfo.ExtensionNumber)
+				if syncInfo.DBExtension != nil && syncInfo.DBExtension.Name != "" {
+					name = syncInfo.DBExtension.Name
+				}
+				
+				status := strings.Join(statusParts, " ")
+				line := fmt.Sprintf("%s %s - %s (%s)\n",
+					cursor,
+					successStyle.Render(syncInfo.ExtensionNumber),
+					name,
+					status,
+				)
+				content += line
 			}
+		} else {
+			// Fallback to DB-only list
+			content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
 
-			cursor := " "
-			if i == m.selectedExtensionIdx {
-				cursor = "▶"
+			for i, ext := range m.extensions {
+				status := "🔴 Disabled"
+				if ext.Enabled {
+					status = "🟢 Enabled"
+				}
+
+				cursor := " "
+				if i == m.selectedExtensionIdx {
+					cursor = "▶"
+				}
+				
+				line := fmt.Sprintf("%s %s - %s (%s)\n",
+					cursor,
+					successStyle.Render(ext.ExtensionNumber),
+					ext.Name,
+					status,
+				)
+				content += line
 			}
-			
-			line := fmt.Sprintf("%s %s - %s (%s)\n",
-				cursor,
-				successStyle.Render(ext.ExtensionNumber),
-				ext.Name,
-				status,
-			)
-			content += line
 		}
 	}
 
@@ -3121,6 +3271,207 @@ func (m *model) handleHelloWorldMenuSelection() {
 	case 3: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
+	}
+}
+
+// loadExtensionSyncInfo loads sync information for all extensions
+func (m *model) loadExtensionSyncInfo() {
+	if m.extensionSyncManager == nil {
+		return
+	}
+	
+	syncInfos, err := m.extensionSyncManager.CompareExtensions()
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to load sync info: %v", err)
+		return
+	}
+	
+	m.extensionSyncInfos = syncInfos
+}
+
+// renderExtensionSync renders the extension sync management screen
+func (m model) renderExtensionSync() string {
+	content := titleStyle.Render("🔄 Extension Sync Manager") + "\n\n"
+	
+	// Show sync summary
+	if m.extensionSyncManager != nil {
+		total, matched, dbOnly, astOnly, mismatched, err := m.extensionSyncManager.GetSyncSummary()
+		if err != nil {
+			content += errorStyle.Render(fmt.Sprintf("Error: %v", err)) + "\n\n"
+		} else {
+			content += infoStyle.Render("📊 Sync Summary:") + "\n"
+			content += fmt.Sprintf("   Total: %d extension(s)\n", total)
+			if matched > 0 {
+				content += successStyle.Render(fmt.Sprintf("   ✅ Synced: %d", matched)) + "\n"
+			}
+			if dbOnly > 0 {
+				content += errorStyle.Render(fmt.Sprintf("   📦 DB Only: %d (not in Asterisk)", dbOnly)) + "\n"
+			}
+			if astOnly > 0 {
+				content += errorStyle.Render(fmt.Sprintf("   ⚡ Asterisk Only: %d (not in DB)", astOnly)) + "\n"
+			}
+			if mismatched > 0 {
+				content += errorStyle.Render(fmt.Sprintf("   ⚠️  Mismatched: %d", mismatched)) + "\n"
+			}
+			content += "\n"
+		}
+	}
+	
+	// Show extension list with sync status
+	content += infoStyle.Render("📋 Extensions Status:") + "\n\n"
+	
+	if len(m.extensionSyncInfos) == 0 {
+		content += "📭 No extensions found\n\n"
+	} else {
+		for i, info := range m.extensionSyncInfos {
+			cursor := " "
+			if i == m.selectedSyncIdx {
+				cursor = "▶"
+			}
+			
+			// Build status indicator
+			var statusIcon string
+			var statusText string
+			switch info.SyncStatus {
+			case SyncStatusMatch:
+				statusIcon = "✅"
+				statusText = "Synced"
+			case SyncStatusDBOnly:
+				statusIcon = "📦"
+				statusText = "DB Only"
+			case SyncStatusAsteriskOnly:
+				statusIcon = "⚡"
+				statusText = "Asterisk Only"
+			case SyncStatusMismatch:
+				statusIcon = "⚠️"
+				statusText = "Mismatch"
+			}
+			
+			// Get name
+			name := fmt.Sprintf("Extension %s", info.ExtensionNumber)
+			if info.DBExtension != nil && info.DBExtension.Name != "" {
+				name = info.DBExtension.Name
+			}
+			
+			line := fmt.Sprintf("%s %s %s - %s (%s)\n",
+				cursor,
+				statusIcon,
+				successStyle.Render(info.ExtensionNumber),
+				name,
+				statusText,
+			)
+			
+			if i == m.selectedSyncIdx {
+				content += selectedItemStyle.Render(line)
+				// Show differences if there are any
+				if len(info.Differences) > 0 {
+					for _, diff := range info.Differences {
+						content += helpStyle.Render(fmt.Sprintf("   └─ %s", diff)) + "\n"
+					}
+				}
+			} else {
+				content += line
+			}
+		}
+	}
+	
+	content += "\n"
+	
+	// Menu options
+	content += infoStyle.Render("⚡ Actions:") + "\n\n"
+	for i, item := range m.extensionSyncMenu {
+		cursor := " "
+		menuIdx := len(m.extensionSyncInfos) + i
+		if m.cursor == menuIdx {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
+	
+	return menuStyle.Render(content)
+}
+
+// handleExtensionSyncSelection handles menu selection on the sync screen
+func (m *model) handleExtensionSyncSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	// Calculate menu index (cursor position relative to menu)
+	menuIdx := m.cursor - len(m.extensionSyncInfos)
+	
+	// If cursor is on an extension, not a menu item
+	if m.cursor < len(m.extensionSyncInfos) {
+		m.selectedSyncIdx = m.cursor
+		return
+	}
+	
+	switch menuIdx {
+	case 0: // Sync selected DB → Asterisk
+		if m.selectedSyncIdx < len(m.extensionSyncInfos) {
+			info := m.extensionSyncInfos[m.selectedSyncIdx]
+			if info.DBExtension != nil {
+				err := m.extensionSyncManager.SyncDatabaseToAsterisk(info.ExtensionNumber)
+				if err != nil {
+					m.errorMsg = fmt.Sprintf("Sync failed: %v", err)
+				} else {
+					m.successMsg = fmt.Sprintf("Extension %s synced to Asterisk", info.ExtensionNumber)
+					m.loadExtensionSyncInfo()
+				}
+			} else {
+				m.errorMsg = "Selected extension is not in database"
+			}
+		}
+		
+	case 1: // Sync selected Asterisk → DB
+		if m.selectedSyncIdx < len(m.extensionSyncInfos) {
+			info := m.extensionSyncInfos[m.selectedSyncIdx]
+			if info.AsteriskConfig != nil {
+				err := m.extensionSyncManager.SyncAsteriskToDatabase(info.ExtensionNumber)
+				if err != nil {
+					m.errorMsg = fmt.Sprintf("Sync failed: %v", err)
+				} else {
+					m.successMsg = fmt.Sprintf("Extension %s synced to database", info.ExtensionNumber)
+					m.loadExtensionSyncInfo()
+					// Reload extensions from DB
+					if exts, err := GetExtensions(m.db); err == nil {
+						m.extensions = exts
+					}
+				}
+			} else {
+				m.errorMsg = "Selected extension is not in Asterisk config"
+			}
+		}
+		
+	case 2: // Sync all DB → Asterisk
+		synced, errors := m.extensionSyncManager.SyncAllDatabaseToAsterisk()
+		if len(errors) > 0 {
+			m.errorMsg = fmt.Sprintf("Synced %d, %d errors", synced, len(errors))
+		} else {
+			m.successMsg = fmt.Sprintf("All %d extensions synced to Asterisk", synced)
+		}
+		m.loadExtensionSyncInfo()
+		
+	case 3: // Sync all Asterisk → DB
+		synced, errors := m.extensionSyncManager.SyncAllAsteriskToDatabase()
+		if len(errors) > 0 {
+			m.errorMsg = fmt.Sprintf("Synced %d, %d errors", synced, len(errors))
+		} else {
+			m.successMsg = fmt.Sprintf("All %d extensions synced to database", synced)
+		}
+		m.loadExtensionSyncInfo()
+		// Reload extensions from DB
+		if exts, err := GetExtensions(m.db); err == nil {
+			m.extensions = exts
+		}
+		
+	case 4: // Refresh
+		m.loadExtensionSyncInfo()
+		m.successMsg = "Sync status refreshed"
+		
+	case 5: // Back to Extensions
+		m.currentScreen = extensionsScreen
+		m.cursor = m.selectedExtensionIdx
 	}
 }
 
