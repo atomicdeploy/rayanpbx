@@ -121,9 +121,9 @@ RayanPBX needs a special dialplan entry for the Hello World test. We'll add it v
    ; Hello World Demo
    [from-internal]
    exten => 100,1,Answer()
-    same => n,Wait(1)
-    same => n,Playback(hello-world)
-    same => n,Hangup()
+   same => n,Wait(1)
+   same => n,Playback(hello-world)
+   same => n,Hangup()
    EOF
 
    # Reload dialplan
@@ -180,12 +180,12 @@ rayanpbx-tui
    # Open another terminal and run:
    sudo tee -a /etc/asterisk/extensions.conf << 'EOF'
 
-   ; Hello World Demo  
+   ; Hello World Demo
    [from-internal]
    exten => 100,1,Answer()
-    same => n,Wait(1)
-    same => n,Playback(hello-world)
-    same => n,Hangup()
+   same => n,Wait(1)
+   same => n,Playback(hello-world)
+   same => n,Hangup()
    EOF
    ```
 
@@ -249,9 +249,9 @@ cat << 'EOF' | sudo tee -a /etc/asterisk/extensions.conf
 ; RayanPBX Hello World Demo
 [from-internal]
 exten => 100,1,Answer()
- same => n,Wait(1)
- same => n,Playback(hello-world)
- same => n,Hangup()
+same => n,Wait(1)
+same => n,Playback(hello-world)
+same => n,Hangup()
 EOF
 
 # Reload the dialplan

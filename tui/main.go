@@ -3015,9 +3015,9 @@ func (m model) renderHelloWorld() string {
 	content += helpStyle.Render("  cat << 'EOF' | sudo tee -a /etc/asterisk/extensions.conf") + "\n"
 	content += helpStyle.Render("  [from-internal]") + "\n"
 	content += helpStyle.Render("  exten => 100,1,Answer()") + "\n"
-	content += helpStyle.Render("   same => n,Wait(1)") + "\n"
-	content += helpStyle.Render("   same => n,Playback(hello-world)") + "\n"
-	content += helpStyle.Render("   same => n,Hangup()") + "\n"
+	content += helpStyle.Render("  same => n,Wait(1)") + "\n"
+	content += helpStyle.Render("  same => n,Playback(hello-world)") + "\n"
+	content += helpStyle.Render("  same => n,Hangup()") + "\n"
 	content += helpStyle.Render("  EOF") + "\n"
 	content += helpStyle.Render("  asterisk -rx \"dialplan reload\"") + "\n\n"
 	
