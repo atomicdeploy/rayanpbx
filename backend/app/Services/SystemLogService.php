@@ -218,7 +218,20 @@ class SystemLogService
             'enabled' => $this->enabled,
             'ident' => $this->ident,
             'syslog_available' => $this->isAvailable(),
-            'kmsg_writable' => is_writable('/dev/kmsg'),
+            'kmsg_writable' => $this->checkKmsgWritable(),
         ];
+    }
+
+    /**
+     * Check if /dev/kmsg is writable by actually attempting to open it
+     */
+    private function checkKmsgWritable(): bool
+    {
+        $kmsg = @fopen('/dev/kmsg', 'w');
+        if ($kmsg !== false) {
+            @fclose($kmsg);
+            return true;
+        }
+        return false;
     }
 }

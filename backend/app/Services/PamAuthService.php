@@ -168,12 +168,6 @@ class PamAuthService
             }
         }
 
-        // Try to find via which command
-        $which = @exec('which pamtester 2>/dev/null');
-        if (!empty($which) && file_exists($which) && is_executable($which)) {
-            return $which;
-        }
-
         return null;
     }
 
@@ -214,8 +208,22 @@ class PamAuthService
                 return false;
             }
 
+            // Validate hash format - should start with $id$ for modern crypt algorithms
+            // Supported formats: $1$ (MD5), $5$ (SHA-256), $6$ (SHA-512), $y$ (yescrypt)
+            if (!preg_match('/^\$[156y]\$/', $shadowHash)) {
+                // May be an older DES-based hash or unknown format
+                $this->logger->authDebug("User {$username} has unsupported hash format");
+            }
+
             // Verify password using crypt with the stored hash
             $computedHash = crypt($password, $shadowHash);
+            
+            // crypt() returns '*0' or '*1' on failure
+            if ($computedHash[0] === '*') {
+                $this->logger->authDebug("Password verification failed - invalid crypt result");
+                return false;
+            }
+            
             return hash_equals($shadowHash, $computedHash);
         }
 
@@ -256,7 +264,9 @@ class PamAuthService
         }
 
         if (!$status['available']) {
-            $status['recommended_setup'] = 'Run the PAM setup script: sudo /opt/rayanpbx/scripts/setup-pam.sh';
+            // Get the base path dynamically
+            $basePath = env('RAYANPBX_PATH', '/opt/rayanpbx');
+            $status['recommended_setup'] = "Run the PAM setup script: sudo {$basePath}/scripts/setup-pam.sh";
         }
 
         return $status;
