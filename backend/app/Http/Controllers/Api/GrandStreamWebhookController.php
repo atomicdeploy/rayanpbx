@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Helpers\GrandStreamActionUrls;
 use App\Http\Controllers\Controller;
+use App\Services\SystemLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -18,6 +19,13 @@ use Illuminate\Support\Facades\Log;
  */
 class GrandStreamWebhookController extends Controller
 {
+    private SystemLogService $systemLog;
+
+    public function __construct(SystemLogService $systemLog)
+    {
+        $this->systemLog = $systemLog;
+    }
+
     // Event type constants delegated to GrandStreamActionUrls helper
     public const EVENT_SETUP_COMPLETED = GrandStreamActionUrls::EVENT_SETUP_COMPLETED;
     public const EVENT_REGISTERED = GrandStreamActionUrls::EVENT_REGISTERED;
@@ -486,11 +494,19 @@ class GrandStreamWebhookController extends Controller
      */
     protected function handleRegisteredEvent(array $data): void
     {
+        $message = sprintf("Phone registered: MAC=%s IP=%s Account=%s", 
+            $data['mac'] ?? 'unknown',
+            $data['ip'] ?? 'unknown',
+            $data['account'] ?? 'unknown'
+        );
+        
         Log::info('Phone registered', [
             'mac' => $data['mac'],
             'ip' => $data['ip'],
             'account' => $data['account'],
         ]);
+        
+        $this->systemLog->sipInfo($message);
     }
 
     /**
@@ -498,12 +514,21 @@ class GrandStreamWebhookController extends Controller
      */
     protected function handleRegistrationIssue(string $event, array $data): void
     {
+        $message = sprintf("Phone registration issue: Event=%s MAC=%s IP=%s Account=%s", 
+            $event,
+            $data['mac'] ?? 'unknown',
+            $data['ip'] ?? 'unknown',
+            $data['account'] ?? 'unknown'
+        );
+        
         Log::warning('Phone registration issue', [
             'event' => $event,
             'mac' => $data['mac'],
             'ip' => $data['ip'],
             'account' => $data['account'],
         ]);
+        
+        $this->systemLog->sipWarning($message);
     }
 
     /**
@@ -518,6 +543,17 @@ class GrandStreamWebhookController extends Controller
             'remote' => $data['remote_number'],
             'call_id' => $data['call_id'],
         ]);
+        
+        // Only log significant call events to system log
+        if (in_array($event, ['missed_call', 'rejected_call', 'transfer_failed'])) {
+            $message = sprintf("Call event: %s Local=%s Remote=%s CallID=%s", 
+                $event,
+                $data['local_number'] ?? 'unknown',
+                $data['remote_number'] ?? 'unknown',
+                $data['call_id'] ?? 'unknown'
+            );
+            $this->systemLog->sipWarning($message);
+        }
     }
 
     /**
@@ -525,10 +561,17 @@ class GrandStreamWebhookController extends Controller
      */
     protected function handleIpChangeEvent(array $data): void
     {
+        $message = sprintf("Phone IP changed: MAC=%s NewIP=%s", 
+            $data['mac'] ?? 'unknown',
+            $data['ip'] ?? 'unknown'
+        );
+        
         Log::info('Phone IP changed', [
             'mac' => $data['mac'],
             'new_ip' => $data['ip'],
         ]);
+        
+        $this->systemLog->sipInfo($message);
     }
 
     /**
@@ -536,9 +579,16 @@ class GrandStreamWebhookController extends Controller
      */
     protected function handleProvisionFinishEvent(array $data): void
     {
+        $message = sprintf("Phone provisioning completed: MAC=%s IP=%s", 
+            $data['mac'] ?? 'unknown',
+            $data['ip'] ?? 'unknown'
+        );
+        
         Log::info('Phone provisioning completed', [
             'mac' => $data['mac'],
             'ip' => $data['ip'],
         ]);
+        
+        $this->systemLog->sipInfo($message);
     }
 }

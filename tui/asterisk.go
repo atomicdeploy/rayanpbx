@@ -14,11 +14,15 @@ import (
 )
 
 // AsteriskManager handles Asterisk service and CLI operations
-type AsteriskManager struct{}
+type AsteriskManager struct {
+	logger *SystemLogger
+}
 
 // NewAsteriskManager creates a new Asterisk manager
 func NewAsteriskManager() *AsteriskManager {
-	return &AsteriskManager{}
+	return &AsteriskManager{
+		logger: GetSystemLogger(),
+	}
 }
 
 // GetServiceStatus checks Asterisk service status via systemctl
@@ -51,9 +55,11 @@ func (am *AsteriskManager) StartService() error {
 	cyan.Println("🔄 Starting Asterisk service...")
 	cmd := exec.Command("systemctl", "start", "asterisk")
 	if err := cmd.Run(); err != nil {
+		am.logger.AsteriskError("Failed to start Asterisk service: %v", err)
 		return fmt.Errorf("failed to start service: %v", err)
 	}
 
+	am.logger.AsteriskInfo("Asterisk service started")
 	green.Println("✅ Asterisk service started successfully")
 	return nil
 }
@@ -66,9 +72,11 @@ func (am *AsteriskManager) StopService() error {
 	yellow.Println("⏸️  Stopping Asterisk service...")
 	cmd := exec.Command("systemctl", "stop", "asterisk")
 	if err := cmd.Run(); err != nil {
+		am.logger.AsteriskError("Failed to stop Asterisk service: %v", err)
 		return fmt.Errorf("failed to stop service: %v", err)
 	}
 
+	am.logger.AsteriskInfo("Asterisk service stopped")
 	green.Println("✅ Asterisk service stopped successfully")
 	return nil
 }
@@ -81,9 +89,11 @@ func (am *AsteriskManager) RestartService() error {
 	cyan.Println("🔄 Restarting Asterisk service...")
 	cmd := exec.Command("systemctl", "restart", "asterisk")
 	if err := cmd.Run(); err != nil {
+		am.logger.AsteriskError("Failed to restart Asterisk service: %v", err)
 		return fmt.Errorf("failed to restart service: %v", err)
 	}
 
+	am.logger.AsteriskInfo("Asterisk service restarted")
 	green.Println("✅ Asterisk service restarted successfully")
 	return nil
 }
