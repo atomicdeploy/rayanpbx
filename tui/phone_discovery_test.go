@@ -25,10 +25,10 @@ func TestParseSystemDescription(t *testing.T) {
 	pd := NewPhoneDiscovery(pm)
 
 	tests := []struct {
-		name          string
-		description   string
-		wantVendor    string
-		wantModel     string
+		name        string
+		description string
+		wantVendor  string
+		wantModel   string
 	}{
 		{
 			name:        "GrandStream GXP1628",
@@ -454,3 +454,119 @@ func TestParseSystemDescriptionGXPModels(t *testing.T) {
 		})
 	}
 }
+
+func TestParseARPOutput(t *testing.T) {
+	am := &AsteriskManager{}
+	pm := NewPhoneManager(am)
+	pd := NewPhoneDiscovery(pm)
+
+	// Sample arp -a output from the problem statement
+	output := `? (172.20.4.126) at b0:6e:bf:c0:08:1d [ether] on eno1
+? (172.20.15.245) at ec:74:d7:46:ad:6c [ether] on eno1
+_gateway (172.20.0.10) at 08:55:31:32:d1:ec [ether] on eno1
+? (172.20.15.236) at 34:5a:60:be:11:1a [ether] on eno1
+? (172.20.15.240) at d8:43:ae:5d:36:ed [ether] on eno1
+? (172.20.15.243) at a2:93:2b:95:fb:6f [ether] on eno1
+? (172.20.5.150) at <incomplete> on eno1`
+
+	devices, err := pd.parseARPOutput(output)
+	if err != nil {
+		t.Errorf("parseARPOutput() error = %v", err)
+	}
+
+	// Should find 6 devices (excluding incomplete entry)
+	if len(devices) != 6 {
+		t.Errorf("parseARPOutput() found %d devices, want 6", len(devices))
+	}
+
+	// Check first device
+	if len(devices) >= 1 {
+		device := devices[0]
+		if device.IP != "172.20.4.126" {
+			t.Errorf("Device 1 IP = %v, want 172.20.4.126", device.IP)
+		}
+		if device.MAC != "b0:6e:bf:c0:08:1d" {
+			t.Errorf("Device 1 MAC = %v, want b0:6e:bf:c0:08:1d", device.MAC)
+		}
+		if device.DiscoveryType != "arp" {
+			t.Errorf("Device 1 DiscoveryType = %v, want arp", device.DiscoveryType)
+		}
+	}
+
+	// Check GrandStream device detection (ec:74:d7 is GrandStream OUI)
+	if len(devices) >= 2 {
+		device := devices[1]
+		if device.IP != "172.20.15.245" {
+			t.Errorf("Device 2 IP = %v, want 172.20.15.245", device.IP)
+		}
+		if device.Vendor != "GrandStream" {
+			t.Errorf("Device 2 Vendor = %v, want GrandStream", device.Vendor)
+		}
+	}
+
+	// Check gateway device with hostname
+	if len(devices) >= 3 {
+		device := devices[2]
+		if device.Hostname != "_gateway" {
+			t.Errorf("Device 3 Hostname = %v, want _gateway", device.Hostname)
+		}
+	}
+}
+
+func TestParseARPOutputEmpty(t *testing.T) {
+	am := &AsteriskManager{}
+	pm := NewPhoneManager(am)
+	pd := NewPhoneDiscovery(pm)
+
+	devices, err := pd.parseARPOutput("")
+	if err != nil {
+		t.Errorf("parseARPOutput() error = %v", err)
+	}
+
+	if len(devices) != 0 {
+		t.Errorf("parseARPOutput() with empty output found %d devices, want 0", len(devices))
+	}
+}
+
+func TestDetectVendorFromMAC(t *testing.T) {
+	am := &AsteriskManager{}
+	pm := NewPhoneManager(am)
+	pd := NewPhoneDiscovery(pm)
+
+	tests := []struct {
+		name       string
+		mac        string
+		wantVendor string
+	}{
+		{
+			name:       "GrandStream ec:74:d7",
+			mac:        "ec:74:d7:46:ad:6c",
+			wantVendor: "GrandStream",
+		},
+		{
+			name:       "GrandStream 00:0b:82",
+			mac:        "00:0b:82:12:34:56",
+			wantVendor: "GrandStream",
+		},
+		{
+			name:       "Yealink",
+			mac:        "00:15:65:12:34:56",
+			wantVendor: "Yealink",
+		},
+		{
+			name:       "Unknown vendor",
+			mac:        "aa:bb:cc:dd:ee:ff",
+			wantVendor: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vendor := pd.detectVendorFromMAC(tt.mac)
+			if vendor != tt.wantVendor {
+				t.Errorf("detectVendorFromMAC() = %v, want %v", vendor, tt.wantVendor)
+			}
+		})
+	}
+}
+

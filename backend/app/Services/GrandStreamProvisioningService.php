@@ -252,6 +252,14 @@ class GrandStreamProvisioningService
             Log::warning("LLDP discovery failed: " . $e->getMessage());
         }
         
+        // Try ARP table discovery
+        try {
+            $arpDevices = $this->discoverViaARP();
+            $devices = array_merge($devices, $arpDevices);
+        } catch (\Exception $e) {
+            Log::warning("ARP discovery failed: " . $e->getMessage());
+        }
+        
         // Fallback to nmap scanning
         try {
             $nmapDevices = $this->discoverViaNmap($network);
@@ -511,6 +519,133 @@ class GrandStreamProvisioningService
         }
         
         return $devices;
+    }
+    
+    /**
+     * Discover devices from ARP table
+     * ARP table contains IP to MAC mappings for recently communicated hosts
+     */
+    protected function discoverViaARP()
+    {
+        $devices = [];
+        
+        $output = [];
+        $returnCode = 0;
+        exec('arp -a 2>&1', $output, $returnCode);
+        
+        if ($returnCode !== 0) {
+            throw new \Exception("ARP command failed");
+        }
+        
+        return $this->parseARPOutput(implode("\n", $output));
+    }
+    
+    /**
+     * Parse arp -a output
+     * 
+     * Example format:
+     * ? (172.20.4.126) at b0:6e:bf:c0:08:1d [ether] on eno1
+     * _gateway (172.20.0.10) at 08:55:31:32:d1:ec [ether] on eno1
+     */
+    protected function parseARPOutput($output)
+    {
+        $devices = [];
+        
+        $lines = explode("\n", $output);
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) {
+                continue;
+            }
+            
+            // Parse ARP entry: hostname (IP) at MAC [type] on interface
+            // or: ? (IP) at MAC [type] on interface (when hostname unknown)
+            
+            // Extract IP address from parentheses
+            if (!preg_match('/\(([0-9.]+)\)/', $line, $ipMatches)) {
+                continue;
+            }
+            $ip = $ipMatches[1];
+            
+            // Validate IP address
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                continue;
+            }
+            
+            // Extract MAC address after "at "
+            if (!preg_match('/at\s+([0-9a-fA-F:.-]+)/', $line, $macMatches)) {
+                continue;
+            }
+            $mac = $macMatches[1];
+            
+            // Skip incomplete entries (shown as <incomplete>)
+            if (strpos($mac, '<') !== false || strpos($mac, '>') !== false) {
+                continue;
+            }
+            
+            // Normalize MAC to lowercase with colons
+            $mac = strtolower(str_replace('-', ':', $mac));
+            
+            // Extract hostname (text before the parenthesis)
+            $hostname = '';
+            $parenPos = strpos($line, '(');
+            if ($parenPos > 0) {
+                $hostname = trim(substr($line, 0, $parenPos));
+                if ($hostname === '?') {
+                    $hostname = '';
+                }
+            }
+            
+            // Try to detect vendor from MAC address OUI
+            $vendor = $this->detectVendorFromMAC($mac);
+            
+            $devices[] = [
+                'ip' => $ip,
+                'mac' => $mac,
+                'hostname' => $hostname,
+                'vendor' => $vendor,
+                'discovery_type' => 'arp',
+                'last_seen' => now()->toISOString(),
+            ];
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Detect vendor from MAC address OUI (Organizationally Unique Identifier)
+     */
+    protected function detectVendorFromMAC($mac)
+    {
+        // Common VoIP phone vendor OUI prefixes
+        $ouiPrefixes = [
+            '00:0b:82' => 'GrandStream',
+            '00:19:15' => 'GrandStream',
+            'c0:74:ad' => 'GrandStream',
+            'ec:74:d7' => 'GrandStream',
+            '00:15:65' => 'Yealink',
+            '80:5e:c0' => 'Yealink',
+            '00:04:f2' => 'Polycom',
+            '64:16:7f' => 'Polycom',
+            '00:1e:c2' => 'Cisco',
+            '00:50:c2' => 'Cisco',
+            '00:04:13' => 'Snom',
+            '00:1b:63' => 'Panasonic',
+            '0c:38:3e' => 'Fanvil',
+        ];
+        
+        // Normalize MAC and get first 3 octets
+        $mac = strtolower(str_replace('-', ':', $mac));
+        $parts = explode(':', $mac);
+        if (count($parts) >= 3) {
+            $oui = implode(':', array_slice($parts, 0, 3));
+            if (isset($ouiPrefixes[$oui])) {
+                return $ouiPrefixes[$oui];
+            }
+        }
+        
+        return '';
     }
     
     /**

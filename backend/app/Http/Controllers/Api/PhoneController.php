@@ -262,6 +262,40 @@ class PhoneController extends Controller
     }
 
     /**
+     * Get ARP table entries (discovered devices from ARP cache)
+     */
+    public function arpNeighbors(Request $request)
+    {
+        try {
+            $phones = $this->grandstreamService->discoverPhones();
+            
+            // Filter for ARP-discovered devices only
+            $arpDevices = array_filter($phones['devices'] ?? [], function ($device) {
+                return ($device['discovery_type'] ?? '') === 'arp';
+            });
+            
+            return response()->json([
+                'success' => true,
+                'neighbors' => array_values($arpDevices),
+                'total' => count($arpDevices),
+                'message' => count($arpDevices) > 0 
+                    ? 'ARP neighbors discovered successfully' 
+                    : 'No ARP entries found.',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('ARP discovery failed', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'neighbors' => [],
+                'total' => 0,
+                'error' => $e->getMessage(),
+                'message' => 'ARP discovery failed.',
+            ]);
+        }
+    }
+
+    /**
      * Resolve phone IP from identifier (IP, MAC, or extension)
      */
     protected function resolvePhoneIP($identifier)

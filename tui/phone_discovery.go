@@ -98,6 +98,12 @@ func (pd *PhoneDiscovery) DiscoverPhones(network string) ([]DiscoveredPhone, err
 		phones = append(phones, lldpPhones...)
 	}
 
+	// Try ARP table discovery
+	arpPhones, err := pd.discoverViaARP()
+	if err == nil {
+		phones = append(phones, arpPhones...)
+	}
+
 	// Fallback to network scanning
 	scanPhones, err := pd.discoverViaNmap(network)
 	if err == nil {
@@ -433,6 +439,133 @@ func (pd *PhoneDiscovery) parseTcpdumpLLDP(output string) ([]DiscoveredPhone, er
 	}
 
 	return phones, nil
+}
+
+// discoverViaARP discovers devices from the ARP table
+// ARP table contains IP to MAC mappings for recently communicated hosts
+func (pd *PhoneDiscovery) discoverViaARP() ([]DiscoveredPhone, error) {
+	output, err := exec.Command("arp", "-a").Output()
+	if err != nil {
+		return nil, fmt.Errorf("arp command failed: %w", err)
+	}
+
+	return pd.parseARPOutput(string(output))
+}
+
+// parseARPOutput parses the output of 'arp -a' command
+// Example format:
+// ? (172.20.4.126) at b0:6e:bf:c0:08:1d [ether] on eno1
+// _gateway (172.20.0.10) at 08:55:31:32:d1:ec [ether] on eno1
+func (pd *PhoneDiscovery) parseARPOutput(output string) ([]DiscoveredPhone, error) {
+	var phones []DiscoveredPhone
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse ARP entry: hostname (IP) at MAC [type] on interface
+		// or: ? (IP) at MAC [type] on interface (when hostname unknown)
+		
+		// Extract IP address from parentheses
+		ipStart := strings.Index(line, "(")
+		ipEnd := strings.Index(line, ")")
+		if ipStart == -1 || ipEnd == -1 || ipEnd <= ipStart {
+			continue
+		}
+		ip := line[ipStart+1 : ipEnd]
+		
+		// Validate IP address
+		if net.ParseIP(ip) == nil {
+			continue
+		}
+
+		// Extract MAC address after "at "
+		atIndex := strings.Index(line, " at ")
+		if atIndex == -1 {
+			continue
+		}
+		
+		remainder := line[atIndex+4:] // Skip " at "
+		parts := strings.Fields(remainder)
+		if len(parts) == 0 {
+			continue
+		}
+		
+		mac := parts[0]
+		
+		// Validate MAC address format (should contain colons or hyphens)
+		if !strings.Contains(mac, ":") && !strings.Contains(mac, "-") {
+			continue
+		}
+		
+		// Skip incomplete entries (shown as <incomplete>)
+		if strings.Contains(mac, "<") || strings.Contains(mac, ">") {
+			continue
+		}
+
+		// Normalize MAC to lowercase with colons
+		mac = strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
+
+		// Extract hostname (before the parenthesis)
+		hostname := ""
+		if ipStart > 0 {
+			hostname = strings.TrimSpace(line[:ipStart])
+			if hostname == "?" {
+				hostname = ""
+			}
+		}
+
+		// Try to detect vendor from MAC address OUI
+		vendor := pd.detectVendorFromMAC(mac)
+
+		phone := DiscoveredPhone{
+			IP:            ip,
+			MAC:           mac,
+			Hostname:      hostname,
+			Vendor:        vendor,
+			DiscoveryType: "arp",
+			LastSeen:      time.Now(),
+		}
+
+		phones = append(phones, phone)
+	}
+
+	return phones, nil
+}
+
+// detectVendorFromMAC attempts to identify the vendor from MAC address OUI
+func (pd *PhoneDiscovery) detectVendorFromMAC(mac string) string {
+	// Common VoIP phone vendor OUI prefixes
+	ouiPrefixes := map[string]string{
+		"00:0b:82": "GrandStream",
+		"00:19:15": "GrandStream",
+		"c0:74:ad": "GrandStream",
+		"ec:74:d7": "GrandStream",
+		"00:15:65": "Yealink",
+		"80:5e:c0": "Yealink",
+		"00:04:f2": "Polycom",
+		"64:16:7f": "Polycom",
+		"00:1e:c2": "Cisco",
+		"00:50:c2": "Cisco",
+		"00:04:13": "Snom",
+		"00:1b:63": "Panasonic",
+		"0c:38:3e": "Fanvil",
+	}
+
+	// Normalize MAC and get first 3 octets
+	mac = strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
+	parts := strings.Split(mac, ":")
+	if len(parts) >= 3 {
+		oui := strings.Join(parts[:3], ":")
+		if vendor, ok := ouiPrefixes[oui]; ok {
+			return vendor
+		}
+	}
+
+	return ""
 }
 
 // discoverViaNmap discovers phones using nmap network scanning
