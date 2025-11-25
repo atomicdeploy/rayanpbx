@@ -221,9 +221,8 @@ func TestConfigManagementScrolling(t *testing.T) {
 	configs := make([]EnvConfig, 50)
 	for i := 0; i < 50; i++ {
 		configs[i] = EnvConfig{
-			Key:       fmt.Sprintf("TEST_KEY_%d", i),
-			Value:     "value",
-			IsSection: false,
+			Key:   fmt.Sprintf("TEST_KEY_%d", i),
+			Value: "value",
 		}
 	}
 	

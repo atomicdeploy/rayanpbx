@@ -226,18 +226,11 @@ func isSectionHeader(comment string) bool {
 	}
 	
 	// Check if it's a short capitalized phrase without special characters
-	// that looks like a header
+	// that looks like a header (first char uppercase, short phrase, no special chars)
 	if len(comment) < 30 && !strings.Contains(comment, ":") && 
 		!strings.Contains(comment, "=") && !strings.HasPrefix(comment, "Note") &&
 		!strings.HasPrefix(comment, "Example") && !strings.HasPrefix(comment, "Comma") &&
 		!strings.HasPrefix(comment, "Useful") {
-		// Count uppercase letters vs total
-		upperCount := 0
-		for _, c := range comment {
-			if c >= 'A' && c <= 'Z' {
-				upperCount++
-			}
-		}
 		// If first character is uppercase and it's a relatively short phrase
 		if len(comment) > 0 && comment[0] >= 'A' && comment[0] <= 'Z' && len(strings.Fields(comment)) <= 4 {
 			return true
@@ -433,7 +426,12 @@ func reloadAllServices() string {
 	return strings.Join(messages, " | ")
 }
 
-// Default visible rows for configuration table
+// defaultConfigVisibleRows is the default number of visible rows in the configuration table.
+// This value (12) is chosen to fit comfortably in a typical 24-row terminal while leaving room for:
+// - Title and header (3-4 lines)
+// - Table header with separator (2 lines)
+// - Menu options at bottom (4 lines)
+// - Help text and messages (3-4 lines)
 const defaultConfigVisibleRows = 12
 
 // initConfigManagement initializes the configuration management screen
