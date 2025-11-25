@@ -1508,10 +1508,8 @@ func (m *model) executeCommand(command string) tea.Cmd {
 	m.successMsg = ""
 	
 	// Check if this is a long-running or interactive command that needs to run outside TUI
-	isLongRunning := strings.Contains(command, " start") ||
-		strings.Contains(command, " stop") ||
-		strings.Contains(command, " restart") ||
-		strings.Contains(command, " update")
+	// We check for specific command patterns to avoid false positives
+	isLongRunning := isLongRunningCommand(command)
 	
 	if isLongRunning {
 		// Store the command and return a tea.Cmd to run it externally
@@ -1531,16 +1529,87 @@ func (m *model) executeCommand(command string) tea.Cmd {
 	return nil
 }
 
+// isLongRunningCommand checks if a command is potentially long-running or interactive
+// These commands should be run outside the TUI so the user can see output and interact
+func isLongRunningCommand(command string) bool {
+	// Service management commands that need to run outside TUI
+	longRunningPatterns := []string{
+		"systemctl start",
+		"systemctl stop", 
+		"systemctl restart",
+		"service start",
+		"service stop",
+		"service restart",
+		"asterisk start",
+		"asterisk stop",
+		"asterisk restart",
+		"system update",
+		"--update",
+	}
+	
+	cmdLower := strings.ToLower(command)
+	for _, pattern := range longRunningPatterns {
+		if strings.Contains(cmdLower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseCommand splits a command string into executable and arguments
+// It handles simple quoted strings
+func parseCommand(command string) (string, []string, error) {
+	if command == "" {
+		return "", nil, fmt.Errorf("empty command")
+	}
+	
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := rune(0)
+	
+	for _, char := range command {
+		switch {
+		case char == '"' || char == '\'':
+			if inQuotes && char == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			} else if !inQuotes {
+				inQuotes = true
+				quoteChar = char
+			} else {
+				current.WriteRune(char)
+			}
+		case char == ' ' && !inQuotes:
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(char)
+		}
+	}
+	
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	
+	if len(parts) == 0 {
+		return "", nil, fmt.Errorf("empty command")
+	}
+	
+	return parts[0], parts[1:], nil
+}
+
 // runCommandCapture executes a command and captures its output
 func (m *model) runCommandCapture(command string) (string, error) {
-	// Parse command into parts
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return "", fmt.Errorf("empty command")
+	executable, args, err := parseCommand(command)
+	if err != nil {
+		return "", err
 	}
 	
 	// Create the command
-	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd := exec.Command(executable, args...)
 	
 	// Capture output
 	output, err := cmd.CombinedOutput()
@@ -1558,14 +1627,13 @@ func (m *model) runCommandCapture(command string) (string, error) {
 // runCommandExternally runs a command outside the TUI using tea.ExecProcess
 // This allows the user to see the command output and interact with it
 func (m *model) runCommandExternally(command string) tea.Cmd {
-	// Parse command into parts
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	executable, args, err := parseCommand(command)
+	if err != nil {
 		return nil
 	}
 	
 	// Create the command
-	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd := exec.Command(executable, args...)
 	cmd.Stdin = os.Stdin
 	
 	// Use tea.ExecProcess to run the command outside the TUI

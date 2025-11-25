@@ -427,42 +427,57 @@ func (am *AsteriskManager) GetServiceStatusOutput() string {
 }
 
 // StartServiceQuiet starts the Asterisk service without printing to stdout (for TUI use)
-// Returns the service status output after starting
+// Returns any command output and an error if the operation failed
 func (am *AsteriskManager) StartServiceQuiet() (string, error) {
 	cmd := exec.Command("systemctl", "start", "asterisk")
 	output, err := cmd.CombinedOutput()
+	outputStr := strings.TrimSpace(string(output))
 	if err != nil {
-		return string(output), fmt.Errorf("failed to start service: %v", err)
+		if outputStr != "" {
+			return outputStr, fmt.Errorf("failed to start service: %v", err)
+		}
+		return "", fmt.Errorf("failed to start service: %v", err)
 	}
-	// Get service status to show result
-	status := am.GetServiceStatusOutput()
-	return status, nil
+	if outputStr != "" {
+		return outputStr, nil
+	}
+	return "Service start command completed", nil
 }
 
 // StopServiceQuiet stops the Asterisk service without printing to stdout (for TUI use)
-// Returns the service status output after stopping
+// Returns any command output and an error if the operation failed
 func (am *AsteriskManager) StopServiceQuiet() (string, error) {
 	cmd := exec.Command("systemctl", "stop", "asterisk")
 	output, err := cmd.CombinedOutput()
+	outputStr := strings.TrimSpace(string(output))
 	if err != nil {
-		return string(output), fmt.Errorf("failed to stop service: %v", err)
+		if outputStr != "" {
+			return outputStr, fmt.Errorf("failed to stop service: %v", err)
+		}
+		return "", fmt.Errorf("failed to stop service: %v", err)
 	}
-	// Get service status to show result
-	status := am.GetServiceStatusOutput()
-	return status, nil
+	if outputStr != "" {
+		return outputStr, nil
+	}
+	return "Service stop command completed", nil
 }
 
 // RestartServiceQuiet restarts the Asterisk service without printing to stdout (for TUI use)
-// Returns the service status output after restarting
+// Returns any command output and an error if the operation failed
 func (am *AsteriskManager) RestartServiceQuiet() (string, error) {
 	cmd := exec.Command("systemctl", "restart", "asterisk")
 	output, err := cmd.CombinedOutput()
+	outputStr := strings.TrimSpace(string(output))
 	if err != nil {
-		return string(output), fmt.Errorf("failed to restart service: %v", err)
+		if outputStr != "" {
+			return outputStr, fmt.Errorf("failed to restart service: %v", err)
+		}
+		return "", fmt.Errorf("failed to restart service: %v", err)
 	}
-	// Get service status to show result
-	status := am.GetServiceStatusOutput()
-	return status, nil
+	if outputStr != "" {
+		return outputStr, nil
+	}
+	return "Service restart command completed", nil
 }
 
 // ReloadPJSIPQuiet reloads PJSIP configuration without printing to stdout (for TUI use)

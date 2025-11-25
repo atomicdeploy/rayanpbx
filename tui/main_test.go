@@ -608,3 +608,81 @@ func TestCommandFinishedMsg(t *testing.T) {
 		t.Error("Expected usageOutput to be empty on error")
 	}
 }
+
+// TestIsLongRunningCommand tests the long-running command detection function
+func TestIsLongRunningCommand(t *testing.T) {
+	testCases := []struct {
+		command      string
+		isLongRunning bool
+	}{
+		{"systemctl start asterisk", true},
+		{"systemctl stop asterisk", true},
+		{"systemctl restart asterisk", true},
+		{"service start myservice", true},
+		{"rayanpbx-cli system update", true},
+		{"some-tool --update", true},
+		{"echo hello", false},
+		{"ls -la", false},
+		{"cat /etc/hosts", false},
+		{"rayanpbx-cli extension list", false},
+		{"status check", false}, // 'status' alone should not match
+		{"restart-checker", false}, // 'restart' as part of word should not match (it won't match 'systemctl restart')
+	}
+	
+	for _, tc := range testCases {
+		result := isLongRunningCommand(tc.command)
+		if result != tc.isLongRunning {
+			t.Errorf("isLongRunningCommand(%q) = %v, expected %v", tc.command, result, tc.isLongRunning)
+		}
+	}
+}
+
+// TestParseCommand tests the command parsing function with quoted arguments
+func TestParseCommand(t *testing.T) {
+	testCases := []struct {
+		input       string
+		executable  string
+		args        []string
+		expectError bool
+	}{
+		{"echo hello", "echo", []string{"hello"}, false},
+		{"echo 'hello world'", "echo", []string{"hello world"}, false},
+		{"echo \"hello world\"", "echo", []string{"hello world"}, false},
+		{"ls -la /tmp", "ls", []string{"-la", "/tmp"}, false},
+		{"grep -r 'search term' /path", "grep", []string{"-r", "search term", "/path"}, false},
+		{"", "", nil, true},
+		{"   ", "", nil, true},
+		{"single", "single", []string{}, false},
+	}
+	
+	for _, tc := range testCases {
+		executable, args, err := parseCommand(tc.input)
+		
+		if tc.expectError {
+			if err == nil {
+				t.Errorf("parseCommand(%q) expected error, got none", tc.input)
+			}
+			continue
+		}
+		
+		if err != nil {
+			t.Errorf("parseCommand(%q) unexpected error: %v", tc.input, err)
+			continue
+		}
+		
+		if executable != tc.executable {
+			t.Errorf("parseCommand(%q) executable = %q, expected %q", tc.input, executable, tc.executable)
+		}
+		
+		if len(args) != len(tc.args) {
+			t.Errorf("parseCommand(%q) args length = %d, expected %d", tc.input, len(args), len(tc.args))
+			continue
+		}
+		
+		for i, arg := range args {
+			if arg != tc.args[i] {
+				t.Errorf("parseCommand(%q) args[%d] = %q, expected %q", tc.input, i, arg, tc.args[i])
+			}
+		}
+	}
+}
