@@ -2500,26 +2500,28 @@ if next_step "Service Verification & Health Checks" "health-check"; then
             # Create temporary config file with restrictive permissions from the start using umask
             local old_umask=$(umask)
             umask 077
-            DB_TMP_CNF=$(mktemp)
+            DB_TMP_CNF=$(mktemp) || { umask "$old_umask"; print_warning "  (Could not create temp file for secure connection)"; }
             umask "$old_umask"
             
-            # Set trap to ensure cleanup even on unexpected exit
-            trap "rm -f '$DB_TMP_CNF'" RETURN
-            
-            cat > "$DB_TMP_CNF" <<EOF
+            if [ -n "$DB_TMP_CNF" ] && [ -f "$DB_TMP_CNF" ]; then
+                # Set trap to ensure cleanup even on unexpected exit
+                trap "rm -f '$DB_TMP_CNF'" RETURN
+                
+                cat > "$DB_TMP_CNF" <<EOF
 [client]
 host=$DB_HOST
 user=$DB_USER
 password=$DB_PASS
 EOF
-            if mysql --defaults-extra-file="$DB_TMP_CNF" -e "SELECT 1" "$DB_NAME" &>/dev/null; then
-                print_success "✓ Database connectivity verified"
-            else
-                print_warning "✗ Database connectivity issue"
-                echo -e "${YELLOW}  Could not connect to database '$DB_NAME' as user '$DB_USER'${RESET}"
-                FAILED_SERVICES+=("Database")
+                if mysql --defaults-extra-file="$DB_TMP_CNF" -e "SELECT 1" "$DB_NAME" &>/dev/null; then
+                    print_success "✓ Database connectivity verified"
+                else
+                    print_warning "✗ Database connectivity issue"
+                    echo -e "${YELLOW}  Could not connect to database '$DB_NAME' as user '$DB_USER'${RESET}"
+                    FAILED_SERVICES+=("Database")
+                fi
+                rm -f "$DB_TMP_CNF"
             fi
-            rm -f "$DB_TMP_CNF"
         else
             print_info "  (Skipping connectivity test - no password available)"
         fi

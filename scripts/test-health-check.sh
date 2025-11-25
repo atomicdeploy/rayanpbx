@@ -127,7 +127,8 @@ test_check_ami_command_registered() {
 test_ami_check_in_full_check() {
     print_test "Verifying AMI check is included in full-check command"
     
-    if grep -A 30 "full-check)" "$REPO_ROOT/scripts/health-check.sh" | grep -q "check_and_fix_ami"; then
+    # Extract the full-check case block and check for check_and_fix_ami
+    if sed -n '/full-check)/,/;;/p' "$REPO_ROOT/scripts/health-check.sh" | grep -q "check_and_fix_ami"; then
         print_pass "AMI check is included in full-check"
         return 0
     else
@@ -166,12 +167,16 @@ test_ami_warning_exists() {
 test_help_includes_ami() {
     print_test "Verifying health-check.sh help includes check-ami command"
     
+    # Run with no args to trigger help/usage output and check for check-ami in usage section
     HELP_OUTPUT=$("$REPO_ROOT/scripts/health-check.sh" 2>&1 || true)
-    if echo "$HELP_OUTPUT" | grep -q "check-ami"; then
-        print_pass "Help output includes check-ami command"
+    if echo "$HELP_OUTPUT" | grep -q "check-ami.*Check AMI"; then
+        print_pass "Help output includes check-ami command with description"
+        return 0
+    elif echo "$HELP_OUTPUT" | grep "^Usage:" | grep -q "check-ami"; then
+        print_pass "Help output includes check-ami in Usage line"
         return 0
     else
-        print_fail "Help output does not include check-ami command"
+        print_fail "Help output does not include check-ami command properly"
         return 1
     fi
 }
@@ -180,7 +185,8 @@ test_help_includes_ami() {
 test_ami_config_references_manager_conf() {
     print_test "Verifying fix_ami_configuration references manager.conf"
     
-    if grep -A 50 "^fix_ami_configuration()" "$REPO_ROOT/scripts/health-check.sh" | grep -q "manager.conf"; then
+    # Extract the fix_ami_configuration function and check for manager.conf reference
+    if sed -n '/^fix_ami_configuration()/,/^[a-z_]*().*{/p' "$REPO_ROOT/scripts/health-check.sh" | grep -q "manager.conf"; then
         print_pass "fix_ami_configuration references manager.conf"
         return 0
     else
