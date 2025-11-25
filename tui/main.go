@@ -1139,21 +1139,76 @@ func (m model) renderStatus() string {
 		content += errorStyle.Render("❌ Database: Disconnected") + "\n"
 	}
 
-	// Get statistics
+	// Check Asterisk service
+	am := NewAsteriskManager()
+	asteriskStatus, _ := am.GetServiceStatus()
+	if asteriskStatus == "running" {
+		content += successStyle.Render("✅ Asterisk: Running") + "\n"
+	} else {
+		content += errorStyle.Render("❌ Asterisk: Stopped") + "\n"
+	}
+
+	// Get database statistics
 	var extTotal, extActive, trunkTotal, trunkActive int
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions").Scan(&extTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions WHERE enabled = 1").Scan(&extActive)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks").Scan(&trunkTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks WHERE enabled = 1").Scan(&trunkActive)
 
+	// Get Asterisk live endpoints
+	var asteriskEndpoints int
+	var registeredEndpoints int
+	asteriskEndpointsList, err := am.ListAllEndpoints()
+	if err == nil {
+		// Filter to only count numeric extensions (not trunks)
+		for _, ep := range asteriskEndpointsList {
+			if matched, _ := regexp.MatchString(`^\d+$`, ep); matched {
+				asteriskEndpoints++
+			}
+		}
+	}
+
+	// Get registered extensions from Asterisk
+	if m.extensionSyncManager != nil {
+		liveStatus, _ := m.extensionSyncManager.GetLiveAsteriskEndpoints()
+		for _, registered := range liveStatus {
+			if registered {
+				registeredEndpoints++
+			}
+		}
+	}
+
 	content += "\n📈 Statistics:\n"
-	content += fmt.Sprintf("  📱 Extensions: %s active / %d total\n",
+	
+	// Extensions - show both DB and Asterisk
+	content += "  📱 Extensions:\n"
+	content += fmt.Sprintf("     Database: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", extActive)), extTotal)
+	if asteriskStatus == "running" {
+		content += fmt.Sprintf("     Asterisk: %s configured, %s registered\n",
+			successStyle.Render(fmt.Sprintf("%d", asteriskEndpoints)),
+			successStyle.Render(fmt.Sprintf("%d", registeredEndpoints)))
+		
+		// Show sync status
+		if m.extensionSyncManager != nil {
+			total, matched, dbOnly, astOnly, mismatched, _ := m.extensionSyncManager.GetSyncSummary()
+			if total > 0 {
+				if dbOnly > 0 || astOnly > 0 || mismatched > 0 {
+					content += errorStyle.Render(fmt.Sprintf("     ⚠️  Sync Issues: %d DB-only, %d Asterisk-only, %d mismatched\n", dbOnly, astOnly, mismatched))
+				} else {
+					content += successStyle.Render(fmt.Sprintf("     ✅ Synced: %d extensions in sync\n", matched))
+				}
+			}
+		}
+	} else {
+		content += helpStyle.Render("     Asterisk: Not running\n")
+	}
+	
 	content += fmt.Sprintf("  🔗 Trunks: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", trunkActive)), trunkTotal)
 	content += "  📞 Active Calls: 0\n"
 
-	content += "\n" + helpStyle.Render("🔄 Status updates in real-time")
+	content += "\n" + helpStyle.Render("🔄 Status updates in real-time • Press 'S' in Extensions to sync")
 
 	return menuStyle.Render(content)
 }
