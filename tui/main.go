@@ -2259,6 +2259,7 @@ func (m model) renderSipHelp() string {
 	content += infoStyle.Render("⚙️ Required Configuration:") + "\n"
 	content += "  • Username: (extension number)\n"
 	content += "  • Password: (your configured secret)\n"
+	// Use first IP as SIP server address - GetLocalIPAddresses already filters out loopback (127.x.x.x)
 	if len(ips) > 0 {
 		content += fmt.Sprintf("  • SIP Server: %s\n", successStyle.Render(ips[0]))
 	} else {
@@ -2952,12 +2953,14 @@ func (m model) renderDocView() string {
 	// Display the content with some basic formatting
 	docContent := m.currentDocContent
 	
+	// Maximum lines to display in terminal view to avoid scrolling issues
+	const maxDocDisplayLines = 40
+	
 	// Limit the display height to avoid overwhelming the terminal
 	lines := strings.Split(docContent, "\n")
-	maxLines := 40
-	if len(lines) > maxLines {
-		docContent = strings.Join(lines[:maxLines], "\n")
-		docContent += fmt.Sprintf("\n\n... (%d more lines)", len(lines)-maxLines)
+	if len(lines) > maxDocDisplayLines {
+		docContent = strings.Join(lines[:maxDocDisplayLines], "\n")
+		docContent += fmt.Sprintf("\n\n... (%d more lines)", len(lines)-maxDocDisplayLines)
 	}
 	
 	content += docContent

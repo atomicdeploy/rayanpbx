@@ -518,6 +518,7 @@ func (dm *DiagnosticsManager) GetEnabledCodecs() ([]string, error) {
 				parts := strings.Fields(line)
 				if len(parts) >= 2 {
 					codec := strings.ToLower(parts[0])
+					// Filter out header lines and limit codec name to reasonable length (max 10 chars for typical codec names like ulaw, alaw, g722, opus)
 					if codec != "codec" && codec != "----" && len(codec) > 0 && len(codec) < 10 {
 						codecs[codec] = true
 					}
@@ -541,7 +542,7 @@ func (dm *DiagnosticsManager) GetEnabledCodecs() ([]string, error) {
 // GetCodecDescription returns a description for a codec
 func GetCodecDescription(codec string) string {
 	descriptions := map[string]string{
-		"ulaw":  "G.711μ - Standard US codec, 64kbps, 8kHz",
+		"ulaw":  "G.711u - Standard US codec, 64kbps, 8kHz",
 		"alaw":  "G.711a - Standard EU codec, 64kbps, 8kHz",
 		"g722":  "G.722 - HD audio codec, 64kbps, 16kHz",
 		"g729":  "G.729 - Low bandwidth codec, 8kbps (licensed)",
