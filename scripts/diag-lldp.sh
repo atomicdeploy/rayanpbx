@@ -135,44 +135,102 @@ check_network_interfaces() {
 }
 
 show_lldp_neighbors() {
-    echo -e "\n${BLUE}[4/5] Discovering LLDP neighbors...${NC}"
+    echo -e "\n${BLUE}[4/6] Discovering LLDP neighbors...${NC}"
     
-    # Try lldpcli show neighbors (human-readable format)
-    if command -v lldpcli &> /dev/null; then
+    # Try all lldpctl formats (json0 gives the most data)
+    if command -v lldpctl &> /dev/null; then
         echo ""
-        echo "Using: lldpcli show neighbors"
+        echo "Testing all LLDP formats:"
+        echo "========================="
+        
+        # json0 format (most verbose, easiest to parse)
+        echo ""
+        echo "Format: json0 (recommended for parsing)"
         echo "----------------------------------------"
-        
-        OUTPUT=$(lldpcli show neighbors 2>&1 || true)
-        
-        if echo "$OUTPUT" | grep -q "Interface:"; then
-            echo "$OUTPUT"
-            echo ""
-            
-            # Count neighbors
-            NEIGHBOR_COUNT=$(echo "$OUTPUT" | grep -c "Interface:" || echo "0")
-            print_success "Found $NEIGHBOR_COUNT LLDP neighbor(s)"
-            
-            # Extract VoIP phones
-            echo ""
-            echo "VoIP Phones detected:"
-            echo "$OUTPUT" | grep -E "(GXP|GRP|GXV|Yealink|Polycom|Cisco|Snom|Panasonic|Fanvil)" || echo "  (none detected by model name)"
+        OUTPUT=$(lldpctl -f json0 2>&1 || true)
+        if echo "$OUTPUT" | grep -q '"interface"'; then
+            NEIGHBOR_COUNT=$(echo "$OUTPUT" | grep -o '"name":' | wc -l || echo "0")
+            print_success "json0 format: Found $NEIGHBOR_COUNT interface(s)"
+            if $VERBOSE; then
+                echo "$OUTPUT" | head -100
+                echo "... (truncated)"
+            fi
         else
-            print_warning "No LLDP neighbors found"
-            echo ""
-            echo "  Possible reasons:"
-            echo "    - No LLDP-capable devices connected"
-            echo "    - VoIP phones may need time to send LLDP frames"
-            echo "    - LLDP might be disabled on network devices"
+            print_warning "json0 format: No data or error"
         fi
-    fi
-    
-    # Also try lldpctl -f keyvalue for parsing test
-    if command -v lldpctl &> /dev/null && $VERBOSE; then
+        
+        # plain format (human-readable, default)
         echo ""
-        echo "Keyvalue format (for parsing):"
+        echo "Format: plain (human-readable, default)"
         echo "----------------------------------------"
-        lldpctl -f keyvalue 2>&1 | head -50 || echo "(empty or error)"
+        OUTPUT=$(lldpctl -f plain 2>&1 || true)
+        if echo "$OUTPUT" | grep -q "Interface:"; then
+            NEIGHBOR_COUNT=$(echo "$OUTPUT" | grep -c "Interface:" || echo "0")
+            print_success "plain format: Found $NEIGHBOR_COUNT neighbor(s)"
+            if $VERBOSE; then
+                echo "$OUTPUT"
+            fi
+        else
+            print_warning "plain format: No neighbors found"
+        fi
+        
+        # json format
+        echo ""
+        echo "Format: json"
+        echo "----------------------------------------"
+        OUTPUT=$(lldpctl -f json 2>&1 || true)
+        if echo "$OUTPUT" | grep -q '"interface"'; then
+            print_success "json format: Data available"
+            if $VERBOSE; then
+                echo "$OUTPUT" | head -50
+                echo "... (truncated)"
+            fi
+        else
+            print_warning "json format: No data or error"
+        fi
+        
+        # keyvalue format
+        echo ""
+        echo "Format: keyvalue"
+        echo "----------------------------------------"
+        OUTPUT=$(lldpctl -f keyvalue 2>&1 || true)
+        if echo "$OUTPUT" | grep -q "lldp\."; then
+            LINES=$(echo "$OUTPUT" | wc -l)
+            print_success "keyvalue format: $LINES lines of data"
+            if $VERBOSE; then
+                echo "$OUTPUT" | head -30
+                echo "... (truncated)"
+            fi
+        else
+            print_warning "keyvalue format: No data or error"
+        fi
+        
+        # VoIP Phone detection summary
+        echo ""
+        echo "VoIP Phones detected (from json0):"
+        echo "----------------------------------------"
+        OUTPUT=$(lldpctl -f json0 2>&1 || true)
+        echo "$OUTPUT" | grep -oE '"manufacturer".*?}' | head -10 || echo "  (checking for Grandstream...)"
+        echo "$OUTPUT" | grep -oE '"model".*?}' | head -10 || echo "  (checking for models...)"
+    fi
+}
+
+show_all_formats() {
+    echo -e "\n${BLUE}[5/6] Exporting all LLDP formats...${NC}"
+    
+    if command -v lldpctl &> /dev/null; then
+        EXPORT_DIR="/tmp/lldp-export-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$EXPORT_DIR"
+        
+        echo "Exporting to: $EXPORT_DIR"
+        
+        lldpctl -f json0 > "$EXPORT_DIR/json0.txt" 2>/dev/null || true
+        lldpctl -f json > "$EXPORT_DIR/json.txt" 2>/dev/null || true
+        lldpctl -f plain > "$EXPORT_DIR/plain.txt" 2>/dev/null || true
+        lldpctl -f keyvalue > "$EXPORT_DIR/keyvalue.txt" 2>/dev/null || true
+        
+        print_success "Exported all formats to $EXPORT_DIR"
+        ls -la "$EXPORT_DIR"
     fi
 }
 

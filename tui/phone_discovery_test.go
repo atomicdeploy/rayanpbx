@@ -570,3 +570,178 @@ func TestDetectVendorFromMAC(t *testing.T) {
 	}
 }
 
+func TestParseLLDPCtlJson0(t *testing.T) {
+	am := &AsteriskManager{}
+	pm := NewPhoneManager(am)
+	pd := NewPhoneDiscovery(pm)
+
+	// Sample lldpctl -f json0 output
+	output := `{
+  "lldp": [
+    {
+      "interface": [
+        {
+          "name": "eno1",
+          "via": "LLDP",
+          "rid": "1",
+          "age": "0 day, 22:05:38",
+          "chassis": [
+            {
+              "id": [
+                {
+                  "type": "ip",
+                  "value": "172.20.6.150"
+                }
+              ],
+              "name": [
+                {
+                  "value": "GXP1630_ec:74:d7:2f:7e:a2"
+                }
+              ],
+              "descr": [
+                {
+                  "value": "GXP1630 1.0.7.64"
+                }
+              ],
+              "capability": [
+                {
+                  "type": "Bridge",
+                  "enabled": true
+                },
+                {
+                  "type": "Tel",
+                  "enabled": true
+                }
+              ]
+            }
+          ],
+          "port": [
+            {
+              "id": [
+                {
+                  "type": "mac",
+                  "value": "ec:74:d7:2f:7e:a2"
+                }
+              ],
+              "descr": [
+                {
+                  "value": "eth0"
+                }
+              ]
+            }
+          ],
+          "lldp-med": [
+            {
+              "inventory": [
+                {
+                  "manufacturer": [
+                    {
+                      "value": "Grandstream Networks, Inc."
+                    }
+                  ],
+                  "model": [
+                    {
+                      "value": "GXP1630"
+                    }
+                  ],
+                  "serial": [
+                    {
+                      "value": "ec:74:d7:2f:7e:a2"
+                    }
+                  ],
+                  "software": [
+                    {
+                      "value": "1.0.7.64"
+                    }
+                  ],
+                  "firmware": [
+                    {
+                      "value": "1.0.7.64"
+                    }
+                  ],
+                  "hardware": [
+                    {
+                      "value": "V2.0A"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}`
+
+	phones, err := pd.parseLLDPCtlJson0(output)
+	if err != nil {
+		t.Errorf("parseLLDPCtlJson0() error = %v", err)
+	}
+
+	if len(phones) != 1 {
+		t.Errorf("parseLLDPCtlJson0() found %d phones, want 1", len(phones))
+	}
+
+	if len(phones) >= 1 {
+		phone := phones[0]
+		if phone.IP != "172.20.6.150" {
+			t.Errorf("Phone IP = %v, want 172.20.6.150", phone.IP)
+		}
+		if phone.MAC != "ec:74:d7:2f:7e:a2" {
+			t.Errorf("Phone MAC = %v, want ec:74:d7:2f:7e:a2", phone.MAC)
+		}
+		if phone.Vendor != "Grandstream Networks, Inc." {
+			t.Errorf("Phone Vendor = %v, want Grandstream Networks, Inc.", phone.Vendor)
+		}
+		if phone.Model != "GXP1630" {
+			t.Errorf("Phone Model = %v, want GXP1630", phone.Model)
+		}
+		if phone.SoftwareVersion != "1.0.7.64" {
+			t.Errorf("Phone SoftwareVersion = %v, want 1.0.7.64", phone.SoftwareVersion)
+		}
+		if phone.HardwareVersion != "V2.0A" {
+			t.Errorf("Phone HardwareVersion = %v, want V2.0A", phone.HardwareVersion)
+		}
+	}
+}
+
+func TestMergePhonesByMAC(t *testing.T) {
+	am := &AsteriskManager{}
+	pm := NewPhoneManager(am)
+	pd := NewPhoneDiscovery(pm)
+
+	phones := []DiscoveredPhone{
+		{
+			MAC:    "ec:74:d7:2f:7e:a2",
+			IP:     "172.20.6.150",
+			Vendor: "GrandStream",
+		},
+		{
+			MAC:             "ec:74:d7:2f:7e:a2",
+			Model:           "GXP1630",
+			SoftwareVersion: "1.0.7.64",
+		},
+	}
+
+	merged := pd.mergePhonesByMAC(phones)
+	if len(merged) != 1 {
+		t.Errorf("mergePhonesByMAC() returned %d phones, want 1", len(merged))
+	}
+
+	if len(merged) >= 1 {
+		phone := merged[0]
+		if phone.IP != "172.20.6.150" {
+			t.Errorf("Merged phone IP = %v, want 172.20.6.150", phone.IP)
+		}
+		if phone.Model != "GXP1630" {
+			t.Errorf("Merged phone Model = %v, want GXP1630", phone.Model)
+		}
+		if phone.Vendor != "GrandStream" {
+			t.Errorf("Merged phone Vendor = %v, want GrandStream", phone.Vendor)
+		}
+		if phone.SoftwareVersion != "1.0.7.64" {
+			t.Errorf("Merged phone SoftwareVersion = %v, want 1.0.7.64", phone.SoftwareVersion)
+		}
+	}
+}

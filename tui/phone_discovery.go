@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os/exec"
@@ -37,17 +38,21 @@ var (
 
 // DiscoveredPhone represents a phone discovered on the network
 type DiscoveredPhone struct {
-	IP            string    `json:"ip"`
-	MAC           string    `json:"mac"`
-	Hostname      string    `json:"hostname"`
-	Vendor        string    `json:"vendor"`
-	Model         string    `json:"model"`
-	PortID        string    `json:"port_id"`
-	VLAN          int       `json:"vlan"`
-	Capabilities  []string  `json:"capabilities"`
-	DiscoveryType string    `json:"discovery_type"` // "lldp", "nmap", "http"
-	LastSeen      time.Time `json:"last_seen"`
-	Online        bool      `json:"online"`
+	IP              string    `json:"ip"`
+	MAC             string    `json:"mac"`
+	Hostname        string    `json:"hostname"`
+	Vendor          string    `json:"vendor"`
+	Model           string    `json:"model"`
+	PortID          string    `json:"port_id"`
+	VLAN            int       `json:"vlan"`
+	Capabilities    []string  `json:"capabilities"`
+	DiscoveryType   string    `json:"discovery_type"` // "lldp", "nmap", "http", "arp"
+	LastSeen        time.Time `json:"last_seen"`
+	Online          bool      `json:"online"`
+	Serial          string    `json:"serial,omitempty"`
+	SoftwareVersion string    `json:"software_version,omitempty"`
+	FirmwareVersion string    `json:"firmware_version,omitempty"`
+	HardwareVersion string    `json:"hardware_version,omitempty"`
 }
 
 // PhoneDiscovery handles discovery of VoIP phones on the network
@@ -122,24 +127,364 @@ func (pd *PhoneDiscovery) DiscoverPhones(network string) ([]DiscoveredPhone, err
 }
 
 // discoverViaLLDP discovers phones using LLDP protocol
+// Runs multiple lldpctl formats and merges results for maximum data
 func (pd *PhoneDiscovery) discoverViaLLDP() ([]DiscoveredPhone, error) {
-	// Try lldpcli show neighbors first (human-readable format)
-	output, err := exec.Command("lldpcli", "show", "neighbors").Output()
+	var allPhones []DiscoveredPhone
+
+	// Try json0 format first (most structured and verbose, easiest to parse)
+	output, err := exec.Command("lldpctl", "-f", "json0").Output()
 	if err == nil {
-		phones, parseErr := pd.parseLLDPCliShowNeighbors(string(output))
+		phones, parseErr := pd.parseLLDPCtlJson0(string(output))
 		if parseErr == nil && len(phones) > 0 {
-			return phones, nil
+			allPhones = append(allPhones, phones...)
 		}
 	}
 
-	// Fallback to lldpctl -f keyvalue format
+	// Try plain format (default, human-readable)
+	output, err = exec.Command("lldpctl", "-f", "plain").Output()
+	if err == nil {
+		phones, parseErr := pd.parseLLDPCliShowNeighbors(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	}
+
+	// Try json format as fallback
+	output, err = exec.Command("lldpctl", "-f", "json").Output()
+	if err == nil {
+		phones, parseErr := pd.parseLLDPCtlJson(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	}
+
+	// NOTE: lldpcli show neighbors is disabled by default
+	// It provides similar data to plain format but with different parsing
+	// Uncomment below if needed:
+	// output, err = exec.Command("lldpcli", "show", "neighbors").Output()
+	// if err == nil {
+	//     phones, parseErr := pd.parseLLDPCliShowNeighbors(string(output))
+	//     if parseErr == nil && len(phones) > 0 {
+	//         allPhones = append(allPhones, phones...)
+	//     }
+	// }
+
+	// Fallback to keyvalue format
 	output, err = exec.Command("lldpctl", "-f", "keyvalue").Output()
-	if err != nil {
-		// LLDP daemon not available, try tcpdump approach
+	if err == nil {
+		phones, parseErr := pd.parseLLDPCtlOutput(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	}
+
+	// If nothing worked, try tcpdump approach
+	if len(allPhones) == 0 {
 		return pd.captureLLDPPackets()
 	}
 
-	return pd.parseLLDPCtlOutput(string(output))
+	// Deduplicate and merge device data by MAC address
+	return pd.mergePhonesByMAC(allPhones), nil
+}
+
+// parseLLDPCtlJson0 parses lldpctl -f json0 output (most verbose JSON format)
+func (pd *PhoneDiscovery) parseLLDPCtlJson0(output string) ([]DiscoveredPhone, error) {
+	var phones []DiscoveredPhone
+
+	var data struct {
+		LLDP []struct {
+			Interface []struct {
+				Name    string `json:"name"`
+				Via     string `json:"via"`
+				Chassis []struct {
+					ID []struct {
+						Type  string `json:"type"`
+						Value string `json:"value"`
+					} `json:"id"`
+					Name []struct {
+						Value string `json:"value"`
+					} `json:"name"`
+					Descr []struct {
+						Value string `json:"value"`
+					} `json:"descr"`
+					Capability []struct {
+						Type    string `json:"type"`
+						Enabled bool   `json:"enabled"`
+					} `json:"capability"`
+				} `json:"chassis"`
+				Port []struct {
+					ID []struct {
+						Type  string `json:"type"`
+						Value string `json:"value"`
+					} `json:"id"`
+					Descr []struct {
+						Value string `json:"value"`
+					} `json:"descr"`
+				} `json:"port"`
+				LLDPMed []struct {
+					Inventory []struct {
+						Manufacturer []struct {
+							Value string `json:"value"`
+						} `json:"manufacturer"`
+						Model []struct {
+							Value string `json:"value"`
+						} `json:"model"`
+						Serial []struct {
+							Value string `json:"value"`
+						} `json:"serial"`
+						Software []struct {
+							Value string `json:"value"`
+						} `json:"software"`
+						Firmware []struct {
+							Value string `json:"value"`
+						} `json:"firmware"`
+						Hardware []struct {
+							Value string `json:"value"`
+						} `json:"hardware"`
+					} `json:"inventory"`
+				} `json:"lldp-med"`
+			} `json:"interface"`
+		} `json:"lldp"`
+	}
+
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return phones, err
+	}
+
+	for _, lldp := range data.LLDP {
+		for _, iface := range lldp.Interface {
+			phone := DiscoveredPhone{
+				DiscoveryType: "lldp",
+				LastSeen:      time.Now(),
+			}
+
+			// Parse chassis info
+			for _, chassis := range iface.Chassis {
+				for _, id := range chassis.ID {
+					if id.Type == "ip" {
+						phone.IP = id.Value
+					} else if id.Type == "mac" {
+						phone.MAC = id.Value
+					}
+				}
+				for _, name := range chassis.Name {
+					phone.Hostname = name.Value
+				}
+				for _, descr := range chassis.Descr {
+					phone.Vendor, phone.Model = pd.parseSystemDescription(descr.Value)
+				}
+				for _, cap := range chassis.Capability {
+					if cap.Enabled {
+						phone.Capabilities = append(phone.Capabilities, cap.Type)
+					}
+				}
+			}
+
+			// Parse port info
+			for _, port := range iface.Port {
+				for _, id := range port.ID {
+					if id.Type == "mac" && phone.MAC == "" {
+						phone.MAC = id.Value
+					}
+				}
+				for _, descr := range port.Descr {
+					phone.PortID = descr.Value
+				}
+			}
+
+			// Parse LLDP-MED inventory
+			for _, med := range iface.LLDPMed {
+				for _, inv := range med.Inventory {
+					for _, mfg := range inv.Manufacturer {
+						phone.Vendor = mfg.Value
+					}
+					for _, mdl := range inv.Model {
+						phone.Model = mdl.Value
+					}
+					for _, srl := range inv.Serial {
+						phone.Serial = srl.Value
+					}
+					for _, sw := range inv.Software {
+						phone.SoftwareVersion = sw.Value
+					}
+					for _, fw := range inv.Firmware {
+						phone.FirmwareVersion = fw.Value
+					}
+					for _, hw := range inv.Hardware {
+						phone.HardwareVersion = hw.Value
+					}
+				}
+			}
+
+			if pd.isVoIPPhone(&phone) && (phone.MAC != "" || phone.IP != "") {
+				phones = append(phones, phone)
+			}
+		}
+	}
+
+	return phones, nil
+}
+
+// parseLLDPCtlJson parses lldpctl -f json output
+func (pd *PhoneDiscovery) parseLLDPCtlJson(output string) ([]DiscoveredPhone, error) {
+	var phones []DiscoveredPhone
+
+	var data struct {
+		LLDP struct {
+			Interface []map[string]struct {
+				Via     string `json:"via"`
+				Chassis map[string]struct {
+					ID struct {
+						Type  string `json:"type"`
+						Value string `json:"value"`
+					} `json:"id"`
+					Descr      string `json:"descr"`
+					Capability []struct {
+						Type    string `json:"type"`
+						Enabled bool   `json:"enabled"`
+					} `json:"capability"`
+				} `json:"chassis"`
+				Port struct {
+					ID struct {
+						Type  string `json:"type"`
+						Value string `json:"value"`
+					} `json:"id"`
+					Descr string `json:"descr"`
+				} `json:"port"`
+				LLDPMed struct {
+					Inventory struct {
+						Manufacturer string `json:"manufacturer"`
+						Model        string `json:"model"`
+						Serial       string `json:"serial"`
+						Software     string `json:"software"`
+						Firmware     string `json:"firmware"`
+						Hardware     string `json:"hardware"`
+					} `json:"inventory"`
+				} `json:"lldp-med"`
+			} `json:"interface"`
+		} `json:"lldp"`
+	}
+
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return phones, err
+	}
+
+	for _, ifaceMap := range data.LLDP.Interface {
+		for ifaceName, iface := range ifaceMap {
+			phone := DiscoveredPhone{
+				DiscoveryType: "lldp",
+				LastSeen:      time.Now(),
+			}
+
+			// Parse chassis info
+			for chassisName, chassis := range iface.Chassis {
+				if chassis.ID.Type == "ip" {
+					phone.IP = chassis.ID.Value
+				} else if chassis.ID.Type == "mac" {
+					phone.MAC = chassis.ID.Value
+				}
+				phone.Hostname = chassisName
+				phone.Vendor, phone.Model = pd.parseSystemDescription(chassis.Descr)
+				for _, cap := range chassis.Capability {
+					if cap.Enabled {
+						phone.Capabilities = append(phone.Capabilities, cap.Type)
+					}
+				}
+			}
+
+			// Parse port info
+			if iface.Port.ID.Type == "mac" && phone.MAC == "" {
+				phone.MAC = iface.Port.ID.Value
+			}
+			phone.PortID = iface.Port.Descr
+
+			// Parse LLDP-MED inventory
+			if iface.LLDPMed.Inventory.Manufacturer != "" {
+				phone.Vendor = iface.LLDPMed.Inventory.Manufacturer
+			}
+			if iface.LLDPMed.Inventory.Model != "" {
+				phone.Model = iface.LLDPMed.Inventory.Model
+			}
+			phone.Serial = iface.LLDPMed.Inventory.Serial
+			phone.SoftwareVersion = iface.LLDPMed.Inventory.Software
+			phone.FirmwareVersion = iface.LLDPMed.Inventory.Firmware
+			phone.HardwareVersion = iface.LLDPMed.Inventory.Hardware
+
+			// Unused variable to avoid compilation error
+			_ = ifaceName
+
+			if pd.isVoIPPhone(&phone) && (phone.MAC != "" || phone.IP != "") {
+				phones = append(phones, phone)
+			}
+		}
+	}
+
+	return phones, nil
+}
+
+// mergePhonesByMAC merges phones by MAC address, combining data from multiple sources
+func (pd *PhoneDiscovery) mergePhonesByMAC(phones []DiscoveredPhone) []DiscoveredPhone {
+	merged := make(map[string]*DiscoveredPhone)
+
+	for _, phone := range phones {
+		key := phone.MAC
+		if key == "" {
+			key = phone.IP
+		}
+		if key == "" {
+			continue
+		}
+
+		if existing, ok := merged[key]; ok {
+			// Merge data, preferring non-empty values
+			if phone.IP != "" && existing.IP == "" {
+				existing.IP = phone.IP
+			}
+			if phone.Hostname != "" && existing.Hostname == "" {
+				existing.Hostname = phone.Hostname
+			}
+			if phone.Vendor != "" && existing.Vendor == "" {
+				existing.Vendor = phone.Vendor
+			}
+			if phone.Model != "" && existing.Model == "" {
+				existing.Model = phone.Model
+			}
+			if phone.PortID != "" && existing.PortID == "" {
+				existing.PortID = phone.PortID
+			}
+			if phone.Serial != "" && existing.Serial == "" {
+				existing.Serial = phone.Serial
+			}
+			if phone.SoftwareVersion != "" && existing.SoftwareVersion == "" {
+				existing.SoftwareVersion = phone.SoftwareVersion
+			}
+			if phone.FirmwareVersion != "" && existing.FirmwareVersion == "" {
+				existing.FirmwareVersion = phone.FirmwareVersion
+			}
+			if phone.HardwareVersion != "" && existing.HardwareVersion == "" {
+				existing.HardwareVersion = phone.HardwareVersion
+			}
+			// Merge capabilities
+			capMap := make(map[string]bool)
+			for _, cap := range existing.Capabilities {
+				capMap[cap] = true
+			}
+			for _, cap := range phone.Capabilities {
+				if !capMap[cap] {
+					existing.Capabilities = append(existing.Capabilities, cap)
+				}
+			}
+		} else {
+			phoneCopy := phone
+			merged[key] = &phoneCopy
+		}
+	}
+
+	result := make([]DiscoveredPhone, 0, len(merged))
+	for _, phone := range merged {
+		result = append(result, *phone)
+	}
+	return result
 }
 
 // parseLLDPCtlOutput parses lldpctl keyvalue output
