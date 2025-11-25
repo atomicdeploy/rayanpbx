@@ -74,3 +74,27 @@ func TestGetAsteriskErrorHelpGenericError(t *testing.T) {
 		t.Errorf("Expected help to contain 'systemctl status asterisk', got: %s", help)
 	}
 }
+
+// TestGetAsteriskErrorHelpExitCodePrecision tests that exit code matching is precise
+// This verifies that "exit status 1270" doesn't match "exit status 127" or "exit status 1"
+func TestGetAsteriskErrorHelpExitCodePrecision(t *testing.T) {
+	// "exit status 1270" should NOT match exit status 1 or 127
+	err := fmt.Errorf("exit status 1270")
+	help := getAsteriskErrorHelp(err)
+
+	// Should NOT contain the exit status 1 message
+	if strings.Contains(help, "Asterisk may not be running") {
+		t.Errorf("exit status 1270 should NOT match exit status 1 pattern")
+	}
+
+	// Should NOT contain the exit status 127 message
+	if strings.Contains(help, "command not found") {
+		t.Errorf("exit status 1270 should NOT match exit status 127 pattern")
+	}
+
+	// Should still contain troubleshooting tips
+	if !strings.Contains(help, "Troubleshooting:") {
+		t.Errorf("Expected help to contain 'Troubleshooting:', got: %s", help)
+	}
+}
+

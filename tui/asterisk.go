@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/fatih/color"
@@ -105,14 +106,19 @@ func getAsteriskErrorHelp(err error) string {
 
 	errStr := err.Error()
 
+	// Use word boundary regex patterns for precise exit code matching
+	exitCode127 := regexp.MustCompile(`\bexit status 127\b`)
+	exitCode126 := regexp.MustCompile(`\bexit status 126\b`)
+	exitCode1 := regexp.MustCompile(`\bexit status 1\b`)
+
 	// Check for specific exit codes (more specific checks first to avoid false matches)
-	if strings.Contains(errStr, "exit status 127") {
+	if exitCode127.MatchString(errStr) {
 		help.WriteString("  - 'asterisk' command not found. Is Asterisk installed?\n")
 		help.WriteString("  - Check if asterisk is in your PATH\n")
-	} else if strings.Contains(errStr, "exit status 126") {
+	} else if exitCode126.MatchString(errStr) {
 		help.WriteString("  - Permission denied to execute asterisk binary\n")
 		help.WriteString("  - Try running with sudo or check file permissions\n")
-	} else if strings.Contains(errStr, "exit status 1") {
+	} else if exitCode1.MatchString(errStr) {
 		help.WriteString("  - Asterisk may not be running. Check with: systemctl status asterisk\n")
 		help.WriteString("  - Invalid command syntax or Asterisk internal error\n")
 		help.WriteString("  - Permission denied to access Asterisk socket\n")
