@@ -2443,26 +2443,96 @@ func getSipTestScriptPath() string {
 	return "" // Not found
 }
 
-// checkToolInstalled checks if a tool is installed using type/which commands
-func checkToolInstalled(tool string) bool {
-	// Try 'type' first (more portable)
-	cmd := exec.Command("bash", "-c", fmt.Sprintf("type %s", tool))
-	if err := cmd.Run(); err == nil {
-		return true
+// isValidToolName checks if the tool name is in the allowed list
+func isValidToolName(tool string) bool {
+	for _, t := range sipTools {
+		if t == tool {
+			return true
+		}
 	}
-	// Fallback to 'which'
-	cmd = exec.Command("which", tool)
+	return false
+}
+
+// checkToolInstalled checks if a tool is installed using which command
+// Only checks tools that are in the predefined sipTools list for security
+func checkToolInstalled(tool string) bool {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return false
+	}
+	// Use 'which' directly with the tool as a separate argument (safe from injection)
+	cmd := exec.Command("which", tool)
 	return cmd.Run() == nil
 }
 
 // getToolPath returns the path of an installed tool, or empty string if not found
 func getToolPath(tool string) string {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return ""
+	}
 	cmd := exec.Command("which", tool)
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// isValidExtension validates an extension number (alphanumeric only)
+func isValidExtension(ext string) bool {
+	if ext == "" || len(ext) > 20 {
+		return false
+	}
+	for _, c := range ext {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidPassword validates a password (printable ASCII, no shell metacharacters)
+func isValidPassword(pass string) bool {
+	if pass == "" || len(pass) > 128 {
+		return false
+	}
+	// Reject shell metacharacters that could be used for injection
+	dangerousChars := "`$(){}[]|;<>&\\\"'"
+	for _, c := range pass {
+		if c < 32 || c > 126 { // Non-printable ASCII
+			return false
+		}
+		if strings.ContainsRune(dangerousChars, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidServer validates a server address (IP or hostname)
+func isValidServer(server string) bool {
+	if server == "" || len(server) > 255 {
+		return false
+	}
+	// Allow alphanumeric, dots, hyphens (for hostnames and IPs)
+	for _, c := range server {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// formatScriptNotFoundError generates an error message listing all script paths
+func formatScriptNotFoundError() string {
+	var paths strings.Builder
+	paths.WriteString("❌ SIP test suite script not found.\n\nLooking in:\n")
+	for _, path := range sipTestScriptPaths {
+		paths.WriteString(fmt.Sprintf("  • %s\n", path))
+	}
+	paths.WriteString("\nPlease ensure the script is installed in one of these locations.")
+	return paths.String()
 }
 
 // getSipToolsStatus returns a formatted status of all SIP testing tools
@@ -2747,14 +2817,24 @@ func (m *model) executeSipTestRegister() {
 		server = "127.0.0.1"
 	}
 
+	// Validate inputs to prevent command injection
+	if !isValidExtension(ext) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(pass) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
 	scriptPath := getSipTestScriptPath()
 	if scriptPath == "" {
 		m.errorMsg = "SIP test script not found"
-		m.sipTestOutput = "❌ SIP test suite script not found.\n\nLooking in:\n" +
-			"  • /opt/rayanpbx/scripts/sip-test-suite.sh\n" +
-			"  • ../scripts/sip-test-suite.sh\n" +
-			"  • ./scripts/sip-test-suite.sh\n\n" +
-			"Please ensure the script is installed in one of these locations."
+		m.sipTestOutput = formatScriptNotFoundError()
 		m.inputMode = false
 		return
 	}
@@ -2790,14 +2870,24 @@ func (m *model) executeSipTestCall() {
 		server = "127.0.0.1"
 	}
 
+	// Validate inputs to prevent command injection
+	if !isValidExtension(fromExt) || !isValidExtension(toExt) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(fromPass) || !isValidPassword(toPass) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
 	scriptPath := getSipTestScriptPath()
 	if scriptPath == "" {
 		m.errorMsg = "SIP test script not found"
-		m.sipTestOutput = "❌ SIP test suite script not found.\n\nLooking in:\n" +
-			"  • /opt/rayanpbx/scripts/sip-test-suite.sh\n" +
-			"  • ../scripts/sip-test-suite.sh\n" +
-			"  • ./scripts/sip-test-suite.sh\n\n" +
-			"Please ensure the script is installed in one of these locations."
+		m.sipTestOutput = formatScriptNotFoundError()
 		m.inputMode = false
 		return
 	}
@@ -2833,14 +2923,24 @@ func (m *model) executeSipTestFull() {
 		server = "127.0.0.1"
 	}
 
+	// Validate inputs to prevent command injection
+	if !isValidExtension(ext1) || !isValidExtension(ext2) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(pass1) || !isValidPassword(pass2) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
 	scriptPath := getSipTestScriptPath()
 	if scriptPath == "" {
 		m.errorMsg = "SIP test script not found"
-		m.sipTestOutput = "❌ SIP test suite script not found.\n\nLooking in:\n" +
-			"  • /opt/rayanpbx/scripts/sip-test-suite.sh\n" +
-			"  • ../scripts/sip-test-suite.sh\n" +
-			"  • ./scripts/sip-test-suite.sh\n\n" +
-			"Please ensure the script is installed in one of these locations."
+		m.sipTestOutput = formatScriptNotFoundError()
 		m.inputMode = false
 		return
 	}
