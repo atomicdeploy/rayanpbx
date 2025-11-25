@@ -384,6 +384,78 @@ print_cmd() {
     echo -e "${DIM}   $ $1${RESET}"
 }
 
+# URL encode a string for use in URLs
+# Uses Python if available for proper encoding, falls back to sed-based encoding
+url_encode() {
+    local string="$1"
+    
+    # Try Python first for proper encoding
+    if command -v python3 &> /dev/null; then
+        printf '%s' "$string" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote_plus(sys.stdin.read()))" 2>/dev/null
+        return
+    fi
+    
+    # Fallback to sed-based encoding (covers common characters)
+    printf '%s' "$string" | sed -e 's/%/%25/g' \
+        -e 's/ /%20/g' \
+        -e 's/!/%21/g' \
+        -e 's/"/%22/g' \
+        -e 's/#/%23/g' \
+        -e 's/\$/%24/g' \
+        -e 's/\&/%26/g' \
+        -e "s/'/%27/g" \
+        -e 's/(/%28/g' \
+        -e 's/)/%29/g' \
+        -e 's/\*/%2A/g' \
+        -e 's/+/%2B/g' \
+        -e 's/,/%2C/g' \
+        -e 's/:/%3A/g' \
+        -e 's/;/%3B/g' \
+        -e 's/</%3C/g' \
+        -e 's/=/%3D/g' \
+        -e 's/>/%3E/g' \
+        -e 's/?/%3F/g' \
+        -e 's/@/%40/g' \
+        -e 's/\[/%5B/g' \
+        -e 's/\\/%5C/g' \
+        -e 's/\]/%5D/g' \
+        -e 's/\^/%5E/g' \
+        -e 's/{/%7B/g' \
+        -e 's/|/%7C/g' \
+        -e 's/}/%7D/g' \
+        -e 's/~/%7E/g'
+}
+
+# Query Pollinations.AI for AI-powered solutions
+# Handles timeouts and error cases gracefully
+query_pollinations_ai() {
+    local query="$1"
+    local max_chars="${2:-800}"
+    
+    # URL encode the query
+    local encoded_query=$(url_encode "$query")
+    
+    # Fetch solution from Pollinations.AI with proper timeout and error handling
+    # --connect-timeout: max time for connection establishment
+    # --max-time: max total time for the entire operation
+    local response=""
+    response=$(curl -s --connect-timeout 10 --max-time 30 \
+        -H "User-Agent: RayanPBX-Installer" \
+        "https://text.pollinations.ai/${encoded_query}" 2>/dev/null)
+    
+    local curl_exit=$?
+    
+    # Check for curl errors
+    if [ $curl_exit -ne 0 ]; then
+        echo ""
+        return 1
+    fi
+    
+    # Truncate response to max_chars
+    echo "$response" | head -c "$max_chars"
+    return 0
+}
+
 handle_asterisk_error() {
     local error_msg="$1"
     local context="${2:-Asterisk operation}"
@@ -394,11 +466,8 @@ handle_asterisk_error() {
     echo -e "${CYAN}🔍 Checking for solutions...${RESET}"
     echo ""
     
-    # URL encode the error message using sed for special characters
-    local encoded_query=$(printf '%s' "$error_msg $context" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
-    
-    # Automatically fetch solution using GET request
-    local solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 500)
+    # Query Pollinations.AI for solution
+    local solution=$(query_pollinations_ai "$error_msg $context" 500)
     
     if [ -n "$solution" ]; then
         echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
@@ -550,22 +619,41 @@ perform_ami_diagnostic_checks() {
         
         # Test AMI connection with netcat if available
         if command -v nc &> /dev/null; then
-            local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$ami_host" "$ami_port" 2>/dev/null | head -10)
+            # Use a temporary file for AMI credentials to avoid exposure in process list
+            local ami_temp_file=""
+            old_umask=$(umask)
+            umask 077
+            ami_temp_file=$(mktemp -t rayanpbx-ami.XXXXXX 2>/dev/null)
+            umask "$old_umask"
             
-            if echo "$ami_response" | grep -qi "Success"; then
-                print_success "AMI connection and authentication successful!"
-                check_results="${check_results}✓ AMI authentication successful\n"
-            elif echo "$ami_response" | grep -qi "Authentication failed"; then
-                print_error "AMI authentication failed - wrong credentials"
-                issues_found+=("AMI authentication failed - check username/secret in manager.conf")
-                check_results="${check_results}✗ AMI authentication failed\n"
-            elif [ -n "$ami_response" ]; then
-                print_warning "AMI responded but with unexpected response"
-                check_results="${check_results}? AMI response unexpected\n"
+            if [ -n "$ami_temp_file" ] && [ -f "$ami_temp_file" ]; then
+                # Write AMI login command to temp file
+                printf "Action: Login\r\nUsername: %s\r\nSecret: %s\r\n\r\n" "$ami_username" "$ami_secret" > "$ami_temp_file"
+                
+                # Test AMI connection using temp file for credentials
+                local ami_response=$(timeout 5 cat "$ami_temp_file" | nc "$ami_host" "$ami_port" 2>/dev/null | head -10)
+                
+                # Clean up temp file immediately after use
+                rm -f "$ami_temp_file" 2>/dev/null
+                
+                if echo "$ami_response" | grep -qi "Success"; then
+                    print_success "AMI connection and authentication successful!"
+                    check_results="${check_results}✓ AMI authentication successful\n"
+                elif echo "$ami_response" | grep -qi "Authentication failed"; then
+                    print_error "AMI authentication failed - wrong credentials"
+                    issues_found+=("AMI authentication failed - check username/secret in manager.conf")
+                    check_results="${check_results}✗ AMI authentication failed\n"
+                elif [ -n "$ami_response" ]; then
+                    print_warning "AMI responded but with unexpected response"
+                    check_results="${check_results}? AMI response unexpected\n"
+                else
+                    print_error "AMI did not respond - connection timeout"
+                    issues_found+=("AMI connection timeout - service may not be responding")
+                    check_results="${check_results}✗ AMI connection timeout\n"
+                fi
             else
-                print_error "AMI did not respond - connection timeout"
-                issues_found+=("AMI connection timeout - service may not be responding")
-                check_results="${check_results}✗ AMI connection timeout\n"
+                print_warning "Could not create temp file for secure AMI test"
+                check_results="${check_results}? AMI test skipped (temp file error)\n"
             fi
         else
             print_info "netcat (nc) not available - skipping connection test"
@@ -601,11 +689,8 @@ perform_ami_diagnostic_checks() {
         echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
         echo ""
         
-        # URL encode the error message
-        local encoded_query=$(printf '%s' "Asterisk AMI $error_summary How to fix?" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
-        
-        # Fetch solution from Pollinations.AI
-        local ai_solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 800)
+        # Query Pollinations.AI using the helper function
+        local ai_solution=$(query_pollinations_ai "Asterisk AMI $error_summary How to fix?" 800)
         
         if [ -n "$ai_solution" ]; then
             echo -e "${GREEN}${BOLD}💡 AI-Suggested Solution:${RESET}"
@@ -2431,10 +2516,9 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
             error_summary="${error_summary}Recent errors: $(echo "$recent_errors" | head -3 | tr '\n' ' ')"
         fi
         
-        # Use Pollinations.AI to get solution
+        # Use Pollinations.AI to get solution using the helper function
         echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
-        local encoded_query=$(printf '%s' "$error_summary How to fix?" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
-        local ai_solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 600)
+        local ai_solution=$(query_pollinations_ai "$error_summary How to fix?" 600)
         
         if [ -n "$ai_solution" ]; then
             echo ""

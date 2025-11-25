@@ -281,8 +281,9 @@ test_perform_ami_diagnostic_checks_exists() {
 test_ami_checks_use_pollinations_ai() {
     print_test "Verifying automated AMI checks integrate with Pollinations.AI"
     
-    # Check that the perform_ami_diagnostic_checks function uses Pollinations.AI
-    if sed -n '/^perform_ami_diagnostic_checks()/,/^[a-z_]*().*{/p' "$REPO_ROOT/install.sh" | grep -q "text.pollinations.ai"; then
+    # Check that the perform_ami_diagnostic_checks function uses query_pollinations_ai helper
+    # This is more robust than checking for direct API URL as we use a helper function
+    if awk '/^perform_ami_diagnostic_checks\(\)/{found=1} found && /^[a-z_]+\(\).*{/ && !/^perform_ami_diagnostic_checks/{exit} found' "$REPO_ROOT/install.sh" | grep -q "query_pollinations_ai"; then
         print_pass "perform_ami_diagnostic_checks uses Pollinations.AI for solutions"
         return 0
     else
@@ -299,8 +300,10 @@ test_no_manual_check_instructions() {
     local occurrences=$(grep -c "Please check the following" "$REPO_ROOT/install.sh" 2>/dev/null || echo "0")
     
     if [ "$occurrences" -eq 1 ]; then
-        # Check that this single occurrence is in a comment
-        if grep "Please check the following" "$REPO_ROOT/install.sh" | grep -q "^#\|listed as"; then
+        # Check that this single occurrence is in a comment (starts with # or contains "listed as" which is our doc comment)
+        # Use a more robust pattern: line must start with # or have "listed as" (function doc comment)
+        local line_content=$(grep "Please check the following" "$REPO_ROOT/install.sh")
+        if echo "$line_content" | grep -qE '^\s*#.*Please check the following|listed as "Please check the following"'; then
             print_pass "Only one occurrence found (in comment explaining the automation)"
             return 0
         else
@@ -321,7 +324,8 @@ test_ami_diagnostic_runs_five_checks() {
     print_test "Verifying perform_ami_diagnostic_checks runs 5 automated checks"
     
     # Count "Check N/5:" patterns in the function
-    local check_count=$(sed -n '/^perform_ami_diagnostic_checks()/,/^[a-z_]*().*{/p' "$REPO_ROOT/install.sh" | grep -c "Check [0-9]/5:")
+    # Use awk to properly extract function body until next function definition
+    local check_count=$(awk '/^perform_ami_diagnostic_checks\(\)/{found=1} found && /^[a-z_]+\(\).*{/ && !/^perform_ami_diagnostic_checks/{exit} found' "$REPO_ROOT/install.sh" | grep -c "Check [0-9]/5:")
     
     if [ "$check_count" -eq 5 ]; then
         print_pass "perform_ami_diagnostic_checks runs 5 automated checks"
