@@ -6,6 +6,16 @@ use Exception;
 
 class AsteriskAdapter
 {
+    /**
+     * Timeout in seconds for AMI socket read/write operations
+     */
+    private const AMI_SOCKET_TIMEOUT = 5;
+
+    /**
+     * Maximum iterations for readResponse to prevent infinite loops
+     */
+    private const MAX_READ_ITERATIONS = 1000;
+
     private $amiHost;
 
     private $amiPort;
@@ -37,13 +47,13 @@ class AsteriskAdapter
     private function connectAMI()
     {
         try {
-            $socket = @fsockopen($this->amiHost, $this->amiPort, $errno, $errstr, 5);
+            $socket = @fsockopen($this->amiHost, $this->amiPort, $errno, $errstr, self::AMI_SOCKET_TIMEOUT);
             if (! $socket) {
                 throw new Exception("Cannot connect to AMI: $errstr ($errno)");
             }
 
-            // Set stream timeout for read/write operations (5 seconds)
-            stream_set_timeout($socket, 5);
+            // Set stream timeout for read/write operations
+            stream_set_timeout($socket, self::AMI_SOCKET_TIMEOUT);
 
             // Read welcome banner
             $this->readResponse($socket);
@@ -87,19 +97,13 @@ class AsteriskAdapter
     private function readResponse($socket)
     {
         $response = '';
-        $maxIterations = 1000; // Safety limit to prevent infinite loops
         $iterations = 0;
 
-        while (! feof($socket) && $iterations < $maxIterations) {
+        while (! feof($socket) && $iterations < self::MAX_READ_ITERATIONS) {
             $iterations++;
             $line = fgets($socket);
 
-            // Check if stream timed out
-            $info = stream_get_meta_data($socket);
-            if ($info['timed_out']) {
-                break;
-            }
-
+            // Check for read failure or timeout (fgets returns false on error/timeout)
             if ($line === false) {
                 break;
             }
