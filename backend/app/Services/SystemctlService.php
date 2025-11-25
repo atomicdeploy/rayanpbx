@@ -231,12 +231,49 @@ class SystemctlService
         $output = [];
         $returnCode = 0;
         
-        exec($escapedCommand, $output, $returnCode);
+        exec($escapedCommand . ' 2>&1', $output, $returnCode);
         
         if ($returnCode !== 0 && $returnCode !== 3) { // 3 = inactive service
-            throw new Exception("Command failed with code {$returnCode}: {$command}");
+            $outputStr = implode("\n", $output);
+            $errorDetails = $this->getErrorDetails($returnCode, $outputStr);
+            throw new Exception("Command failed with code {$returnCode}: {$command}\n{$errorDetails}");
         }
         
         return implode("\n", $output);
+    }
+
+    /**
+     * Get verbose error details based on exit code and output
+     */
+    private function getErrorDetails(int $exitCode, string $output): string
+    {
+        $details = [];
+
+        // Add output if available
+        if (!empty(trim($output))) {
+            $details[] = "Output: " . $output;
+        }
+
+        // Common exit code explanations
+        $exitCodeHelp = match ($exitCode) {
+            1 => "General error - The command may not exist, Asterisk may not be running, or permission was denied.",
+            2 => "Misuse of shell command - Invalid command syntax.",
+            126 => "Permission denied - Cannot execute the command. Try running with sudo.",
+            127 => "Command not found - The 'asterisk' binary may not be in PATH.",
+            130 => "Script terminated by Ctrl+C.",
+            default => null,
+        };
+
+        if ($exitCodeHelp) {
+            $details[] = "Possible cause: " . $exitCodeHelp;
+        }
+
+        // Add troubleshooting tips
+        $details[] = "Troubleshooting:";
+        $details[] = "  - Check if Asterisk is running: systemctl status asterisk";
+        $details[] = "  - Verify user has permission to run Asterisk CLI commands";
+        $details[] = "  - Check Asterisk logs: /var/log/asterisk/full";
+
+        return implode("\n", $details);
     }
 }

@@ -89,10 +89,44 @@ func (am *AsteriskManager) ExecuteCLICommand(command string) (string, error) {
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to execute command: %v", err)
+		return "", fmt.Errorf("command failed: asterisk -rx %q\nOutput: %s\n%s",
+			command,
+			strings.TrimSpace(string(output)),
+			getAsteriskErrorHelp(err))
 	}
 
 	return string(output), nil
+}
+
+// getAsteriskErrorHelp provides helpful troubleshooting info for Asterisk CLI errors
+func getAsteriskErrorHelp(err error) string {
+	var help strings.Builder
+	help.WriteString("Possible causes:\n")
+
+	errStr := err.Error()
+
+	// Check for specific exit codes (more specific checks first to avoid false matches)
+	if strings.Contains(errStr, "exit status 127") {
+		help.WriteString("  - 'asterisk' command not found. Is Asterisk installed?\n")
+		help.WriteString("  - Check if asterisk is in your PATH\n")
+	} else if strings.Contains(errStr, "exit status 126") {
+		help.WriteString("  - Permission denied to execute asterisk binary\n")
+		help.WriteString("  - Try running with sudo or check file permissions\n")
+	} else if strings.Contains(errStr, "exit status 1") {
+		help.WriteString("  - Asterisk may not be running. Check with: systemctl status asterisk\n")
+		help.WriteString("  - Invalid command syntax or Asterisk internal error\n")
+		help.WriteString("  - Permission denied to access Asterisk socket\n")
+	} else if strings.Contains(strings.ToLower(errStr), "permission denied") {
+		help.WriteString("  - Current user lacks permission to run Asterisk commands\n")
+		help.WriteString("  - Add user to 'asterisk' group or run as root\n")
+	}
+
+	help.WriteString("Troubleshooting:\n")
+	help.WriteString("  - Check Asterisk status: systemctl status asterisk\n")
+	help.WriteString("  - View Asterisk logs: tail -f /var/log/asterisk/full\n")
+	help.WriteString("  - Restart Asterisk: systemctl restart asterisk\n")
+
+	return help.String()
 }
 
 // ReloadPJSIP reloads PJSIP configuration
