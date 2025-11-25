@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,12 +14,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// EnvConfig represents a single environment variable
+// EnvConfig represents a single environment variable or section header
 type EnvConfig struct {
 	Key         string
 	Value       string
 	Description string
 	Sensitive   bool
+	IsSection   bool   // True if this is a section header (comment line)
+	SectionName string // Name of the section (for display)
 }
 
 // ConfigManager handles environment file operations
@@ -79,20 +80,49 @@ func (cm *ConfigManager) LoadConfigs() error {
 	cm.configs = []EnvConfig{}
 	scanner := bufio.NewScanner(file)
 	lastComment := ""
+	pendingSectionComment := ""
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		
-		// Skip empty lines
+		// Skip empty lines - they reset comments but also mark section boundaries
 		if line == "" {
+			// If we had a pending section comment, it was a standalone section header
+			if pendingSectionComment != "" {
+				cm.configs = append(cm.configs, EnvConfig{
+					IsSection:   true,
+					SectionName: pendingSectionComment,
+				})
+				pendingSectionComment = ""
+			}
 			lastComment = ""
 			continue
 		}
 		
-		// Collect comments
+		// Handle comments
 		if strings.HasPrefix(line, "#") {
-			lastComment = strings.TrimPrefix(line, "#")
-			lastComment = strings.TrimSpace(lastComment)
+			commentText := strings.TrimPrefix(line, "#")
+			commentText = strings.TrimSpace(commentText)
+			
+			// Check if this is a section header (single-line comment that looks like a title)
+			// Section headers are typically short, capitalized words or phrases
+			if isSectionHeader(commentText) {
+				// If we already had a pending section, save it
+				if pendingSectionComment != "" {
+					cm.configs = append(cm.configs, EnvConfig{
+						IsSection:   true,
+						SectionName: pendingSectionComment,
+					})
+				}
+				pendingSectionComment = commentText
+			} else {
+				// Regular comment - use as description for next variable
+				if lastComment != "" {
+					lastComment += " " + commentText
+				} else {
+					lastComment = commentText
+				}
+			}
 			continue
 		}
 		
@@ -109,11 +139,21 @@ func (cm *ConfigManager) LoadConfigs() error {
 				// Check if sensitive
 				sensitive := cm.isSensitive(key)
 				
+				// If there's a pending section comment, add it first
+				if pendingSectionComment != "" {
+					cm.configs = append(cm.configs, EnvConfig{
+						IsSection:   true,
+						SectionName: pendingSectionComment,
+					})
+					pendingSectionComment = ""
+				}
+				
 				config := EnvConfig{
 					Key:         key,
 					Value:       value,
 					Description: lastComment,
 					Sensitive:   sensitive,
+					IsSection:   false,
 				}
 				
 				cm.configs = append(cm.configs, config)
@@ -121,12 +161,90 @@ func (cm *ConfigManager) LoadConfigs() error {
 			}
 		}
 	}
+	
+	// Add any remaining pending section
+	if pendingSectionComment != "" {
+		cm.configs = append(cm.configs, EnvConfig{
+			IsSection:   true,
+			SectionName: pendingSectionComment,
+		})
+	}
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("error reading .env file: %w", err)
 	}
 
 	return nil
+}
+
+// isSectionHeader checks if a comment looks like a section header
+func isSectionHeader(comment string) bool {
+	// Section headers are typically:
+	// - Short (less than 50 chars)
+	// - Don't contain common description words
+	// - Often contain words like "Configuration", "Settings", etc.
+	if len(comment) > 50 {
+		return false
+	}
+	
+	// Empty comments are not section headers
+	if comment == "" {
+		return false
+	}
+	
+	// Check for common section header patterns
+	sectionPatterns := []string{
+		"Configuration",
+		"Config",
+		"Settings",
+		"Options",
+		"Logging",
+		"Security",
+		"Database",
+		"Redis",
+		"Cache",
+		"JWT",
+		"Session",
+		"Asterisk",
+		"SIP",
+		"Mail",
+		"CORS",
+		"API",
+		"Frontend",
+		"WebSocket",
+		"RayanPBX",
+		"Development",
+		"CLI/TUI",
+		"Nuxt",
+		"Pollination",
+	}
+	
+	for _, pattern := range sectionPatterns {
+		if strings.Contains(comment, pattern) {
+			return true
+		}
+	}
+	
+	// Check if it's a short capitalized phrase without special characters
+	// that looks like a header
+	if len(comment) < 30 && !strings.Contains(comment, ":") && 
+		!strings.Contains(comment, "=") && !strings.HasPrefix(comment, "Note") &&
+		!strings.HasPrefix(comment, "Example") && !strings.HasPrefix(comment, "Comma") &&
+		!strings.HasPrefix(comment, "Useful") {
+		// Count uppercase letters vs total
+		upperCount := 0
+		for _, c := range comment {
+			if c >= 'A' && c <= 'Z' {
+				upperCount++
+			}
+		}
+		// If first character is uppercase and it's a relatively short phrase
+		if len(comment) > 0 && comment[0] >= 'A' && comment[0] <= 'Z' && len(strings.Fields(comment)) <= 4 {
+			return true
+		}
+	}
+	
+	return false
 }
 
 // GetConfigs returns all loaded configurations
@@ -316,17 +434,14 @@ func reloadAllServices() string {
 }
 
 // Default visible rows for configuration table
-const defaultConfigVisibleRows = 15
+const defaultConfigVisibleRows = 12
 
 // initConfigManagement initializes the configuration management screen
 func initConfigManagement(m *model) {
 	configManager := NewConfigManager(m.verbose)
 	if err := configManager.LoadConfigs(); err == nil {
 		configs := configManager.GetConfigs()
-		// Sort configs alphabetically
-		sort.Slice(configs, func(i, j int) bool {
-			return configs[i].Key < configs[j].Key
-		})
+		// Don't sort - preserve original order with sections
 		m.configItems = configs
 	} else {
 		m.configItems = []EnvConfig{}
@@ -335,9 +450,10 @@ func initConfigManagement(m *model) {
 	m.configCursor = 0
 	m.configScrollOffset = 0
 	m.configSearchQuery = ""
-	// Set visible rows based on terminal height, accounting for header/footer
-	if m.height > 20 {
-		m.configVisibleRows = m.height - 18 // Leave room for title, header, footer, etc.
+	// Set visible rows based on terminal height, accounting for header/footer/menu
+	// Leave room for: title (2), stats (2), table header (2), menu options (5), help (2), messages (2)
+	if m.height > 25 {
+		m.configVisibleRows = m.height - 20
 	} else {
 		m.configVisibleRows = defaultConfigVisibleRows
 	}
@@ -352,9 +468,16 @@ func getFilteredConfigs(configs []EnvConfig, query string) []EnvConfig {
 	queryLower := strings.ToLower(query)
 	var filtered []EnvConfig
 	for _, config := range configs {
-		if strings.Contains(strings.ToLower(config.Key), queryLower) ||
-			strings.Contains(strings.ToLower(config.Value), queryLower) {
-			filtered = append(filtered, config)
+		// Include section headers if they match or if any of their children match
+		if config.IsSection {
+			if strings.Contains(strings.ToLower(config.SectionName), queryLower) {
+				filtered = append(filtered, config)
+			}
+		} else {
+			if strings.Contains(strings.ToLower(config.Key), queryLower) ||
+				strings.Contains(strings.ToLower(config.Value), queryLower) {
+				filtered = append(filtered, config)
+			}
 		}
 	}
 	return filtered
@@ -369,9 +492,10 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			initConfigManagement(&m)
 		}
 		
-		// Get filtered configs
+		// Get filtered configs - menu options are separate and always visible
 		filteredConfigs := getFilteredConfigs(m.configItems, m.configSearchQuery)
-		totalItems := len(filteredConfigs) + 3 // configs + 3 menu options (add, reload, back)
+		configCount := len(filteredConfigs)
+		totalItems := configCount + 3 // configs + 3 menu options (add, reload, back)
 		
 		switch msg.String() {
 		case "q", "esc":
@@ -384,8 +508,8 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.configCursor > 0 {
 				m.configCursor--
-				// Adjust scroll if cursor goes above visible area
-				if m.configCursor < m.configScrollOffset {
+				// Adjust scroll if cursor goes above visible area (only for config items)
+				if m.configCursor < configCount && m.configCursor < m.configScrollOffset {
 					m.configScrollOffset = m.configCursor
 				}
 			}
@@ -393,8 +517,8 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.configCursor < totalItems-1 {
 				m.configCursor++
-				// Adjust scroll if cursor goes below visible area
-				if m.configCursor >= m.configScrollOffset+m.configVisibleRows {
+				// Adjust scroll if cursor goes below visible area (only for config items)
+				if m.configCursor < configCount && m.configCursor >= m.configScrollOffset+m.configVisibleRows {
 					m.configScrollOffset = m.configCursor - m.configVisibleRows + 1
 				}
 			}
@@ -417,8 +541,8 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			if m.configCursor >= totalItems {
 				m.configCursor = totalItems - 1
 			}
-			// Adjust scroll
-			maxOffset := totalItems - m.configVisibleRows
+			// Adjust scroll - cap at max config items
+			maxOffset := configCount - m.configVisibleRows
 			if maxOffset < 0 {
 				maxOffset = 0
 			}
@@ -433,9 +557,10 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.configScrollOffset = 0
 			
 		case "end", "G":
-			// Go to bottom
+			// Go to bottom (to last menu item)
 			m.configCursor = totalItems - 1
-			maxOffset := totalItems - m.configVisibleRows
+			// Keep scroll at max config position
+			maxOffset := configCount - m.configVisibleRows
 			if maxOffset < 0 {
 				maxOffset = 0
 			}
@@ -456,9 +581,12 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			m.successMsg = "Configuration reloaded"
 			
 		case "enter":
-			configCount := len(filteredConfigs)
-			
 			if m.configCursor < configCount {
+				// Check if it's a section header (not editable)
+				if filteredConfigs[m.configCursor].IsSection {
+					// Skip - sections are not editable
+					return m, nil
+				}
 				// Edit config
 				m.currentScreen = configEditScreen
 				m.inputMode = true
@@ -488,8 +616,8 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		// Recalculate visible rows based on new terminal size
-		if m.height > 20 {
-			m.configVisibleRows = m.height - 18
+		if m.height > 25 {
+			m.configVisibleRows = m.height - 20
 		} else {
 			m.configVisibleRows = defaultConfigVisibleRows
 		}
@@ -536,24 +664,22 @@ func viewConfigManagement(m model) string {
 	s.WriteString("\n")
 	
 	// Show scroll position indicator
-	if totalItems > m.configVisibleRows {
+	if configCount > m.configVisibleRows {
 		percentage := 0
-		if totalItems > 1 {
-			percentage = (m.configCursor * 100) / (totalItems - 1)
+		if configCount > 1 {
+			percentage = (m.configCursor * 100) / (configCount - 1)
+			if percentage > 100 {
+				percentage = 100
+			}
 		}
 		s.WriteString(helpStyle.Render(fmt.Sprintf("[%d/%d] %d%%", m.configCursor+1, totalItems, percentage)))
 	}
 	s.WriteString("\n\n")
 	
-	// Table header
-	headerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7D56F4")).
-		Bold(true)
-	
-	// Calculate max key width for alignment
+	// Calculate max key width for alignment (only for non-section items)
 	maxKeyWidth := 30
 	for _, config := range filteredConfigs {
-		if len(config.Key) > maxKeyWidth {
+		if !config.IsSection && len(config.Key) > maxKeyWidth {
 			maxKeyWidth = len(config.Key)
 		}
 	}
@@ -561,12 +687,23 @@ func viewConfigManagement(m model) string {
 		maxKeyWidth = 40 // Cap at 40 chars
 	}
 	
+	// Table header styling
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7D56F4")).
+		Bold(true)
+	
+	// Section header styling
+	sectionStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFA500")).
+		Bold(true)
+	
+	// Table header
 	s.WriteString(headerStyle.Render(fmt.Sprintf("  %-*s │ %s", maxKeyWidth, "KEY", "VALUE")))
 	s.WriteString("\n")
-	s.WriteString(headerStyle.Render(strings.Repeat("─", maxKeyWidth+2) + "┼" + strings.Repeat("─", 40)))
+	s.WriteString(headerStyle.Render(fmt.Sprintf("─%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))))
 	s.WriteString("\n")
 	
-	// Calculate visible range
+	// Calculate visible range - only for config items, menu is always shown separately
 	visibleRows := m.configVisibleRows
 	if visibleRows <= 0 {
 		visibleRows = defaultConfigVisibleRows
@@ -574,20 +711,46 @@ func viewConfigManagement(m model) string {
 	
 	startIdx := m.configScrollOffset
 	endIdx := startIdx + visibleRows
-	if endIdx > totalItems {
-		endIdx = totalItems
+	if endIdx > configCount {
+		endIdx = configCount
 	}
 	
-	// Show scroll indicators
+	// Show scroll indicator at top (with proper alignment)
 	if startIdx > 0 {
-		s.WriteString(helpStyle.Render("  ▲ more above..."))
+		s.WriteString(helpStyle.Render(fmt.Sprintf("  %-*s │ ▲ more above...", maxKeyWidth, "")))
 		s.WriteString("\n")
 	}
 	
-	// Display configs within visible range
-	for i := startIdx; i < endIdx; i++ {
-		if i < configCount {
-			config := filteredConfigs[i]
+	// Display exactly visibleRows lines for configs
+	displayedRows := 0
+	for i := startIdx; i < configCount && displayedRows < visibleRows; i++ {
+		config := filteredConfigs[i]
+		
+		if config.IsSection {
+			// Section header - display as a separator row
+			sectionLine := fmt.Sprintf("─%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))
+			s.WriteString(headerStyle.Render(sectionLine))
+			s.WriteString("\n")
+			
+			// Section name row
+			cursor := " "
+			if m.configCursor == i {
+				cursor = "▶"
+			}
+			sectionName := config.SectionName
+			if len(sectionName) > maxKeyWidth-2 {
+				sectionName = sectionName[:maxKeyWidth-5] + "..."
+			}
+			
+			sectionRow := fmt.Sprintf("%s %-*s │ %s", cursor, maxKeyWidth, "# "+sectionName, "(section)")
+			if m.configCursor == i {
+				s.WriteString(selectedItemStyle.Render(sectionRow))
+			} else {
+				s.WriteString(sectionStyle.Render(sectionRow))
+			}
+			s.WriteString("\n")
+		} else {
+			// Regular config item
 			cursor := " "
 			if m.configCursor == i {
 				cursor = "▶"
@@ -624,41 +787,36 @@ func viewConfigManagement(m model) string {
 				s.WriteString(helpStyle.Render(fmt.Sprintf("  └─ %s", config.Description)))
 				s.WriteString("\n")
 			}
-		} else {
-			// Menu options (Add, Reload, Back)
-			menuIdx := i - configCount
-			menuOptions := []string{
-				"➕ Add New Configuration",
-				"🔄 Reload Services",
-				"🔙 Back to Main Menu",
-			}
-			
-			if menuIdx < len(menuOptions) {
-				cursor := " "
-				if m.configCursor == i {
-					cursor = "▶"
-				}
-				
-				// Add separator before first menu option if visible
-				isFirstMenuOption := menuIdx == 0
-				if isFirstMenuOption {
-					s.WriteString("\n")
-				}
-				
-				line := cursor + " " + menuOptions[menuIdx]
-				if m.configCursor == i {
-					s.WriteString(selectedItemStyle.Render(line))
-				} else {
-					s.WriteString(line)
-				}
-				s.WriteString("\n")
-			}
 		}
+		displayedRows++
 	}
 	
-	// Show scroll indicator at bottom
-	if endIdx < totalItems {
-		s.WriteString(helpStyle.Render("  ▼ more below..."))
+	// Show scroll indicator at bottom (with proper alignment)
+	if endIdx < configCount {
+		s.WriteString(helpStyle.Render(fmt.Sprintf("  %-*s │ ▼ more below...", maxKeyWidth, "")))
+		s.WriteString("\n")
+	}
+	
+	// Separator before menu
+	s.WriteString(headerStyle.Render(fmt.Sprintf("─%s─┴%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))))
+	s.WriteString("\n\n")
+	
+	// Menu options - always visible at the bottom
+	menuOptions := []string{
+		"➕ Add New Configuration",
+		"🔄 Reload Services",
+		"🔙 Back to Main Menu",
+	}
+	
+	for i, option := range menuOptions {
+		cursor := " "
+		itemIdx := configCount + i
+		if m.configCursor == itemIdx {
+			cursor = "▶"
+			s.WriteString(selectedItemStyle.Render(cursor + " " + option))
+		} else {
+			s.WriteString(cursor + " " + option)
+		}
 		s.WriteString("\n")
 	}
 	

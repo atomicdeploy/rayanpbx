@@ -26,9 +26,8 @@ func TestConfigManagerLoadConfigs(t *testing.T) {
 	tmpDir := t.TempDir()
 	envPath := filepath.Join(tmpDir, ".env")
 	
-	// Create a test .env file
-	testEnvContent := `# Test configuration
-APP_NAME=TestApp
+	// Create a test .env file without section headers
+	testEnvContent := `APP_NAME=TestApp
 APP_ENV=development
 DB_PASSWORD=secret123
 API_KEY=my-api-key
@@ -48,8 +47,15 @@ API_KEY=my-api-key
 	}
 	
 	configs := cm.GetConfigs()
-	if len(configs) != 4 {
-		t.Errorf("Expected 4 configs, got %d", len(configs))
+	// Count only non-section configs
+	configCount := 0
+	for _, c := range configs {
+		if !c.IsSection {
+			configCount++
+		}
+	}
+	if configCount != 4 {
+		t.Errorf("Expected 4 configs (non-section), got %d", configCount)
 	}
 	
 	// Check that sensitive keys are marked correctly
@@ -215,8 +221,9 @@ func TestConfigManagementScrolling(t *testing.T) {
 	configs := make([]EnvConfig, 50)
 	for i := 0; i < 50; i++ {
 		configs[i] = EnvConfig{
-			Key:   fmt.Sprintf("TEST_KEY_%d", i),
-			Value: "value",
+			Key:       fmt.Sprintf("TEST_KEY_%d", i),
+			Value:     "value",
+			IsSection: false,
 		}
 	}
 	
@@ -278,5 +285,102 @@ func TestDefaultConfigVisibleRows(t *testing.T) {
 	
 	if defaultConfigVisibleRows > 30 {
 		t.Errorf("Expected defaultConfigVisibleRows to be at most 30, got %d", defaultConfigVisibleRows)
+	}
+}
+
+// TestSectionHeaderParsing tests that section headers are parsed correctly from .env files
+func TestSectionHeaderParsing(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir := t.TempDir()
+	envPath := filepath.Join(tmpDir, ".env")
+	
+	// Create a test .env file with section headers
+	testEnvContent := `# Application
+APP_NAME=TestApp
+APP_ENV=development
+
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+`
+	if err := os.WriteFile(envPath, []byte(testEnvContent), 0644); err != nil {
+		t.Fatalf("Failed to create test .env file: %v", err)
+	}
+	
+	// Create a ConfigManager with custom path
+	cm := &ConfigManager{
+		envPath: envPath,
+		verbose: false,
+	}
+	
+	if err := cm.LoadConfigs(); err != nil {
+		t.Fatalf("Failed to load configs: %v", err)
+	}
+	
+	configs := cm.GetConfigs()
+	
+	// Count sections and configs
+	sectionCount := 0
+	configCount := 0
+	for _, c := range configs {
+		if c.IsSection {
+			sectionCount++
+		} else {
+			configCount++
+		}
+	}
+	
+	if sectionCount != 2 {
+		t.Errorf("Expected 2 section headers, got %d", sectionCount)
+	}
+	
+	if configCount != 4 {
+		t.Errorf("Expected 4 configs, got %d", configCount)
+	}
+	
+	// Verify section names
+	foundApplicationSection := false
+	foundDatabaseSection := false
+	for _, c := range configs {
+		if c.IsSection {
+			if c.SectionName == "Application" {
+				foundApplicationSection = true
+			}
+			if c.SectionName == "Database Configuration" {
+				foundDatabaseSection = true
+			}
+		}
+	}
+	
+	if !foundApplicationSection {
+		t.Error("Expected to find 'Application' section header")
+	}
+	if !foundDatabaseSection {
+		t.Error("Expected to find 'Database Configuration' section header")
+	}
+}
+
+// TestIsSectionHeader tests the section header detection function
+func TestIsSectionHeader(t *testing.T) {
+	testCases := []struct {
+		comment  string
+		expected bool
+	}{
+		{"Application", true},
+		{"Database Configuration", true},
+		{"API Configuration", true},
+		{"Redis", true},
+		{"JWT Authentication", true},
+		{"This is a long comment that describes something in detail", false},
+		{"Note: This is important", false},
+		{"Example: value=test", false},
+		{"", false},
+	}
+	
+	for _, tc := range testCases {
+		result := isSectionHeader(tc.comment)
+		if result != tc.expected {
+			t.Errorf("isSectionHeader(%q) = %v, expected %v", tc.comment, result, tc.expected)
+		}
 	}
 }
