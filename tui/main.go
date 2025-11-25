@@ -2291,7 +2291,8 @@ func (m *model) handleSipTestMenuSelection() {
 		cmd := exec.Command("bash", SipTestScriptPath, "tools")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			m.sipTestOutput = fmt.Sprintf("Error checking tools: %v", err)
+			details := ParseCommandError(err, output)
+			m.sipTestOutput = FormatVerboseError(details)
 		} else {
 			m.sipTestOutput = string(output)
 		}
@@ -2500,8 +2501,9 @@ func (m *model) executeSipTestRegister() {
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
-		m.sipTestOutput = string(output)
+		details := ParseCommandError(err, output)
+		m.errorMsg = fmt.Sprintf("Test failed: %s (exit code %d)", details.ErrorType, details.ExitCode)
+		m.sipTestOutput = FormatVerboseError(details)
 	} else {
 		m.successMsg = "Registration test completed"
 		m.sipTestOutput = string(output)
@@ -2530,8 +2532,9 @@ func (m *model) executeSipTestCall() {
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
-		m.sipTestOutput = string(output)
+		details := ParseCommandError(err, output)
+		m.errorMsg = fmt.Sprintf("Test failed: %s (exit code %d)", details.ErrorType, details.ExitCode)
+		m.sipTestOutput = FormatVerboseError(details)
 	} else {
 		m.successMsg = "Call test completed"
 		m.sipTestOutput = string(output)
@@ -2560,8 +2563,9 @@ func (m *model) executeSipTestFull() {
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
-		m.sipTestOutput = string(output)
+		details := ParseCommandError(err, output)
+		m.errorMsg = fmt.Sprintf("Test failed: %s (exit code %d)", details.ErrorType, details.ExitCode)
+		m.sipTestOutput = FormatVerboseError(details)
 	} else {
 		m.successMsg = "Full test suite completed"
 		m.sipTestOutput = string(output)
