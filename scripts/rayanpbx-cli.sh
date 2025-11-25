@@ -18,6 +18,11 @@ if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
     source "$SCRIPT_DIR/ini-helper.sh"
 fi
 
+# Source jq-wrapper for debugging jq errors
+if [ -f "$SCRIPT_DIR/jq-wrapper.sh" ]; then
+    source "$SCRIPT_DIR/jq-wrapper.sh"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -208,28 +213,153 @@ API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
 # For backward compatibility, maintain ENV_FILE variable pointing to primary config
 ENV_FILE="$RAYANPBX_ROOT/.env"
 
-# API call helper
+# Check if a string is valid JSON
+is_valid_json() {
+    local input="$1"
+    
+    if [ -z "$input" ]; then
+        return 1
+    fi
+    
+    # Use jq to validate JSON (but use the real jq, not the wrapper)
+    local jq_bin
+    jq_bin="$(type -P jq)" || return 1
+    
+    echo "$input" | "$jq_bin" . > /dev/null 2>&1
+    return $?
+}
+
+# API call helper with robust error handling
+# Returns JSON response on stdout
+# Sets global API_CALL_STATUS and API_CALL_ERROR
 api_call() {
     local method=$1
     local endpoint=$2
     local data=${3:-}
+    
+    # Reset global status variables
+    API_CALL_STATUS=0
+    API_CALL_ERROR=""
+    API_CALL_CONTENT_TYPE=""
     
     print_verbose "API Call: $method $API_BASE_URL/$endpoint"
     if [ -n "$data" ]; then
         print_verbose "Request body: $data"
     fi
     
-    local response
+    # Create temp file for response body
+    local tmp_body
+    tmp_body=$(mktemp) || { 
+        API_CALL_ERROR="Failed to create temp file"
+        API_CALL_STATUS=1
+        echo '{"error": "Internal error: failed to create temp file"}'
+        return 1
+    }
+    
+    # Make the request and capture status code and content type
+    local http_code content_type
     if [ -n "$data" ]; then
-        response=$(curl -s -X "$method" "$API_BASE_URL/$endpoint" \
+        http_code=$(curl -s -w '%{http_code}' -o "$tmp_body" \
+            -X "$method" "$API_BASE_URL/$endpoint" \
             -H "Content-Type: application/json" \
-            -d "$data")
+            -H "Accept: application/json" \
+            -d "$data" 2>/dev/null)
     else
-        response=$(curl -s -X "$method" "$API_BASE_URL/$endpoint")
+        http_code=$(curl -s -w '%{http_code}' -o "$tmp_body" \
+            -X "$method" "$API_BASE_URL/$endpoint" \
+            -H "Accept: application/json" 2>/dev/null)
     fi
     
+    local curl_exit=$?
+    
+    # Check if curl failed
+    if [ $curl_exit -ne 0 ]; then
+        rm -f "$tmp_body"
+        API_CALL_STATUS=$curl_exit
+        API_CALL_ERROR="Failed to connect to API (curl exit code: $curl_exit)"
+        print_verbose "API Error: $API_CALL_ERROR"
+        echo "{\"error\": \"$API_CALL_ERROR\", \"success\": false}"
+        return $curl_exit
+    fi
+    
+    # Read response body
+    local response
+    response=$(cat "$tmp_body" 2>/dev/null)
+    rm -f "$tmp_body"
+    
+    print_verbose "HTTP Status: $http_code"
     print_verbose "Response: $response"
+    
+    # Check HTTP status code
+    case "$http_code" in
+        2[0-9][0-9])
+            # Success status codes (200-299)
+            API_CALL_STATUS=0
+            ;;
+        000)
+            # Connection failed
+            API_CALL_STATUS=1
+            API_CALL_ERROR="Failed to connect to API server at $API_BASE_URL"
+            print_verbose "API Error: $API_CALL_ERROR"
+            echo "{\"error\": \"$API_CALL_ERROR\", \"success\": false}"
+            return 1
+            ;;
+        401)
+            API_CALL_STATUS=401
+            API_CALL_ERROR="Authentication required"
+            ;;
+        403)
+            API_CALL_STATUS=403
+            API_CALL_ERROR="Access forbidden"
+            ;;
+        404)
+            API_CALL_STATUS=404
+            API_CALL_ERROR="Endpoint not found: $endpoint"
+            ;;
+        422)
+            API_CALL_STATUS=422
+            API_CALL_ERROR="Validation error"
+            ;;
+        5[0-9][0-9])
+            API_CALL_STATUS=$http_code
+            API_CALL_ERROR="Server error (HTTP $http_code)"
+            ;;
+        *)
+            API_CALL_STATUS=$http_code
+            API_CALL_ERROR="Unexpected HTTP status: $http_code"
+            ;;
+    esac
+    
+    # Check if response is valid JSON
+    if ! is_valid_json "$response"; then
+        # Response is not JSON - wrap it in a JSON error object
+        print_verbose "Response is not valid JSON"
+        
+        # Check if it looks like HTML
+        if echo "$response" | grep -q "<!DOCTYPE\|<html\|<HTML"; then
+            API_CALL_ERROR="API returned HTML instead of JSON (HTTP $http_code). The API server may be misconfigured."
+            echo "{\"error\": \"$API_CALL_ERROR\", \"success\": false, \"http_code\": $http_code, \"raw_response_type\": \"html\"}"
+            return 1
+        fi
+        
+        # Non-JSON, non-HTML response
+        API_CALL_ERROR="API returned non-JSON response (HTTP $http_code)"
+        # Escape the response for JSON
+        local escaped_response
+        escaped_response=$(echo "$response" | head -c 500 | sed 's/\\/\\\\/g; s/"/\\"/g; s/\n/\\n/g; s/\r/\\r/g; s/\t/\\t/g')
+        echo "{\"error\": \"$API_CALL_ERROR\", \"success\": false, \"http_code\": $http_code, \"raw_response\": \"$escaped_response\"}"
+        return 1
+    fi
+    
+    # Return the JSON response
     echo "$response"
+    
+    # Return non-zero for error status codes
+    if [ "$API_CALL_STATUS" -ne 0 ]; then
+        return 1
+    fi
+    
+    return 0
 }
 
 # Extension commands
@@ -255,9 +385,16 @@ cmd_extension_list() {
 }
 
 cmd_extension_create() {
-    local number=$1
-    local name=$2
-    local password=$3
+    local number=${1:-}
+    local name=${2:-}
+    local password=${3:-}
+    
+    # Validate required parameters
+    if [ -z "$number" ] || [ -z "$name" ] || [ -z "$password" ]; then
+        print_error "All parameters required"
+        echo "Usage: rayanpbx-cli extension create <number> <name> <password>"
+        exit 2
+    fi
     
     print_info "Creating extension $number..."
     
@@ -274,25 +411,82 @@ EOF
     
     response=$(api_call POST "extensions" "$data")
     
-    if echo "$response" | grep -q "success\|created"; then
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to create extension: ${API_CALL_ERROR:-Unknown error}"
+        exit 1
+    fi
+    
+    if echo "$response" | grep -q '"success".*true\|"created"'; then
         print_success "Extension $number created successfully"
     else
-        print_error "Failed to create extension: $response"
+        # Try to extract error message from JSON
+        if command -v jq &> /dev/null && is_valid_json "$response"; then
+            local error_msg
+            error_msg=$(echo "$response" | jq -r '.error // .message // "Unknown error"' 2>/dev/null)
+            print_error "Failed to create extension: $error_msg"
+        else
+            print_error "Failed to create extension: $response"
+        fi
         exit 1
     fi
 }
 
 cmd_extension_status() {
-    local number=$1
+    local number=${1:-}
+    
+    # Check if extension number is provided
+    if [ -z "$number" ]; then
+        print_error "Extension number required"
+        echo "Usage: rayanpbx-cli extension status <number>"
+        exit 2
+    fi
     
     print_header "📊 Extension $number Status"
     
-    response=$(api_call GET "asterisk/endpoint/status?extension=$number")
+    # API endpoint expects POST with JSON body containing 'endpoint' field
+    local data
+    data=$(cat <<EOF
+{"endpoint": "$number"}
+EOF
+)
+    
+    response=$(api_call POST "asterisk/endpoint/status" "$data")
+    
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to get extension status: ${API_CALL_ERROR:-Unknown error}"
+        if [ -n "$response" ]; then
+            # Try to extract error message from JSON response
+            if command -v jq &> /dev/null && is_valid_json "$response"; then
+                local error_msg
+                error_msg=$(echo "$response" | jq -r '.error // .message // "Unknown error"' 2>/dev/null)
+                if [ -n "$error_msg" ] && [ "$error_msg" != "null" ]; then
+                    echo -e "  Details: $error_msg"
+                fi
+            fi
+        fi
+        exit 1
+    fi
     
     if command -v jq &> /dev/null; then
-        registered=$(echo "$response" | jq -r '.registered')
-        ip=$(echo "$response" | jq -r '.ip_address')
-        user_agent=$(echo "$response" | jq -r '.user_agent')
+        # Check if we got a valid response with endpoint data
+        local success
+        success=$(echo "$response" | jq -r '.success // false' 2>/dev/null)
+        
+        if [ "$success" != "true" ]; then
+            # Check for error in response
+            local error_msg
+            error_msg=$(echo "$response" | jq -r '.error // .message // "Unknown error"' 2>/dev/null)
+            print_error "API error: $error_msg"
+            exit 1
+        fi
+        
+        # Extract endpoint status from response
+        local registered ip user_agent
+        registered=$(echo "$response" | jq -r '.endpoint.registered // false' 2>/dev/null)
+        ip=$(echo "$response" | jq -r '.endpoint.ip_address // "N/A"' 2>/dev/null)
+        user_agent=$(echo "$response" | jq -r '.endpoint.user_agent // "N/A"' 2>/dev/null)
         
         if [ "$registered" == "true" ]; then
             print_success "Registered"
@@ -458,15 +652,27 @@ cmd_trunk_list() {
 }
 
 cmd_trunk_test() {
-    local name=$1
+    local name=${1:-}
+    
+    if [ -z "$name" ]; then
+        print_error "Trunk name required"
+        echo "Usage: rayanpbx-cli trunk test <name>"
+        exit 2
+    fi
     
     print_header "🔍 Testing Trunk: $name"
     
     response=$(api_call GET "validate/trunk/$name")
     
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to test trunk: ${API_CALL_ERROR:-Unknown error}"
+        exit 1
+    fi
+    
     if command -v jq &> /dev/null; then
-        reachable=$(echo "$response" | jq -r '.reachable')
-        latency=$(echo "$response" | jq -r '.latency_ms')
+        reachable=$(echo "$response" | jq -r '.reachable // false')
+        latency=$(echo "$response" | jq -r '.latency_ms // "N/A"')
         
         if [ "$reachable" == "true" ]; then
             print_success "Trunk is reachable"
@@ -505,7 +711,13 @@ cmd_asterisk_restart() {
 }
 
 cmd_asterisk_command() {
-    local command=$1
+    local command=${1:-}
+    
+    if [ -z "$command" ]; then
+        print_error "Asterisk CLI command required"
+        echo "Usage: rayanpbx-cli asterisk command <cli_command>"
+        exit 2
+    fi
     
     print_header "🖥️  Executing: $command"
     
@@ -514,7 +726,13 @@ cmd_asterisk_command() {
 
 # Diagnostics commands
 cmd_diag_test_extension() {
-    local number=$1
+    local number=${1:-}
+    
+    if [ -z "$number" ]; then
+        print_error "Extension number required"
+        echo "Usage: rayanpbx-cli diag test-extension <number>"
+        exit 2
+    fi
     
     print_header "🔍 Testing Extension: $number"
     
@@ -1319,18 +1537,18 @@ main() {
         extension)
             case "${2:-}" in
                 list) cmd_extension_list ;;
-                create) cmd_extension_create "$3" "$4" "$5" ;;
-                status) cmd_extension_status "$3" ;;
-                toggle) cmd_extension_toggle "$3" ;;
-                enable) cmd_extension_enable "$3" ;;
-                disable) cmd_extension_disable "$3" ;;
+                create) cmd_extension_create "${3:-}" "${4:-}" "${5:-}" ;;
+                status) cmd_extension_status "${3:-}" ;;
+                toggle) cmd_extension_toggle "${3:-}" ;;
+                enable) cmd_extension_enable "${3:-}" ;;
+                disable) cmd_extension_disable "${3:-}" ;;
                 *) echo "Unknown extension command: ${2:-}"; exit 2 ;;
             esac
             ;;
         trunk)
             case "${2:-}" in
                 list) cmd_trunk_list ;;
-                test) cmd_trunk_test "$3" ;;
+                test) cmd_trunk_test "${3:-}" ;;
                 *) echo "Unknown trunk command: ${2:-}"; exit 2 ;;
             esac
             ;;
@@ -1338,36 +1556,36 @@ main() {
             case "${2:-}" in
                 status) cmd_asterisk_status ;;
                 restart) cmd_asterisk_restart ;;
-                command) cmd_asterisk_command "$3" ;;
+                command) cmd_asterisk_command "${3:-}" ;;
                 *) echo "Unknown asterisk command: ${2:-}"; exit 2 ;;
             esac
             ;;
         diag)
             case "${2:-}" in
-                test-extension) cmd_diag_test_extension "$3" ;;
+                test-extension) cmd_diag_test_extension "${3:-}" ;;
                 health-check) cmd_diag_health_check ;;
-                check-sip) cmd_diag_check_sip "$3" "$4" ;;
+                check-sip) cmd_diag_check_sip "${3:-}" "${4:-}" ;;
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
             esac
             ;;
         sip-test)
             case "${2:-}" in
                 tools) cmd_sip_test_tools ;;
-                install) cmd_sip_test_install "$3" ;;
-                register) cmd_sip_test_register "$3" "$4" "$5" ;;
-                call) cmd_sip_test_call "$3" "$4" "$5" "$6" "$7" ;;
-                full) cmd_sip_test_full "$3" "$4" "$5" "$6" "$7" ;;
+                install) cmd_sip_test_install "${3:-}" ;;
+                register) cmd_sip_test_register "${3:-}" "${4:-}" "${5:-}" ;;
+                call) cmd_sip_test_call "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
+                full) cmd_sip_test_full "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
                 *) echo "Unknown sip-test command: ${2:-}"; exit 2 ;;
             esac
             ;;
         config)
             case "${2:-}" in
-                get) cmd_config_get "$3" ;;
-                set) cmd_config_set "$3" "$4" ;;
-                add) cmd_config_add "$3" "$4" ;;
-                remove) cmd_config_remove "$3" ;;
+                get) cmd_config_get "${3:-}" ;;
+                set) cmd_config_set "${3:-}" "${4:-}" ;;
+                add) cmd_config_add "${3:-}" "${4:-}" ;;
+                remove) cmd_config_remove "${3:-}" ;;
                 list) cmd_config_list ;;
-                reload) cmd_config_reload "$3" ;;
+                reload) cmd_config_reload "${3:-}" ;;
                 *) echo "Unknown config command: ${2:-}"; exit 2 ;;
             esac
             ;;
@@ -1375,7 +1593,7 @@ main() {
             case "${2:-}" in
                 update) cmd_system_update ;;
                 upgrade) shift; shift; cmd_system_upgrade "$@" ;;
-                set-mode) cmd_system_set_mode "$3" ;;
+                set-mode) cmd_system_set_mode "${3:-}" ;;
                 toggle-debug) cmd_system_toggle_debug ;;
                 *) echo "Unknown system command: ${2:-}"; exit 2 ;;
             esac
