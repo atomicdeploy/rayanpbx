@@ -740,17 +740,32 @@ EOF
     fi
     
     # Check if both UDP and TCP transport configurations already exist
-    local has_udp_transport=$(grep -q "\[transport-udp\]" "$pjsip_conf" && grep -q "protocol=udp" "$pjsip_conf" && echo "yes" || echo "no")
-    local has_tcp_transport=$(grep -q "\[transport-tcp\]" "$pjsip_conf" && grep -q "protocol=tcp" "$pjsip_conf" && echo "yes" || echo "no")
-    local has_port_5060=$(grep -q "bind=0.0.0.0:5060" "$pjsip_conf" && echo "yes" || echo "no")
+    # Use grep with context to check for proper configuration within transport sections
+    local has_udp_transport="no"
+    local has_tcp_transport="no"
     
-    if [ "$has_udp_transport" = "yes" ] && [ "$has_tcp_transport" = "yes" ] && [ "$has_port_5060" = "yes" ]; then
+    # Check for UDP transport section with proper configuration
+    if grep -A5 '^\[transport-udp\]' "$pjsip_conf" 2>/dev/null | grep -q 'protocol=udp' && \
+       grep -A5 '^\[transport-udp\]' "$pjsip_conf" 2>/dev/null | grep -q 'bind=0.0.0.0:5060'; then
+        has_udp_transport="yes"
+    fi
+    
+    # Check for TCP transport section with proper configuration
+    if grep -A5 '^\[transport-tcp\]' "$pjsip_conf" 2>/dev/null | grep -q 'protocol=tcp' && \
+       grep -A5 '^\[transport-tcp\]' "$pjsip_conf" 2>/dev/null | grep -q 'bind=0.0.0.0:5060'; then
+        has_tcp_transport="yes"
+    fi
+    
+    if [ "$has_udp_transport" = "yes" ] && [ "$has_tcp_transport" = "yes" ]; then
         print_success "PJSIP transport configuration already complete (UDP and TCP on port 5060)"
         return 0
     fi
     
     # Transport configuration is incomplete, need to add/update
     print_progress "Adding/updating PJSIP transport configuration..."
+    
+    # Backup original file before modification
+    cp "$pjsip_conf" "${pjsip_conf}.bak" 2>/dev/null || true
     
     # Remove any existing RayanPBX transport sections
     sed -i '/; BEGIN MANAGED - RayanPBX Transport/,/; END MANAGED - RayanPBX Transport/d' "$pjsip_conf" 2>/dev/null || true
@@ -777,14 +792,26 @@ allow_reload=yes
 
 EOF
     
-    # Prepend transport config to existing file
-    cat "$pjsip_conf" >> "$temp_file"
-    mv "$temp_file" "$pjsip_conf"
-    
-    chown asterisk:asterisk "$pjsip_conf" 2>/dev/null || true
-    chmod 640 "$pjsip_conf" 2>/dev/null || true
-    
-    print_success "PJSIP transport configuration added (UDP and TCP on port 5060)"
+    # Prepend transport config to existing file with error handling
+    if cat "$pjsip_conf" >> "$temp_file" 2>/dev/null; then
+        if mv "$temp_file" "$pjsip_conf" 2>/dev/null; then
+            chown asterisk:asterisk "$pjsip_conf" 2>/dev/null || true
+            chmod 640 "$pjsip_conf" 2>/dev/null || true
+            print_success "PJSIP transport configuration added (UDP and TCP on port 5060)"
+            # Remove backup on success
+            rm -f "${pjsip_conf}.bak" 2>/dev/null || true
+        else
+            print_error "Failed to update pjsip.conf, restoring backup..."
+            mv "${pjsip_conf}.bak" "$pjsip_conf" 2>/dev/null || true
+            rm -f "$temp_file" 2>/dev/null || true
+            return 1
+        fi
+    else
+        print_error "Failed to read pjsip.conf, restoring backup..."
+        mv "${pjsip_conf}.bak" "$pjsip_conf" 2>/dev/null || true
+        rm -f "$temp_file" 2>/dev/null || true
+        return 1
+    fi
     
     return 0
 }
