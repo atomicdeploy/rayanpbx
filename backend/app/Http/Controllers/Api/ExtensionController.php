@@ -251,12 +251,15 @@ class ExtensionController extends Controller
                 // Extension is being enabled - write PJSIP config
                 $config = $this->asterisk->generatePjsipEndpoint($extension);
                 $configWriteSuccess = $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+                if (!$configWriteSuccess) {
+                    $configError = 'Failed to write PJSIP configuration';
+                }
             } else {
                 // Extension is being disabled - remove PJSIP config
                 $configWriteSuccess = $this->asterisk->removePjsipConfig("Extension {$extension->extension_number}");
-            }
-            if (!$configWriteSuccess) {
-                $configError = 'Failed to write PJSIP configuration';
+                if (!$configWriteSuccess) {
+                    $configError = 'Failed to remove PJSIP configuration';
+                }
             }
             
             // Regenerate dialplan for all enabled extensions

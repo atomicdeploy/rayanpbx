@@ -1989,6 +1989,8 @@ func (m *model) regenerateDialplan() error {
 		if err := rows.Scan(&ext.ID, &ext.ExtensionNumber, &ext.Name, &ext.Secret, &ext.Email,
 			&ext.Enabled, &ext.Context, &ext.Transport, &ext.CallerID, &ext.MaxContacts, &ext.VoicemailEnabled,
 			&codecsJSON, &ext.DirectMedia, &ext.QualifyFrequency); err != nil {
+			// Log the error but continue processing other extensions
+			fmt.Printf("Warning: failed to scan extension row: %v\n", err)
 			continue
 		}
 		enabledExtensions = append(enabledExtensions, ext)
