@@ -1,457 +1,382 @@
-# RayanPBX Hello World Guide
+# RayanPBX Hello World Setup Guide
 
-> 🚀 Get your first phone call working in minutes with RayanPBX!
+> 🚀 Get your first phone call working in minutes with RayanPBX's automated Hello World Setup!
 
-This guide walks you through making your first "Hello World" phone call using RayanPBX, following the same concepts as [Asterisk's Hello World](https://docs.asterisk.org/Getting-Started/Hello-World/) but with our elegant TUI, Web UI, and CLI interfaces.
+This guide explains how RayanPBX automates the [Asterisk Hello World](https://docs.asterisk.org/Getting-Started/Hello-World/) setup, so you can make your first phone call with just a few clicks.
 
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Prerequisites](#prerequisites)
-3. [Quick Start Steps](#quick-start-steps)
-4. [Method 1: Web UI (Recommended)](#method-1-web-ui-recommended)
-5. [Method 2: TUI (Terminal UI)](#method-2-tui-terminal-ui)
-6. [Method 3: CLI (Command Line)](#method-3-cli-command-line)
-7. [Configure Your SIP Phone](#configure-your-sip-phone)
-8. [Make the Call](#make-the-call)
-9. [Troubleshooting](#troubleshooting)
+3. [Quick Start (TUI)](#quick-start-tui)
+4. [What Gets Configured](#what-gets-configured)
+5. [Configure Your SIP Phone](#configure-your-sip-phone)
+6. [Make the Call](#make-the-call)
+7. [Cleanup](#cleanup)
+8. [Troubleshooting](#troubleshooting)
+9. [Manual Configuration (Reference)](#manual-configuration-reference)
 
 ---
 
 ## Overview
 
-In this guide, you will:
+RayanPBX's Hello World Setup automatically configures:
 
-1. **Create a SIP extension** (equivalent to configuring PJSIP endpoint in Asterisk)
-2. **Set up a Hello World dialplan** (automatically handled by RayanPBX)
-3. **Register a SIP phone** (using software like Zoiper)
-4. **Dial extension 100** to hear the "hello-world" audio greeting
+1. **PJSIP Transport** - UDP transport on port 5060
+2. **Test Extension (101)** - A SIP endpoint for your phone to register
+3. **Hello World Dialplan** - Dial 100 to hear "Hello World!"
+4. **Asterisk Reload** - Automatically applies all changes
 
-RayanPBX automates the configuration of `pjsip.conf` and `extensions.conf` - you just use our intuitive interfaces!
+**No manual configuration required!**
 
 ---
 
 ## Prerequisites
 
-Before starting, ensure you have:
+Before running the Hello World Setup, ensure:
 
-- ✅ **RayanPBX installed** ([Installation Guide](README.md#-quick-start))
-- ✅ **Asterisk 22** running (included with RayanPBX installation)
-- ✅ **A SIP phone or softphone** (we recommend [Zoiper](https://www.zoiper.com/))
-- ✅ **Network access** to your RayanPBX server
+### Network Requirements
 
-### Verify Asterisk is Running
+- ✅ Your **SIP phone** is on the same LAN as the Asterisk server, OR you can install a softphone (MicroSIP recommended)
+- ✅ If using a hardware phone, both the phone and Asterisk can reach each other on the same subnet
+- ✅ Port **5060/UDP** is open on any firewall between the phone and server
 
-```bash
-# Check Asterisk service status
-systemctl status asterisk
+### Software Requirements
 
-# Or use RayanPBX CLI
-php artisan rayanpbx:status
-```
+- ✅ **RayanPBX installed** with Asterisk from source (`make samples` was run during installation)
+- ✅ **chan_pjsip** channel driver is available (included if you followed the [Installing pjproject](https://docs.asterisk.org/Getting-Started/Installing-Asterisk/Installing-Asterisk-From-Source/PJSIP-pjproject/) guide)
+- ✅ **Sound files** installed in `/var/lib/asterisk/sounds/en/`
 
----
+### Required Configuration Files
 
-## Quick Start Steps
+The installer should have created these files in `/etc/asterisk/`:
 
-Here's the quick overview - detailed instructions follow:
+- `asterisk.conf` - Main Asterisk configuration
+- `modules.conf` - Module loading configuration  
+- `extensions.conf` - Dialplan (modified by Hello World Setup)
+- `pjsip.conf` - SIP configuration (modified by Hello World Setup)
 
-| Step | Action | Interface |
-|------|--------|-----------|
-| 1 | Create extension `6001` | Web UI / TUI / CLI |
-| 2 | Create Hello World dialplan | Automatic |
-| 3 | Configure SIP phone with credentials | Your phone app |
-| 4 | Dial `100` | Your phone app |
-| 5 | Hear "Hello World!" | 🎉 |
+If these files don't exist, run `make samples` from the Asterisk source directory.
 
 ---
 
-## Method 1: Web UI (Recommended)
+## Quick Start (TUI)
 
-The easiest way to set up your Hello World is through the Web UI.
+The fastest way to set up Hello World:
 
-### Step 1: Access the Web Interface
+### Step 1: Launch RayanPBX TUI
 
-1. Open your browser and navigate to:
-   ```
-   http://your-server-ip:3000
-   ```
+```bash
+sudo rayanpbx-tui
+```
 
-2. Log in with your Linux username and password (PAM authentication)
+### Step 2: Run the Setup Wizard
 
-### Step 2: Create Your First Extension
+1. Select **🚀 Hello World Setup** (first menu item)
+2. Select **🚀 Run Complete Setup**
+3. Wait for the setup to complete
+4. Note the SIP credentials displayed:
+   - **Username**: `101`
+   - **Password**: `101pass`
+   - **Server**: Your server's IP address
+   - **Port**: `5060`
 
-1. Click on **Extensions** in the navigation menu
-2. Click the **Add Extension** button
-3. Fill in the form:
+### Step 3: Verify Status
 
-   | Field | Value | Description |
-   |-------|-------|-------------|
-   | **Extension Number** | `6001` | Your SIP username |
-   | **Name** | `Hello World Test` | Display name |
-   | **Password** | `unsecurepassword` | SIP authentication password |
-   | **Enabled** | ✓ Checked | Enable the extension |
+The status panel shows:
+- ✅ Transport: Configured
+- ✅ Extension 101: Configured
+- ✅ Dialplan (ext 100): Configured
+- ✅ Asterisk: Running
 
-4. (Optional) Click **Show Advanced** to configure:
-   - **Context**: `from-internal` (default, recommended)
-   - **Transport**: `transport-udp` (default)
-   - **Codecs**: `ulaw, alaw, g722` (default - includes HD audio)
-
-5. Click **Save**
-
-### Step 3: Create Hello World Dialplan
-
-RayanPBX needs a special dialplan entry for the Hello World test. We'll add it via the console.
-
-1. Click on **Console** in the navigation menu
-2. Run this command to add the Hello World dialplan:
-
-   ```
-   dialplan show from-internal
-   ```
-
-   This shows the current dialplan. RayanPBX automatically creates extension-to-extension dialing.
-
-3. For the classic "dial 100 to hear hello-world" experience, we'll use the Asterisk CLI:
-
-   ```bash
-   # Add hello-world dialplan (run in terminal)
-   sudo tee -a /etc/asterisk/extensions.conf << 'EOF'
-
-   ; Hello World Demo
-   [from-internal]
-   exten => 100,1,Answer()
-   same => n,Wait(1)
-   same => n,Playback(hello-world)
-   same => n,Hangup()
-   EOF
-
-   # Reload dialplan
-   asterisk -rx "dialplan reload"
-   ```
-
-### Step 4: Verify Extension Created
-
-1. Go back to **Extensions** page
-2. Your extension `6001` should appear with status:
-   - 🔴 **Offline** - Not yet registered (expected)
-   - ✅ **Enabled** - Ready for registration
+If any item shows ❌, run the setup again or check the troubleshooting section.
 
 ---
 
-## Method 2: TUI (Terminal UI)
+## What Gets Configured
 
-Use the beautiful Terminal UI for keyboard-based management.
+### pjsip.conf
 
-### Step 1: Launch the TUI
+The setup adds these sections:
 
-```bash
-rayanpbx-tui
+```ini
+; RayanPBX Transport
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0
+
+; RayanPBX Hello World Extension
+[101]
+type=endpoint
+context=from-internal
+disallow=all
+allow=ulaw
+auth=101
+aors=101
+
+[101]
+type=auth
+auth_type=userpass
+password=101pass
+username=101
+
+[101]
+type=aor
+max_contacts=1
 ```
 
-### Step 2: Create Extension
+### extensions.conf
 
-1. Use **↑/↓** keys to navigate to **📱 Extensions Management**
-2. Press **Enter**
-3. Press **a** to add a new extension
-4. Fill in the fields (use **↑/↓** to navigate, **Enter** to confirm):
+The setup adds:
 
-   ```
-   Extension Number: 6001
-   Name: Hello World Test
-   Password: unsecurepassword
-   Codecs: ulaw,alaw,g722
-   Context: from-internal
-   Transport: transport-udp
-   Direct Media: no
-   Max Contacts: 1
-   Qualify Freq: 60
-   ```
-
-5. Press **Enter** on the last field to create
-
-### Step 3: Add Hello World Dialplan
-
-1. Press **ESC** to return to main menu
-2. Navigate to **⚙️ Asterisk Management**
-3. The Hello World dialplan needs to be added manually:
-
-   ```bash
-   # Open another terminal and run:
-   sudo tee -a /etc/asterisk/extensions.conf << 'EOF'
-
-   ; Hello World Demo
-   [from-internal]
-   exten => 100,1,Answer()
-   same => n,Wait(1)
-   same => n,Playback(hello-world)
-   same => n,Hangup()
-   EOF
-   ```
-
-4. In TUI, select **📞 Reload Dialplan** and press **Enter**
-
-### Step 4: Verify in TUI
-
-1. Go to **📱 Extensions Management**
-2. Select your extension `6001`
-3. Press **i** for Info - shows:
-   - Extension details
-   - Real-time registration status
-   - SIP client configuration
-
----
-
-## Method 3: CLI (Command Line)
-
-For scripting and automation, use the CLI.
-
-### Step 1: Create Extension via API
-
-```bash
-# Get JWT token first
-TOKEN=$(curl -s -X POST http://localhost:8000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "your-linux-user", "password": "your-password"}' \
-  | jq -r '.token')
-
-# Create the extension
-curl -X POST http://localhost:8000/api/extensions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "extension_number": "6001",
-    "name": "Hello World Test",
-    "secret": "unsecurepassword",
-    "enabled": true,
-    "context": "from-internal",
-    "transport": "transport-udp",
-    "codecs": ["ulaw", "alaw", "g722"],
-    "max_contacts": 1,
-    "direct_media": "no",
-    "qualify_frequency": 60
-  }'
-```
-
-### Step 2: Create Extension via Artisan
-
-```bash
-cd /opt/rayanpbx/backend
-php artisan rayanpbx:extension create 6001 --name="Hello World Test" --secret="unsecurepassword"
-```
-
-### Step 3: Add Hello World Dialplan
-
-```bash
-# Add the Hello World dialplan entry
-cat << 'EOF' | sudo tee -a /etc/asterisk/extensions.conf
-
-; RayanPBX Hello World Demo
+```ini
+; RayanPBX Hello World Dialplan
 [from-internal]
-exten => 100,1,Answer()
-same => n,Wait(1)
-same => n,Playback(hello-world)
-same => n,Hangup()
-EOF
-
-# Reload the dialplan
-asterisk -rx "dialplan reload"
-```
-
-### Step 4: Verify Extension
-
-```bash
-# Check extension exists in Asterisk
-asterisk -rx "pjsip show endpoints"
-
-# Or via API
-curl http://localhost:8000/api/extensions \
-  -H "Authorization: Bearer $TOKEN"
+exten = 100,1,Answer()
+same = n,Wait(1)
+same = n,Playback(hello-world)
+same = n,Hangup()
 ```
 
 ---
 
 ## Configure Your SIP Phone
 
-Now configure your SIP phone (Zoiper, MicroSIP, Linphone, or hardware phone).
+### Option 1: MicroSIP (Windows - Recommended)
 
-### Recommended Softphones
+1. Download MicroSIP from https://www.microsip.org/
+2. Open MicroSIP and click the settings button
+3. Click **Add new SIP account**
+4. Enter `101` for the account name, click OK
+5. Configure:
+   - **Domain**: Your Asterisk server IP (shown in TUI)
+   - **Username**: `101`
+   - **Password**: `101pass`
+   - **Caller ID Name**: Leave blank or enter any name
+6. Click OK
 
-| App | Platform | Download |
-|-----|----------|----------|
-| **Zoiper** | Windows, macOS, Linux, iOS, Android | [zoiper.com](https://www.zoiper.com/) |
-| **MicroSIP** | Windows | [microsip.org](https://www.microsip.org/) |
-| **Linphone** | All platforms | [linphone.org](https://www.linphone.org/) |
+### Option 2: Zoiper (Cross-platform)
 
-### Configuration Settings
+1. Download Zoiper from https://www.zoiper.com/
+2. Add a new SIP account
+3. Configure:
+   - **Username**: `101`
+   - **Password**: `101pass`
+   - **Domain**: Your Asterisk server IP
+   - **Port**: `5060`
+   - **Transport**: UDP
 
-Use these settings in your SIP phone:
+### Option 3: Hardware Phone (GrandStream, Yealink, etc.)
 
-| Setting | Value |
-|---------|-------|
-| **Account Name** | Hello World (6001) |
-| **Username** | `6001` |
-| **Password** | `unsecurepassword` |
-| **Domain/Server** | Your RayanPBX server IP |
-| **Port** | `5060` |
-| **Transport** | UDP |
-
-### Zoiper Configuration Example
-
-1. Open Zoiper, click **Settings** (wrench icon)
-2. Click **Add new SIP account**
-3. Enter `6001` for account name, click **OK**
-4. Configure:
-   - **Domain**: `your-server-ip` (e.g., `192.168.1.100`)
-   - **Username**: `6001`
-   - **Password**: `unsecurepassword`
-5. Click **OK** and then **Register**
-
-### Verify Registration
-
-Your phone should show **Registered** or **Online** status.
-
-In RayanPBX, verify registration:
-
-```bash
-# Via Asterisk CLI
-asterisk -rx "pjsip show endpoints"
-
-# Expected output:
-# Endpoint: <Endpoint/6001>  Available  1 of 1
-```
-
-Or in the Web UI:
-- Go to **Extensions** page
-- Extension `6001` should show 🟢 **Registered**
+1. Access your phone's web interface
+2. Configure a SIP account:
+   - **SIP Server**: Your Asterisk server IP
+   - **SIP User ID**: `101`
+   - **Auth ID**: `101`
+   - **Password**: `101pass`
+3. Save and reboot the phone
 
 ---
 
 ## Make the Call
 
-🎉 **This is the moment of truth!**
+Once your phone shows **Registered** status:
 
-### Dial Extension 100
+1. Dial: **100**
+2. Press the Call button
 
-1. On your registered SIP phone, dial: **100**
-2. Press the **Call** button
-
-### What Happens
+### Expected Result
 
 1. ✅ Asterisk **Answers** the call
 2. ⏳ Waits **1 second**
-3. 🔊 Plays the **hello-world** sound file
+3. 🔊 Plays **"Hello World!"** audio
 4. 📞 **Hangs up**
 
-You should hear **"Hello World!"** played through your phone!
+You should hear "Hello World!" through your phone speaker!
 
-### Asterisk CLI Output
+### Asterisk Console Output
 
-If you watch the Asterisk console (`asterisk -rvvvv`), you'll see:
+If you run `asterisk -rvvvv`, you'll see:
 
 ```
--- Executing [100@from-internal:1] Answer("PJSIP/6001-00000000", "") in new stack
--- Executing [100@from-internal:2] Wait("PJSIP/6001-00000000", "1") in new stack
--- Executing [100@from-internal:3] Playback("PJSIP/6001-00000000", "hello-world") in new stack
--- <PJSIP/6001-00000000> Playing 'hello-world.gsm' (language 'en')
--- Executing [100@from-internal:4] Hangup("PJSIP/6001-00000000", "") in new stack
+-- Executing [100@from-internal:1] Answer("PJSIP/101-00000000", "") in new stack
+-- Executing [100@from-internal:2] Wait("PJSIP/101-00000000", "1") in new stack
+-- Executing [100@from-internal:3] Playback("PJSIP/101-00000000", "hello-world") in new stack
+-- <PJSIP/101-00000000> Playing 'hello-world.gsm' (language 'en')
+-- Executing [100@from-internal:4] Hangup("PJSIP/101-00000000", "") in new stack
 ```
+
+---
+
+## Cleanup
+
+After testing, you can remove the Hello World setup:
+
+### Via TUI
+
+1. Open `sudo rayanpbx-tui`
+2. Select **🚀 Hello World Setup**
+3. Select **🗑️ Remove Setup**
+
+This removes:
+- The Hello World extension (101) from pjsip.conf
+- The Hello World dialplan from extensions.conf
+- Reloads Asterisk configuration
 
 ---
 
 ## Troubleshooting
 
-### Extension Not Registering
+### Phone Not Registering
 
-**Symptoms**: Phone shows "Registration Failed" or "Unauthorized"
+**Symptoms**: Phone shows "Registration Failed" or "Timeout"
 
 **Solutions**:
-1. **Check credentials**: Verify username/password match exactly
-2. **Check network**: Ensure phone can reach server on port 5060
-3. **Check firewall**:
+
+1. **Check network connectivity**:
+   ```bash
+   ping <phone-ip>
+   ```
+
+2. **Check firewall**:
    ```bash
    sudo ufw allow 5060/udp
-   sudo ufw allow 10000:20000/udp  # RTP
+   sudo ufw allow 10000:20000/udp  # RTP ports
    ```
-4. **Enable SIP debugging**:
+
+3. **Enable SIP debugging**:
    ```bash
    asterisk -rx "pjsip set logger on"
    ```
+
+4. **Check credentials match** exactly (username: `101`, password: `101pass`)
 
 ### No Audio / Can't Hear Hello World
 
 **Symptoms**: Call connects but no audio
 
 **Solutions**:
+
 1. **Check sound file exists**:
    ```bash
    ls -la /var/lib/asterisk/sounds/en/hello-world.*
    ```
-2. **Verify dialplan**:
+
+2. **If missing, install Asterisk sounds**:
+   ```bash
+   # From Asterisk source directory
+   cd /usr/src/asterisk-*
+   make install-sounds
+   ```
+
+3. **Check dialplan loaded**:
    ```bash
    asterisk -rx "dialplan show 100@from-internal"
    ```
-3. **Check context**: Ensure extension uses `from-internal` context
 
-### Extension Not Showing in Asterisk
+### Extension Not Showing
 
-**Symptoms**: `pjsip show endpoints` doesn't show your extension
+**Symptoms**: `pjsip show endpoints` doesn't show extension 101
 
 **Solutions**:
-1. **Reload PJSIP**:
-   ```bash
-   asterisk -rx "pjsip reload"
-   ```
-2. **Check config file**:
-   ```bash
-   grep "6001" /etc/asterisk/pjsip.conf
-   ```
-3. **Verify via Web UI**: Check extension is **Enabled**
 
-### Getting Help
+1. **Check configuration was written**:
+   ```bash
+   grep -A 15 "Hello World Extension" /etc/asterisk/pjsip.conf
+   ```
 
-- **TUI Help**: Press `h` in extension info screen
-- **Web UI Diagnostics**: Click on extension status for troubleshooting
-- **API Diagnostics**: `GET /api/extensions/{id}/diagnostics`
-- **Asterisk Console**: Connect with `asterisk -rvvvv`
+2. **Reload PJSIP**:
+   ```bash
+   asterisk -rx "module reload res_pjsip.so"
+   ```
+
+3. **Check for syntax errors**:
+   ```bash
+   asterisk -rx "core reload"
+   ```
+
+### Permission Denied Errors
+
+**Solution**: Run the TUI with sudo:
+```bash
+sudo rayanpbx-tui
+```
 
 ---
 
-## What's Next?
+## Manual Configuration (Reference)
 
-Now that you've made your first call, explore more features:
+If you prefer to configure manually instead of using the automated setup:
 
-| Feature | Documentation |
-|---------|---------------|
-| **Extension-to-Extension Calling** | Extensions can dial each other directly |
-| **Trunks** | Connect to external phone networks |
-| **Voicemail** | Configure voicemail for extensions |
-| **Call Routing** | Set up IVR and call flows |
-| **Real-time Monitoring** | WebSocket events for live status |
+### 1. Edit pjsip.conf
 
-### Further Reading
+```bash
+sudo nano /etc/asterisk/pjsip.conf
+```
 
-- [PJSIP Setup Guide](PJSIP_SETUP_GUIDE.md) - Detailed PJSIP configuration
-- [SIP Testing Guide](SIP_TESTING_GUIDE.md) - Test your SIP setup
-- [API Quick Reference](API_QUICK_REFERENCE.md) - REST API documentation
-- [Artisan Commands](ARTISAN_COMMANDS.md) - CLI management commands
+Add:
+
+```ini
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0
+
+[101]
+type=endpoint
+context=from-internal
+disallow=all
+allow=ulaw
+auth=101
+aors=101
+
+[101]
+type=auth
+auth_type=userpass
+password=101pass
+username=101
+
+[101]
+type=aor
+max_contacts=1
+```
+
+### 2. Edit extensions.conf
+
+```bash
+sudo nano /etc/asterisk/extensions.conf
+```
+
+Add:
+
+```ini
+[from-internal]
+exten = 100,1,Answer()
+same = n,Wait(1)
+same = n,Playback(hello-world)
+same = n,Hangup()
+```
+
+### 3. Reload Asterisk
+
+```bash
+asterisk -rx "core restart now"
+# Or if already running:
+asterisk -rx "module reload res_pjsip.so"
+asterisk -rx "dialplan reload"
+```
 
 ---
 
-## Summary
+## Next Steps
 
-Congratulations! 🎉 You've successfully:
+After successfully completing Hello World:
 
-1. ✅ Created a SIP extension using RayanPBX
-2. ✅ Set up the Hello World dialplan
-3. ✅ Registered a SIP phone
-4. ✅ Made your first call to hear "Hello World!"
-
-RayanPBX makes Asterisk configuration easy with:
-- 🌐 **Web UI** - Point-and-click management
-- 🖥️ **TUI** - Beautiful terminal interface
-- ⚡ **CLI/API** - Automation and scripting
-- 📊 **Real-time status** - Live registration monitoring
+- **Create more extensions** using the Extensions Management menu
+- **Set up trunks** to connect to external phone networks
+- **Configure voicemail** for extensions
+- **Explore the Web UI** for browser-based management
 
 ---
 
@@ -461,7 +386,7 @@ RayanPBX makes Asterisk configuration easy with:
 
 ```
 ╭────────────────────────────────────────╮
-│  🚀 Your first call is just the start! │
+│  🎉 Congratulations on your first call!│
 ╰────────────────────────────────────────╯
 ```
 
