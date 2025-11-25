@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -189,8 +190,8 @@ func (h *HelloWorldSetup) ensureTransport() error {
 
 	// Check if RayanPBX managed transport exists, remove it first
 	if strings.Contains(content, "; BEGIN MANAGED - RayanPBX Transport") {
-		pattern := `(?s); BEGIN MANAGED - RayanPBX Transport.*?; END MANAGED - RayanPBX Transport\n`
-		content = strings.ReplaceAll(content, pattern, "")
+		re := regexp.MustCompile(`(?s); BEGIN MANAGED - RayanPBX Transport.*?; END MANAGED - RayanPBX Transport\n`)
+		content = re.ReplaceAllString(content, "")
 	}
 
 	// Add transport config at the beginning (after any header comments)
@@ -469,10 +470,26 @@ func (h *HelloWorldSetup) CreateDefaultSoundFile() error {
 	}
 
 	// Use text2wave to create a proper "Hello World" audio file
-	cmd := exec.Command("sh", "-c", fmt.Sprintf(`echo "Hello World" | text2wave -o %s`, soundFile))
-	if output, err := cmd.CombinedOutput(); err != nil {
+	// Using a safer approach without shell interpolation
+	echoCmd := exec.Command("echo", "Hello World")
+	text2waveCmd := exec.Command("text2wave", "-o", soundFile)
+	
+	// Create pipe between echo and text2wave
+	pipe, err := echoCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create pipe: %v", err)
+	}
+	text2waveCmd.Stdin = pipe
+	
+	if err := echoCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start echo: %v", err)
+	}
+	
+	if output, err := text2waveCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create sound file: %v - %s", err, string(output))
 	}
+	
+	echoCmd.Wait()
 
 	return nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -44,7 +45,7 @@ func TestGenerateHelloWorldExtension(t *testing.T) {
 	}
 
 	for _, expected := range expectedStrings {
-		if !contains(config, expected) {
+		if !strings.Contains(config, expected) {
 			t.Errorf("Expected config to contain '%s'", expected)
 		}
 	}
@@ -69,7 +70,7 @@ func TestGenerateHelloWorldDialplan(t *testing.T) {
 	}
 
 	for _, expected := range expectedStrings {
-		if !contains(config, expected) {
+		if !strings.Contains(config, expected) {
 			t.Errorf("Expected dialplan to contain '%s'", expected)
 		}
 	}
@@ -93,7 +94,7 @@ func TestGenerateTransportConfig(t *testing.T) {
 	}
 
 	for _, expected := range expectedStrings {
-		if !contains(config, expected) {
+		if !strings.Contains(config, expected) {
 			t.Errorf("Expected transport config to contain '%s'", expected)
 		}
 	}
@@ -153,18 +154,4 @@ func TestHelloWorldMenuInitialization(t *testing.T) {
 	if len(m.helloWorldMenu) != 4 {
 		t.Errorf("Expected 4 menu items, got %d", len(m.helloWorldMenu))
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
