@@ -122,12 +122,12 @@ go test -v
 
 Test environment loading behavior:
 ```bash
-./scripts/test-env-loading.sh
+./tests/test-env-loading.sh
 ```
 
 Test CLI script:
 ```bash
-./scripts/test-cli-env-loading.sh
+./tests/test-cli-env-loading.sh
 ```
 
 ## Troubleshooting

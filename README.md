@@ -180,9 +180,9 @@ sudo ./install.sh --steps=source,tui,pm2
 sudo ./install.sh --skip=asterisk,asterisk-ami
 ```
 
-**Important:** When using `--steps` or `--skip`, ensure all dependencies are already installed. See [INSTALL_STEPS_GUIDE.md](INSTALL_STEPS_GUIDE.md) for detailed dependency information.
+**Important:** When using `--steps` or `--skip`, ensure all dependencies are already installed. See [docs/install-steps.md](docs/install-steps.md) for detailed dependency information.
 
-For detailed information about command-line options, see [COMMAND_LINE_OPTIONS.md](COMMAND_LINE_OPTIONS.md).
+For detailed information about command-line options, see [docs/cli-options.md](docs/cli-options.md).
 
 ### Troubleshooting Installation
 
@@ -282,7 +282,7 @@ php artisan rayanpbx:restore /path/to/backup
 php artisan rayanpbx:asterisk "core show calls"
 ```
 
-For complete documentation, see [ARTISAN_COMMANDS.md](ARTISAN_COMMANDS.md).
+For complete documentation, see [docs/artisan-commands.md](docs/artisan-commands.md).
 
 ### Shell Scripts
 
@@ -343,19 +343,22 @@ go build -o rayanpbx-tui main.go config.go
 
 ```
 ╭──────────────────────────────────────────────────────────╮
-│  🚀 Hello World Setup:   docs/HELLO_WORLD_GUIDE.md       │
-│  📖 User Guide:          /docs/user-guide.md             │
-│  🔧 API Docs:            /docs/api.md                    │
-│  🏗️ Architecture:        /docs/architecture.md           │
-│  🚀 Deployment:          /docs/deployment.md             │
-│  🔐 Security:            /docs/security.md               │
-│  🌐 CORS Configuration:  CORS_CONFIGURATION.md           │
-│  📝 Command Options:     COMMAND_LINE_OPTIONS.md         │
-│  ⚙️ Config Management:  ENV_MANAGEMENT.md                │
-│  🔍 Phone Discovery:     PHONE_DISCOVERY.md              │
-│  🧪 SIP Testing Guide:   SIP_TESTING_GUIDE.md            │
-│  📡 PJSIP Setup:         PJSIP_SETUP_GUIDE.md            │
-│  📊 Implementation:      VOIP_DISCOVERY_IMPLEMENTATION.md│
+│  🔧 API Reference:      docs/api.md                      │
+│  ⚙️ CLI Options:        docs/cli-options.md              │
+│  📦 Artisan Commands:   docs/artisan-commands.md         │
+│  📋 Install Steps:      docs/install-steps.md            │
+│  🌐 CORS Configuration: docs/cors.md                     │
+│  ⚙️ Configuration:      docs/configuration.md            │
+│  🔍 Phone Discovery:    docs/phone-discovery.md          │
+│  📱 Phone Management:   docs/phone-management.md         │
+│  📡 PJSIP Setup:        docs/pjsip-setup.md              │
+│  🧪 SIP Testing Guide:  docs/sip-testing.md              │
+│  🖥️ UI Documentation:   docs/ui.md                       │
+│  📞 VoIP Management:    docs/voip-management.md          │
+│  🔐 Security:           docs/security.md                 │
+│  📊 Implementation:     docs/implemention.md             │
+│  🚀 Deployment:         docs/deployment.md               │
+│  🏗️ Architecture:       docs/architecture.md             │
 ╰──────────────────────────────────────────────────────────╯
 ```
 

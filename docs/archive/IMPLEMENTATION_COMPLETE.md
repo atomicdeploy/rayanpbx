@@ -152,7 +152,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/atomicdeploy/rayanp
 ### Critical Functionality Test (MOST IMPORTANT)
 
 ```bash
-sudo bash scripts/test-critical-features.sh
+sudo bash tests/test-critical-features.sh
 ```
 
 This validates:
@@ -163,7 +163,7 @@ This validates:
 ### Integration Test
 
 ```bash
-sudo bash scripts/test-integration.sh
+sudo bash tests/test-integration.sh
 ```
 
 ### Health Check

@@ -560,6 +560,21 @@ cmd_diag_health_check() {
     print_success "Health check complete"
 }
 
+# Check SIP port listening (validates Asterisk is accepting connections)
+cmd_diag_check_sip() {
+    print_header "📞 SIP Port Health Check"
+    
+    local script_path="$SCRIPT_DIR/health-check.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Health check script not found"
+        exit 1
+    fi
+    
+    # Run the check-sip command from health-check.sh
+    bash "$script_path" check-sip "${1:-5060}" "${2:-true}"
+}
+
 # SIP Testing commands
 cmd_sip_test_tools() {
     print_header "🔧 SIP Testing Tools"
@@ -1127,6 +1142,7 @@ cmd_help() {
         echo -e "${CYAN}🔍 diag${NC} ${DIM}- Diagnostics and troubleshooting${NC}"
         echo -e "   ${GREEN}test-extension${NC} <number>           Test extension registration"
         echo -e "   ${GREEN}health-check${NC}                      Run system health check"
+        echo -e "   ${GREEN}check-sip${NC} [port] [auto-fix]       Check SIP port is listening (validates connection)"
         echo ""
         
         echo -e "${CYAN}📞 sip-test${NC} ${DIM}- SIP testing suite${NC}"
@@ -1330,6 +1346,7 @@ main() {
             case "${2:-}" in
                 test-extension) cmd_diag_test_extension "$3" ;;
                 health-check) cmd_diag_health_check ;;
+                check-sip) cmd_diag_check_sip "$3" "$4" ;;
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
             esac
             ;;

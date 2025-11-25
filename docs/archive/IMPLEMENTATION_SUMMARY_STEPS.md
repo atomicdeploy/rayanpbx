@@ -108,7 +108,7 @@ All 8 tests pass:
 ### Testing New Steps
 Run test-step-execution.sh to validate:
 ```bash
-./scripts/test-step-execution.sh
+./tests/test-step-execution.sh
 ```
 
 ### Common Pitfalls to Avoid

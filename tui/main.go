@@ -272,6 +272,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		diagnosticsMenu: []string{
 			"🏥 Run System Health Check",
 			"💻 Show System Information",
+			"📡 Check SIP Port",
 			"🔍 Enable SIP Debugging",
 			"🔇 Disable SIP Debugging",
 			"📞 Test Extension Registration",
@@ -2365,7 +2366,10 @@ func (m *model) handleDiagnosticsMenuSelection() {
 		m.successMsg = "Health check completed"
 	case 1: // Show System Information
 		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
-	case 2: // Enable SIP Debugging
+	case 2: // Check SIP Port
+		m.diagnosticsOutput = m.diagnosticsManager.CheckSIPPort(5060)
+		m.successMsg = "SIP port check completed"
+	case 3: // Enable SIP Debugging
 		output, err := m.diagnosticsManager.EnableSIPDebugQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
@@ -2375,7 +2379,7 @@ func (m *model) handleDiagnosticsMenuSelection() {
 				m.diagnosticsOutput = "SIP Debug Output:\n" + output
 			}
 		}
-	case 3: // Disable SIP Debugging
+	case 4: // Disable SIP Debugging
 		output, err := m.diagnosticsManager.DisableSIPDebugQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to disable SIP debug: %v", err)
@@ -2385,34 +2389,34 @@ func (m *model) handleDiagnosticsMenuSelection() {
 				m.diagnosticsOutput = "SIP Debug Output:\n" + output
 			}
 		}
-	case 4: // Test Extension Registration
+	case 5: // Test Extension Registration
 		m.currentScreen = diagTestExtensionScreen
 		m.inputMode = true
 		m.inputFields = []string{"Extension Number"}
 		m.inputValues = []string{""}
 		m.inputCursor = 0
-	case 5: // Test Trunk Connectivity
+	case 6: // Test Trunk Connectivity
 		m.currentScreen = diagTestTrunkScreen
 		m.inputMode = true
 		m.inputFields = []string{"Trunk Name"}
 		m.inputValues = []string{""}
 		m.inputCursor = 0
-	case 6: // Test Call Routing
+	case 7: // Test Call Routing
 		m.currentScreen = diagTestRoutingScreen
 		m.inputMode = true
 		m.inputFields = []string{"From Extension", "To Number"}
 		m.inputValues = []string{"", ""}
 		m.inputCursor = 0
-	case 7: // Test Port Connectivity
+	case 8: // Test Port Connectivity
 		m.currentScreen = diagPortTestScreen
 		m.inputMode = true
 		m.inputFields = []string{"Host", "Port"}
 		m.inputValues = []string{"", DefaultSIPPort}
 		m.inputCursor = 0
-	case 8: // SIP Testing Suite
+	case 9: // SIP Testing Suite
 		m.currentScreen = sipTestMenuScreen
 		m.cursor = 0
-	case 9: // Back to Main Menu
+	case 10: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}

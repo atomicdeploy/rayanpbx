@@ -155,9 +155,9 @@ Tests real-world scenarios:
 ```bash
 # Run all tests
 cd /opt/rayanpbx
-./scripts/test-backup-deduplication.sh
-./scripts/test-backup-integration.sh
-./scripts/test-backup-e2e.sh
+./tests/test-backup-deduplication.sh
+./tests/test-backup-integration.sh
+./tests/test-backup-e2e.sh
 ```
 
 ## Backward Compatibility
