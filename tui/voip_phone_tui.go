@@ -271,10 +271,14 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "up", "k":
 			if m.selectedPhoneIdx > 0 {
 				m.selectedPhoneIdx--
+			} else if len(m.voipPhones) > 0 {
+				m.selectedPhoneIdx = len(m.voipPhones) - 1
 			}
 		case "down", "j":
 			if m.selectedPhoneIdx < len(m.voipPhones)-1 {
 				m.selectedPhoneIdx++
+			} else if len(m.voipPhones) > 0 {
+				m.selectedPhoneIdx = 0
 			}
 		case "enter":
 			// Show phone details
@@ -311,10 +315,14 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+			} else if len(m.voipControlMenu) > 0 {
+				m.cursor = len(m.voipControlMenu) - 1
 			}
 		case "down", "j":
 			if m.cursor < len(m.voipControlMenu)-1 {
 				m.cursor++
+			} else if len(m.voipControlMenu) > 0 {
+				m.cursor = 0
 			}
 		case "enter":
 			m.executeVoIPControlAction()

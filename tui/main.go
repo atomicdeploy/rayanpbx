@@ -335,11 +335,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "k":
 				if m.selectedPhoneIdx > 0 {
 					m.selectedPhoneIdx--
+				} else if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = len(m.discoveredPhones) - 1
 				}
 				return m, nil
 			case "down", "j":
 				if m.selectedPhoneIdx < len(m.discoveredPhones)-1 {
 					m.selectedPhoneIdx++
+				} else if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = 0
+				}
+				return m, nil
+			case "home":
+				m.selectedPhoneIdx = 0
+				return m, nil
+			case "end":
+				if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = len(m.discoveredPhones) - 1
 				}
 				return m, nil
 			}
@@ -361,97 +373,200 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "up", "k":
 			if m.currentScreen == usageScreen {
-				// Navigate usage commands
+				// Navigate usage commands with rollover
 				if m.usageCursor > 0 {
 					m.usageCursor--
+				} else if len(m.usageCommands) > 0 {
+					m.usageCursor = len(m.usageCommands) - 1
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
-				// Navigate diagnostics menu
+				// Navigate diagnostics menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.diagnosticsMenu) > 0 {
+					m.cursor = len(m.diagnosticsMenu) - 1
 				}
 			} else if m.currentScreen == sipTestMenuScreen {
-				// Navigate SIP test menu
+				// Navigate SIP test menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.sipTestMenu) > 0 {
+					m.cursor = len(m.sipTestMenu) - 1
 				}
 			} else if m.currentScreen == asteriskMenuScreen {
-				// Navigate asterisk menu
+				// Navigate asterisk menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.asteriskMenu) > 0 {
+					m.cursor = len(m.asteriskMenu) - 1
 				}
 			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu
+				// Navigate Hello World menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.helloWorldMenu) > 0 {
+					m.cursor = len(m.helloWorldMenu) - 1
 				}
 			} else if m.currentScreen == systemSettingsScreen {
+				// Navigate system settings with rollover (6 options)
 				if m.cursor > 0 {
 					m.cursor--
+				} else {
+					m.cursor = 5
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list
+				// Navigate extensions list with rollover
 				if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
+				} else if len(m.extensions) > 0 {
+					m.selectedExtensionIdx = len(m.extensions) - 1
 				}
 			} else if m.currentScreen == docsListScreen {
-				// Navigate docs list
+				// Navigate docs list with rollover
 				if m.selectedDocIdx > 0 {
 					m.selectedDocIdx--
+				} else if len(m.docsList) > 0 {
+					m.selectedDocIdx = len(m.docsList) - 1
 				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
 				m.handleVoIPPhonesKeyPress("up")
 			} else if m.cursor > 0 {
 				m.cursor--
+			} else if len(m.menuItems) > 0 {
+				// Main menu rollover
+				m.cursor = len(m.menuItems) - 1
 			}
 
 		case "down", "j":
 			if m.currentScreen == usageScreen {
-				// Navigate usage commands
+				// Navigate usage commands with rollover
 				if m.usageCursor < len(m.usageCommands)-1 {
 					m.usageCursor++
+				} else if len(m.usageCommands) > 0 {
+					m.usageCursor = 0
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
-				// Navigate diagnostics menu
+				// Navigate diagnostics menu with rollover
 				if m.cursor < len(m.diagnosticsMenu)-1 {
 					m.cursor++
+				} else if len(m.diagnosticsMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == sipTestMenuScreen {
-				// Navigate SIP test menu
+				// Navigate SIP test menu with rollover
 				if m.cursor < len(m.sipTestMenu)-1 {
 					m.cursor++
+				} else if len(m.sipTestMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == asteriskMenuScreen {
-				// Navigate asterisk menu
+				// Navigate asterisk menu with rollover
 				if m.cursor < len(m.asteriskMenu)-1 {
 					m.cursor++
+				} else if len(m.asteriskMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu
+				// Navigate Hello World menu with rollover
 				if m.cursor < len(m.helloWorldMenu)-1 {
 					m.cursor++
+				} else if len(m.helloWorldMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 6 options (added upgrade)
+				// System settings has 6 options with rollover
 				if m.cursor < 5 {
 					m.cursor++
+				} else {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list
+				// Navigate extensions list with rollover
 				if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
+				} else if len(m.extensions) > 0 {
+					m.selectedExtensionIdx = 0
 				}
 			} else if m.currentScreen == docsListScreen {
-				// Navigate docs list
+				// Navigate docs list with rollover
 				if m.selectedDocIdx < len(m.docsList)-1 {
 					m.selectedDocIdx++
+				} else if len(m.docsList) > 0 {
+					m.selectedDocIdx = 0
 				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
 				m.handleVoIPPhonesKeyPress("down")
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
+			} else if len(m.menuItems) > 0 {
+				// Main menu rollover
+				m.cursor = 0
+			}
+
+		case "home":
+			// Jump to first item in current list/menu
+			if m.currentScreen == usageScreen {
+				m.usageCursor = 0
+			} else if m.currentScreen == extensionsScreen {
+				m.selectedExtensionIdx = 0
+			} else if m.currentScreen == docsListScreen {
+				m.selectedDocIdx = 0
+			} else if m.currentScreen == voipPhonesScreen {
+				m.selectedPhoneIdx = 0
+			} else if m.currentScreen == voipDiscoveryScreen {
+				m.selectedPhoneIdx = 0
+			} else {
+				m.cursor = 0
+			}
+
+		case "end":
+			// Jump to last item in current list/menu
+			if m.currentScreen == usageScreen {
+				if len(m.usageCommands) > 0 {
+					m.usageCursor = len(m.usageCommands) - 1
+				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				if len(m.diagnosticsMenu) > 0 {
+					m.cursor = len(m.diagnosticsMenu) - 1
+				}
+			} else if m.currentScreen == sipTestMenuScreen {
+				if len(m.sipTestMenu) > 0 {
+					m.cursor = len(m.sipTestMenu) - 1
+				}
+			} else if m.currentScreen == asteriskMenuScreen {
+				if len(m.asteriskMenu) > 0 {
+					m.cursor = len(m.asteriskMenu) - 1
+				}
+			} else if m.currentScreen == helloWorldScreen {
+				if len(m.helloWorldMenu) > 0 {
+					m.cursor = len(m.helloWorldMenu) - 1
+				}
+			} else if m.currentScreen == systemSettingsScreen {
+				m.cursor = 5
+			} else if m.currentScreen == extensionsScreen {
+				if len(m.extensions) > 0 {
+					m.selectedExtensionIdx = len(m.extensions) - 1
+				}
+			} else if m.currentScreen == docsListScreen {
+				if len(m.docsList) > 0 {
+					m.selectedDocIdx = len(m.docsList) - 1
+				}
+			} else if m.currentScreen == voipPhonesScreen {
+				if len(m.voipPhones) > 0 {
+					m.selectedPhoneIdx = len(m.voipPhones) - 1
+				}
+			} else if m.currentScreen == voipPhoneControlScreen {
+				if len(m.voipControlMenu) > 0 {
+					m.cursor = len(m.voipControlMenu) - 1
+				}
+			} else if m.currentScreen == voipDiscoveryScreen {
+				if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = len(m.discoveredPhones) - 1
+				}
+			} else if len(m.menuItems) > 0 {
+				m.cursor = len(m.menuItems) - 1
 			}
 
 		case "a":
@@ -1586,11 +1701,23 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		if m.inputCursor > 0 {
 			m.inputCursor--
+		} else if len(m.inputFields) > 0 {
+			m.inputCursor = len(m.inputFields) - 1
 		}
 
 	case "down":
 		if m.inputCursor < len(m.inputFields)-1 {
 			m.inputCursor++
+		} else if len(m.inputFields) > 0 {
+			m.inputCursor = 0
+		}
+
+	case "home":
+		m.inputCursor = 0
+
+	case "end":
+		if len(m.inputFields) > 0 {
+			m.inputCursor = len(m.inputFields) - 1
 		}
 
 	case "enter":
