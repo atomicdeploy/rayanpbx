@@ -1141,11 +1141,11 @@ onMounted(async () => {
     await refreshSyncStatus()
   })
   
-  ws.on('extension.deleted', (payload) => {
+  ws.on('extension.deleted', async (payload) => {
     console.log('Extension deleted:', payload)
     // Remove from local list
     extensions.value = extensions.value.filter(e => e.id !== payload.id)
-    refreshSyncStatus()
+    await refreshSyncStatus()
   })
   
   // Auto-refresh live status every 10 seconds

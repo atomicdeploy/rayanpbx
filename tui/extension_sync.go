@@ -9,6 +9,25 @@ import (
 	"strings"
 )
 
+// codecsToJSONSync converts a comma-separated codec string to JSON array format
+func codecsToJSONSync(codecs string) string {
+	if codecs == "" {
+		return `["ulaw","alaw","g722"]`
+	}
+	codecList := strings.Split(codecs, ",")
+	var jsonCodecs []string
+	for _, codec := range codecList {
+		codec = strings.TrimSpace(codec)
+		if codec != "" {
+			jsonCodecs = append(jsonCodecs, `"`+codec+`"`)
+		}
+	}
+	if len(jsonCodecs) == 0 {
+		return `["ulaw","alaw","g722"]`
+	}
+	return "[" + strings.Join(jsonCodecs, ",") + "]"
+}
+
 // ExtensionSource indicates where an extension is defined
 type ExtensionSource int
 
@@ -411,7 +430,7 @@ func (esm *ExtensionSyncManager) SyncAsteriskToDatabase(extNumber string) error 
 	}
 	
 	// Convert codecs to JSON format
-	codecsJSON := codecsToJSON(strings.Join(astExt.Codecs, ","))
+	codecsJSON := codecsToJSONSync(strings.Join(astExt.Codecs, ","))
 	
 	if count > 0 {
 		// Update existing extension

@@ -358,14 +358,23 @@ class ExtensionSyncController extends Controller
             // Parse properties based on type
             switch ($currentType) {
                 case 'endpoint':
-                    match ($key) {
-                        'context' => $extensions[$currentSection]['context'] = $value,
-                        'transport' => $extensions[$currentSection]['transport'] = $value,
-                        'allow' => $extensions[$currentSection]['codecs'][] = $value,
-                        'callerid' => $extensions[$currentSection]['caller_id'] = $value,
-                        'direct_media' => $extensions[$currentSection]['direct_media'] = $value,
-                        default => null,
-                    };
+                    switch ($key) {
+                        case 'context':
+                            $extensions[$currentSection]['context'] = $value;
+                            break;
+                        case 'transport':
+                            $extensions[$currentSection]['transport'] = $value;
+                            break;
+                        case 'allow':
+                            $extensions[$currentSection]['codecs'][] = $value;
+                            break;
+                        case 'callerid':
+                            $extensions[$currentSection]['caller_id'] = $value;
+                            break;
+                        case 'direct_media':
+                            $extensions[$currentSection]['direct_media'] = $value;
+                            break;
+                    }
                     break;
                 case 'auth':
                     if ($key === 'password') {
@@ -373,11 +382,14 @@ class ExtensionSyncController extends Controller
                     }
                     break;
                 case 'aor':
-                    match ($key) {
-                        'max_contacts' => $extensions[$currentSection]['max_contacts'] = (int) $value,
-                        'qualify_frequency' => $extensions[$currentSection]['qualify_frequency'] = (int) $value,
-                        default => null,
-                    };
+                    switch ($key) {
+                        case 'max_contacts':
+                            $extensions[$currentSection]['max_contacts'] = (int) $value;
+                            break;
+                        case 'qualify_frequency':
+                            $extensions[$currentSection]['qualify_frequency'] = (int) $value;
+                            break;
+                    }
                     break;
             }
         }
