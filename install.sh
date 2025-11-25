@@ -432,18 +432,36 @@ get_system_context() {
     local os_info=""
     local asterisk_info=""
     
-    # Get OS version dynamically
+    # Get OS version dynamically with proper empty string handling
     if [ -f /etc/os-release ]; then
-        os_info=$(grep "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo "Linux")
+        local pretty_name
+        pretty_name=$(grep "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d'"' -f2)
+        if [ -n "$pretty_name" ]; then
+            os_info="$pretty_name"
+        else
+            os_info="Linux"
+        fi
     elif command -v lsb_release &> /dev/null; then
-        os_info=$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")
+        local lsb_desc
+        lsb_desc=$(lsb_release -d 2>/dev/null | cut -f2)
+        if [ -n "$lsb_desc" ]; then
+            os_info="$lsb_desc"
+        else
+            os_info="Linux"
+        fi
     else
         os_info="Linux"
     fi
     
-    # Get Asterisk version dynamically
+    # Get Asterisk version dynamically with timeout to prevent hanging
     if command -v asterisk &> /dev/null; then
-        asterisk_info=$(asterisk -V 2>/dev/null | head -n 1 || echo "Asterisk")
+        local ast_version
+        ast_version=$(timeout 5 asterisk -V 2>/dev/null | head -n 1)
+        if [ -n "$ast_version" ]; then
+            asterisk_info="$ast_version"
+        else
+            asterisk_info="Asterisk"
+        fi
     else
         asterisk_info="Asterisk (not installed)"
     fi
