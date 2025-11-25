@@ -426,19 +426,44 @@ url_encode() {
         -e 's/~/%7E/g'
 }
 
+# Get dynamic system context for AI prompts
+# Detects OS version and Asterisk version dynamically
+get_system_context() {
+    local os_info=""
+    local asterisk_info=""
+    
+    # Get OS version dynamically
+    if [ -f /etc/os-release ]; then
+        os_info=$(grep "^PRETTY_NAME=" /etc/os-release 2>/dev/null | cut -d'"' -f2 || echo "Linux")
+    elif command -v lsb_release &> /dev/null; then
+        os_info=$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")
+    else
+        os_info="Linux"
+    fi
+    
+    # Get Asterisk version dynamically
+    if command -v asterisk &> /dev/null; then
+        asterisk_info=$(asterisk -V 2>/dev/null | head -n 1 || echo "Asterisk")
+    else
+        asterisk_info="Asterisk (not installed)"
+    fi
+    
+    echo "System: ${os_info}, ${asterisk_info}, PJSIP stack."
+}
+
 # Query Pollinations.AI for AI-powered solutions
 # Handles timeouts and error cases gracefully
-# Automatically includes system context (Asterisk v22, Ubuntu) in the prompt
+# Automatically includes dynamically detected system context in the prompt
 query_pollinations_ai() {
     local query="$1"
     local max_chars="${2:-800}"
     
-    # Build system context prompt (without sensitive info)
+    # Build system context prompt dynamically (without sensitive info)
     # This helps AI provide more accurate solutions for our specific setup
-    local system_context="System context: RayanPBX with Asterisk v22, Ubuntu 24.04 LTS, PJSIP stack. "
+    local system_context=$(get_system_context)
     
     # Combine system context with user query
-    local full_query="${system_context}${query}"
+    local full_query="${system_context} ${query}"
     
     # URL encode the query
     local encoded_query=$(url_encode "$full_query")
