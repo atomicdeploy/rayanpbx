@@ -147,6 +147,7 @@ const (
 	voipManualIPScreen
 	voipDiscoveryScreen
 	helloWorldScreen
+	usageInputScreen
 )
 
 type model struct {
@@ -173,6 +174,7 @@ type model struct {
 	usageCursor      int
 	usageOutput      string // Output from executed command
 	pendingCommand   string // Command waiting to be executed externally
+	usageCommandTemplate string // Command template with placeholders for parameter input
 
 	// Diagnostics
 	diagnosticsManager *DiagnosticsManager
@@ -964,6 +966,8 @@ func (m model) View() string {
 		s += m.renderLogs()
 	case usageScreen:
 		s += m.renderUsage()
+	case usageInputScreen:
+		s += m.renderUsageInput()
 	case createExtensionScreen:
 		s += m.renderCreateExtension()
 	case editExtensionScreen:
@@ -1024,6 +1028,8 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
+	} else if m.currentScreen == usageInputScreen {
+		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else if m.currentScreen == systemSettingsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
 	} else if m.currentScreen == diagnosticsMenuScreen {
@@ -1591,6 +1597,36 @@ func (m model) renderUsage() string {
 	return menuStyle.Render(content)
 }
 
+// renderUsageInput renders the parameter input screen for parameterized CLI commands
+func (m model) renderUsageInput() string {
+	content := infoStyle.Render("📝 Enter Command Parameters") + "\n\n"
+	
+	// Display the command template with highlighted parameters
+	content += "Command: " + successStyle.Render(m.usageCommandTemplate) + "\n\n"
+	content += "Please fill in the required parameters:\n\n"
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter " + field + ">")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Press Enter to move to next field, or submit when on last field")
+	content += "\n" + helpStyle.Render("   Press ESC to cancel")
+
+	return menuStyle.Render(content)
+}
+
 // getUsageCommands returns a list of CLI commands for the usage guide
 func getUsageCommands() []UsageCommand {
 	return []UsageCommand{
@@ -1614,16 +1650,75 @@ func getUsageCommands() []UsageCommand {
 	}
 }
 
+// extractCommandParams extracts parameter placeholders (e.g., <num>, <name>, <pass>) from a command.
+// Returns a slice of parameter names (without angle brackets) and whether any parameters were found.
+func extractCommandParams(command string) ([]string, bool) {
+	paramRegex := regexp.MustCompile(`<([^>]+)>`)
+	matches := paramRegex.FindAllStringSubmatch(command, -1)
+	
+	if len(matches) == 0 {
+		return nil, false
+	}
+	
+	params := make([]string, len(matches))
+	for i, match := range matches {
+		params[i] = match[1]
+	}
+	
+	return params, true
+}
+
+// substituteCommandParams replaces parameter placeholders in a command with actual values.
+// The placeholders are expected to match the order of values in inputValues.
+func substituteCommandParams(commandTemplate string, inputValues []string) string {
+	result := commandTemplate
+	paramRegex := regexp.MustCompile(`<([^>]+)>`)
+	
+	valueIdx := 0
+	result = paramRegex.ReplaceAllStringFunc(result, func(match string) string {
+		if valueIdx < len(inputValues) {
+			value := inputValues[valueIdx]
+			valueIdx++
+			// Quote the value if it contains spaces
+			if strings.Contains(value, " ") {
+				return fmt.Sprintf("\"%s\"", value)
+			}
+			return value
+		}
+		return match
+	})
+	
+	return result
+}
+
 // executeCommand executes a CLI command and captures its output.
 // For most commands, output is captured and displayed in the TUI.
 // For long-running commands (start, stop, restart, update), the command
 // is run outside the TUI so the user can see the output.
+// For commands with parameters (e.g., <num>, <name>), switches to input mode.
 // Returns a tea.Cmd if the command should be run externally, nil otherwise.
 func (m *model) executeCommand(command string) tea.Cmd {
 	// Clear previous output
 	m.usageOutput = ""
 	m.errorMsg = ""
 	m.successMsg = ""
+	
+	// Check if the command has parameter placeholders
+	params, hasParams := extractCommandParams(command)
+	if hasParams {
+		// Switch to parameter input mode
+		m.usageCommandTemplate = command
+		m.inputMode = true
+		m.inputFields = make([]string, len(params))
+		m.inputValues = make([]string, len(params))
+		for i, param := range params {
+			m.inputFields[i] = param
+			m.inputValues[i] = ""
+		}
+		m.inputCursor = 0
+		m.currentScreen = usageInputScreen
+		return nil
+	}
 	
 	// Check if this is a long-running or interactive command that needs to run outside TUI
 	// We check for specific command patterns to avoid false positives
@@ -1643,6 +1738,43 @@ func (m *model) executeCommand(command string) tea.Cmd {
 	}
 	
 	m.successMsg = "Command executed successfully"
+	m.usageOutput = output
+	return nil
+}
+
+// executeParameterizedCommand executes a CLI command after parameter values have been provided.
+// It substitutes the template placeholders with actual values and runs the command.
+func (m *model) executeParameterizedCommand() tea.Cmd {
+	// Validate that all required parameters are provided
+	for i, value := range m.inputValues {
+		if value == "" {
+			m.errorMsg = fmt.Sprintf("Parameter '%s' is required", m.inputFields[i])
+			return nil
+		}
+	}
+	
+	// Substitute parameters in the command template
+	command := substituteCommandParams(m.usageCommandTemplate, m.inputValues)
+	
+	// Clear input mode state
+	m.inputMode = false
+	m.currentScreen = usageScreen
+	m.usageCommandTemplate = ""
+	
+	// Check if this is a long-running command
+	if isLongRunningCommand(command) {
+		m.pendingCommand = command
+		return m.runCommandExternally(command)
+	}
+	
+	// Execute and capture output
+	output, err := m.runCommandCapture(command)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to execute command: %v", err)
+		return nil
+	}
+	
+	m.successMsg = fmt.Sprintf("Command executed successfully")
 	m.usageOutput = output
 	return nil
 }
@@ -1871,6 +2003,9 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.currentScreen = extensionsScreen
 		} else if m.currentScreen == createTrunkScreen {
 			m.currentScreen = trunksScreen
+		} else if m.currentScreen == usageInputScreen {
+			m.currentScreen = usageScreen
+			m.usageCommandTemplate = ""
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
@@ -1927,6 +2062,8 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeManualIPAdd()
 			} else if m.currentScreen == voipPhoneProvisionScreen {
 				m.executeVoIPProvision()
+			} else if m.currentScreen == usageInputScreen {
+				return m, m.executeParameterizedCommand()
 			}
 		}
 
