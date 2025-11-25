@@ -306,6 +306,137 @@ cmd_extension_status() {
     fi
 }
 
+cmd_extension_toggle() {
+    local number=$1
+    
+    if [ -z "$number" ]; then
+        print_error "Extension number required"
+        echo "Usage: rayanpbx-cli extension toggle <number>"
+        exit 2
+    fi
+    
+    print_info "Toggling extension $number..."
+    
+    # First, get the extension ID by listing extensions
+    response=$(api_call GET "extensions")
+    
+    if command -v jq &> /dev/null; then
+        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id')
+        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled')
+        
+        if [ -z "$ext_id" ] || [ "$ext_id" == "null" ]; then
+            print_error "Extension $number not found"
+            exit 1
+        fi
+        
+        # Call the toggle endpoint
+        toggle_response=$(api_call POST "extensions/$ext_id/toggle")
+        
+        if echo "$toggle_response" | grep -q "success\|updated"; then
+            new_enabled=$(echo "$toggle_response" | jq -r '.extension.enabled')
+            if [ "$new_enabled" == "true" ]; then
+                print_success "Extension $number enabled successfully"
+            else
+                print_success "Extension $number disabled successfully"
+            fi
+        else
+            print_error "Failed to toggle extension: $toggle_response"
+            exit 1
+        fi
+    else
+        print_error "jq is required for this command"
+        exit 1
+    fi
+}
+
+cmd_extension_enable() {
+    local number=$1
+    
+    if [ -z "$number" ]; then
+        print_error "Extension number required"
+        echo "Usage: rayanpbx-cli extension enable <number>"
+        exit 2
+    fi
+    
+    print_info "Enabling extension $number..."
+    
+    # Get extension ID and current status
+    response=$(api_call GET "extensions")
+    
+    if command -v jq &> /dev/null; then
+        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id')
+        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled')
+        
+        if [ -z "$ext_id" ] || [ "$ext_id" == "null" ]; then
+            print_error "Extension $number not found"
+            exit 1
+        fi
+        
+        if [ "$current_enabled" == "true" ]; then
+            print_info "Extension $number is already enabled"
+            exit 0
+        fi
+        
+        # Update extension to enable it
+        update_response=$(api_call PUT "extensions/$ext_id" '{"enabled": true}')
+        
+        if echo "$update_response" | grep -q "success\|updated"; then
+            print_success "Extension $number enabled successfully"
+            print_info "SIP registration is now possible for this extension"
+        else
+            print_error "Failed to enable extension: $update_response"
+            exit 1
+        fi
+    else
+        print_error "jq is required for this command"
+        exit 1
+    fi
+}
+
+cmd_extension_disable() {
+    local number=$1
+    
+    if [ -z "$number" ]; then
+        print_error "Extension number required"
+        echo "Usage: rayanpbx-cli extension disable <number>"
+        exit 2
+    fi
+    
+    print_info "Disabling extension $number..."
+    
+    # Get extension ID and current status
+    response=$(api_call GET "extensions")
+    
+    if command -v jq &> /dev/null; then
+        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id')
+        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled')
+        
+        if [ -z "$ext_id" ] || [ "$ext_id" == "null" ]; then
+            print_error "Extension $number not found"
+            exit 1
+        fi
+        
+        if [ "$current_enabled" == "false" ]; then
+            print_info "Extension $number is already disabled"
+            exit 0
+        fi
+        
+        # Update extension to disable it
+        update_response=$(api_call PUT "extensions/$ext_id" '{"enabled": false}')
+        
+        if echo "$update_response" | grep -q "success\|updated"; then
+            print_success "Extension $number disabled successfully"
+            print_warn "SIP registration is now blocked for this extension"
+        else
+            print_error "Failed to disable extension: $update_response"
+            exit 1
+        fi
+    else
+        print_error "jq is required for this command"
+        exit 1
+    fi
+}
+
 # Trunk commands
 cmd_trunk_list() {
     print_header "🔗 Trunks List"
@@ -977,6 +1108,9 @@ cmd_help() {
         echo -e "   ${GREEN}list${NC}                              List all extensions"
         echo -e "   ${GREEN}create${NC} <number> <name> <password>  Create new extension"
         echo -e "   ${GREEN}status${NC} <number>                    Check extension status"
+        echo -e "   ${GREEN}toggle${NC} <number>                    Toggle extension enabled/disabled"
+        echo -e "   ${GREEN}enable${NC} <number>                    Enable extension for registration"
+        echo -e "   ${GREEN}disable${NC} <number>                   Disable extension (block registration)"
         echo ""
         
         echo -e "${CYAN}🔗 trunk${NC} ${DIM}- Trunk management${NC}"
@@ -1070,7 +1204,16 @@ cmd_help() {
                 echo -e "  ${DIM}Example: rayanpbx-cli extension create 100 \"John Doe\" secret123${NC}\n"
                 echo -e "${YELLOW}rayanpbx-cli extension status <number>${NC}"
                 echo -e "  Checks registration status of an extension."
-                echo -e "  ${DIM}Example: rayanpbx-cli extension status 100${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli extension status 100${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli extension toggle <number>${NC}"
+                echo -e "  Toggles extension between enabled and disabled states."
+                echo -e "  ${DIM}Example: rayanpbx-cli extension toggle 100${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli extension enable <number>${NC}"
+                echo -e "  Enables an extension for SIP registration."
+                echo -e "  ${DIM}Example: rayanpbx-cli extension enable 100${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli extension disable <number>${NC}"
+                echo -e "  Disables an extension (blocks SIP registration)."
+                echo -e "  ${DIM}Example: rayanpbx-cli extension disable 100${NC}"
                 echo ""
                 ;;
             config)
@@ -1162,6 +1305,9 @@ main() {
                 list) cmd_extension_list ;;
                 create) cmd_extension_create "$3" "$4" "$5" ;;
                 status) cmd_extension_status "$3" ;;
+                toggle) cmd_extension_toggle "$3" ;;
+                enable) cmd_extension_enable "$3" ;;
+                disable) cmd_extension_disable "$3" ;;
                 *) echo "Unknown extension command: ${2:-}"; exit 2 ;;
             esac
             ;;

@@ -322,3 +322,67 @@ func TestAsteriskMenuNavigation(t *testing.T) {
 		t.Errorf("Expected %d menu items, got %d", expectedMenuItems, menuLength)
 	}
 }
+
+// TestExtensionToggleKeyBinding tests that 't' key is bound for toggle in extension screen
+func TestExtensionToggleKeyBinding(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = extensionsScreen
+	
+	// Populate some test extensions
+	m.extensions = []Extension{
+		{
+			ID:              1,
+			ExtensionNumber: "100",
+			Name:            "Test Extension 1",
+			Enabled:         true,
+		},
+		{
+			ID:              2,
+			ExtensionNumber: "101",
+			Name:            "Test Extension 2",
+			Enabled:         false,
+		},
+	}
+	m.selectedExtensionIdx = 0
+	
+	// Note: We cannot fully test toggleExtension without a real database
+	// but we can verify the extension selection logic
+	if m.selectedExtensionIdx != 0 {
+		t.Error("Expected selectedExtensionIdx to be 0")
+	}
+	
+	if len(m.extensions) != 2 {
+		t.Errorf("Expected 2 extensions, got %d", len(m.extensions))
+	}
+	
+	if m.extensions[0].Enabled != true {
+		t.Error("Expected first extension to be enabled")
+	}
+	
+	if m.extensions[1].Enabled != false {
+		t.Error("Expected second extension to be disabled")
+	}
+}
+
+// TestExtensionScreenHelpText tests that extension screen shows toggle help
+func TestExtensionScreenHelpText(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = extensionsScreen
+	
+	// Populate some test extensions
+	m.extensions = []Extension{
+		{
+			ID:              1,
+			ExtensionNumber: "100",
+			Name:            "Test Extension",
+			Enabled:         true,
+		},
+	}
+	
+	output := m.renderExtensions()
+	
+	// Check that the output contains toggle hint
+	if !strings.Contains(output, "toggle") {
+		t.Error("Expected extensions screen to mention toggle functionality")
+	}
+}

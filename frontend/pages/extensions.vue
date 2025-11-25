@@ -138,14 +138,34 @@
                     </div>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm">
-                    <span v-if="ext.enabled" class="text-green-600">✓</span>
-                    <span v-else class="text-red-600">✗</span>
+                    <button 
+                      @click="toggleExtension(ext)" 
+                      :disabled="togglingExtension === ext.id"
+                      :class="[
+                        'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
+                        ext.enabled ? 'bg-green-500' : 'bg-gray-300',
+                        togglingExtension === ext.id ? 'opacity-50 cursor-wait' : ''
+                      ]"
+                      role="switch"
+                      :aria-checked="ext.enabled"
+                      :title="ext.enabled ? 'Click to disable extension' : 'Click to enable extension'"
+                    >
+                      <span
+                        :class="[
+                          'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                          ext.enabled ? 'translate-x-5' : 'translate-x-0'
+                        ]"
+                      />
+                    </button>
+                    <span class="ml-2 text-xs" :class="ext.enabled ? 'text-green-600' : 'text-gray-500'">
+                      {{ ext.enabled ? 'Enabled' : 'Disabled' }}
+                    </span>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-end text-sm font-medium space-x-2">
-                    <button @click="editExtension(ext)" class="text-blue-600 hover:text-blue-900">
+                    <button @click="editExtension(ext)" class="text-blue-600 hover:text-blue-900" title="Edit extension">
                       ✏️
                     </button>
-                    <button @click="deleteExtension(ext)" class="text-red-600 hover:text-red-900">
+                    <button @click="deleteExtension(ext)" class="text-red-600 hover:text-red-900" title="Delete extension">
                       🗑️
                     </button>
                   </td>
@@ -469,6 +489,7 @@ const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
 const showAdvanced = ref(false)
+const togglingExtension = ref<number | null>(null)
 
 // Sorting and filtering state
 const searchQuery = ref('')
@@ -620,6 +641,42 @@ const enableExtension = async (ext: any) => {
   } catch (error) {
     console.error('Error enabling extension:', error)
     alert(t('extensions.enableError', { number: ext.extension_number }))
+  }
+}
+
+const toggleExtension = async (ext: any) => {
+  togglingExtension.value = ext.id
+  try {
+    // Call the toggle endpoint
+    const response = await api.apiFetch(`/extensions/${ext.id}/toggle`, { method: 'POST' })
+    
+    if (response.extension) {
+      // Update the local extension state
+      const index = extensions.value.findIndex(e => e.id === ext.id)
+      if (index !== -1) {
+        extensions.value[index].enabled = response.extension.enabled
+      }
+      
+      // Show feedback to user
+      const status = response.extension.enabled ? 'enabled' : 'disabled'
+      
+      // Check for configuration errors
+      if (response.error || !response.config_write_success || !response.reload_success) {
+        const errorMsg = response.error || 'Configuration update failed'
+        alert(`Extension ${ext.extension_number} ${status} in database, but: ${errorMsg}`)
+      } else {
+        console.log(`Extension ${ext.extension_number} ${status} successfully`)
+      }
+      
+      // Optionally refresh live status from Asterisk after toggle
+      // This updates registration status which may change after enable/disable
+      enrichWithLiveStatus()
+    }
+  } catch (error) {
+    console.error('Error toggling extension:', error)
+    alert(`Failed to toggle extension ${ext.extension_number}`)
+  } finally {
+    togglingExtension.value = null
   }
 }
 
