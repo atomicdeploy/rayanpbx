@@ -293,3 +293,84 @@ func (am *AsteriskManager) PrintServiceStatus() {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 }
+
+// GetServiceStatusOutput returns service status as a string (for TUI use)
+func (am *AsteriskManager) GetServiceStatusOutput() string {
+	var result strings.Builder
+	
+	result.WriteString("⚙️  Asterisk Service Status\n")
+	result.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	status, err := am.GetServiceStatus()
+	if err != nil {
+		result.WriteString(fmt.Sprintf("❌ Error: %v\n", err))
+		return result.String()
+	}
+
+	switch status {
+	case "running":
+		result.WriteString("✅ Status: Running\n")
+	case "stopped":
+		result.WriteString("❌ Status: Stopped\n")
+	default:
+		result.WriteString("⚠️  Status: Unknown\n")
+	}
+
+	result.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	
+	return result.String()
+}
+
+// StartServiceQuiet starts the Asterisk service without printing to stdout (for TUI use)
+func (am *AsteriskManager) StartServiceQuiet() error {
+	cmd := exec.Command("systemctl", "start", "asterisk")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start service: %v", err)
+	}
+	return nil
+}
+
+// StopServiceQuiet stops the Asterisk service without printing to stdout (for TUI use)
+func (am *AsteriskManager) StopServiceQuiet() error {
+	cmd := exec.Command("systemctl", "stop", "asterisk")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to stop service: %v", err)
+	}
+	return nil
+}
+
+// RestartServiceQuiet restarts the Asterisk service without printing to stdout (for TUI use)
+func (am *AsteriskManager) RestartServiceQuiet() error {
+	cmd := exec.Command("systemctl", "restart", "asterisk")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to restart service: %v", err)
+	}
+	return nil
+}
+
+// ReloadPJSIPQuiet reloads PJSIP configuration without printing to stdout (for TUI use)
+func (am *AsteriskManager) ReloadPJSIPQuiet() error {
+	_, err := am.ExecuteCLICommand("module reload res_pjsip.so")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReloadDialplanQuiet reloads dialplan configuration without printing to stdout (for TUI use)
+func (am *AsteriskManager) ReloadDialplanQuiet() error {
+	_, err := am.ExecuteCLICommand("dialplan reload")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReloadAllQuiet reloads all Asterisk modules without printing to stdout (for TUI use)
+func (am *AsteriskManager) ReloadAllQuiet() error {
+	_, err := am.ExecuteCLICommand("core reload")
+	if err != nil {
+		return err
+	}
+	return nil
+}

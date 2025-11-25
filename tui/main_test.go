@@ -379,10 +379,17 @@ func TestExtensionScreenHelpText(t *testing.T) {
 		},
 	}
 	
+	// Verify extensions screen renders without error
 	output := m.renderExtensions()
 	
-	// Check that the output contains toggle hint
-	if !strings.Contains(output, "toggle") {
-		t.Error("Expected extensions screen to mention toggle functionality")
+	// Check that the output contains extension info (toggle hint is now in footer, not in-box)
+	if !strings.Contains(output, "100") || !strings.Contains(output, "Test Extension") {
+		t.Error("Expected extensions screen to display extension info")
+	}
+	
+	// Check that the footer contains toggle hint (rendered via View())
+	fullOutput := m.View()
+	if !strings.Contains(strings.ToLower(fullOutput), "toggle") {
+		t.Error("Expected footer to mention toggle functionality")
 	}
 }

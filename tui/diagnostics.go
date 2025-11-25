@@ -36,6 +36,15 @@ func (dm *DiagnosticsManager) EnableSIPDebug() error {
 	return nil
 }
 
+// EnableSIPDebugQuiet enables SIP debugging without printing to stdout (for TUI use)
+func (dm *DiagnosticsManager) EnableSIPDebugQuiet() error {
+	_, err := dm.asterisk.ExecuteCLICommand("pjsip set logger on")
+	if err != nil {
+		return fmt.Errorf("failed to enable SIP debug: %v", err)
+	}
+	return nil
+}
+
 // DisableSIPDebug disables SIP debugging
 func (dm *DiagnosticsManager) DisableSIPDebug() error {
 	cyan := color.New(color.FgCyan)
@@ -48,6 +57,15 @@ func (dm *DiagnosticsManager) DisableSIPDebug() error {
 	}
 
 	green.Println("✅ SIP debugging disabled")
+	return nil
+}
+
+// DisableSIPDebugQuiet disables SIP debugging without printing to stdout (for TUI use)
+func (dm *DiagnosticsManager) DisableSIPDebugQuiet() error {
+	_, err := dm.asterisk.ExecuteCLICommand("pjsip set logger off")
+	if err != nil {
+		return fmt.Errorf("failed to disable SIP debug: %v", err)
+	}
 	return nil
 }
 
@@ -268,6 +286,55 @@ func (dm *DiagnosticsManager) RunHealthCheck() {
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
+}
+
+// GetHealthCheckOutput returns health check results as a string (for TUI use)
+func (dm *DiagnosticsManager) GetHealthCheckOutput() string {
+	var result strings.Builder
+	
+	result.WriteString("🏥 Health Check Results\n")
+	result.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	// Check Asterisk service
+	status, err := dm.asterisk.GetServiceStatus()
+	if err == nil && status == "running" {
+		result.WriteString("Asterisk Service: ✅ Running\n")
+	} else {
+		result.WriteString("Asterisk Service: ❌ Not Running\n")
+		// Get error summary
+		errors, _ := dm.GetAsteriskErrorsSummary()
+		if len(errors) > 0 {
+			result.WriteString("\nRecent Errors:\n")
+			for i, errMsg := range errors {
+				if i >= 5 { // Limit to 5 errors
+					break
+				}
+				result.WriteString(fmt.Sprintf("  • %s\n", errMsg))
+			}
+		}
+	}
+
+	// Check PJSIP endpoints
+	if output, err := dm.asterisk.ExecuteCLICommand("pjsip show endpoints"); err == nil {
+		if !strings.Contains(output, "No objects found") {
+			result.WriteString("PJSIP Endpoints: ✅ Configured\n")
+		} else {
+			result.WriteString("PJSIP Endpoints: ⚠️  None configured\n")
+		}
+	} else {
+		result.WriteString("PJSIP Endpoints: ❌ Error checking\n")
+	}
+
+	// Check active channels
+	if output, err := dm.asterisk.ExecuteCLICommand("core show channels count"); err == nil {
+		result.WriteString(fmt.Sprintf("Active Channels: %s\n", strings.TrimSpace(output)))
+	} else {
+		result.WriteString("Active Channels: ❌ Error checking\n")
+	}
+
+	result.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	return result.String()
 }
 
 // ShowAsteriskErrors displays Asterisk service errors
