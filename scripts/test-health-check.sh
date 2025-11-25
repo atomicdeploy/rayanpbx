@@ -264,6 +264,74 @@ test_redis_connectivity_check() {
     fi
 }
 
+# Test 17: Verify perform_ami_diagnostic_checks function exists in install.sh
+test_perform_ami_diagnostic_checks_exists() {
+    print_test "Verifying perform_ami_diagnostic_checks function exists in install.sh"
+    
+    if grep -q "^perform_ami_diagnostic_checks()" "$REPO_ROOT/install.sh"; then
+        print_pass "perform_ami_diagnostic_checks function is defined"
+        return 0
+    else
+        print_fail "perform_ami_diagnostic_checks function not found"
+        return 1
+    fi
+}
+
+# Test 18: Verify automated AMI checks use Pollinations.AI
+test_ami_checks_use_pollinations_ai() {
+    print_test "Verifying automated AMI checks integrate with Pollinations.AI"
+    
+    # Check that the perform_ami_diagnostic_checks function uses Pollinations.AI
+    if sed -n '/^perform_ami_diagnostic_checks()/,/^[a-z_]*().*{/p' "$REPO_ROOT/install.sh" | grep -q "text.pollinations.ai"; then
+        print_pass "perform_ami_diagnostic_checks uses Pollinations.AI for solutions"
+        return 0
+    else
+        print_fail "perform_ami_diagnostic_checks does not use Pollinations.AI"
+        return 1
+    fi
+}
+
+# Test 19: Verify no "Please check the following" manual instructions remain
+test_no_manual_check_instructions() {
+    print_test "Verifying 'Please check the following' manual instructions have been replaced"
+    
+    # The only occurrence should be in a comment explaining what was replaced
+    local occurrences=$(grep -c "Please check the following" "$REPO_ROOT/install.sh" 2>/dev/null || echo "0")
+    
+    if [ "$occurrences" -eq 1 ]; then
+        # Check that this single occurrence is in a comment
+        if grep "Please check the following" "$REPO_ROOT/install.sh" | grep -q "^#\|listed as"; then
+            print_pass "Only one occurrence found (in comment explaining the automation)"
+            return 0
+        else
+            print_fail "Found non-comment 'Please check the following' instruction"
+            return 1
+        fi
+    elif [ "$occurrences" -eq 0 ]; then
+        print_pass "No 'Please check the following' instructions found"
+        return 0
+    else
+        print_fail "Found $occurrences 'Please check the following' instructions (expected 0 or 1)"
+        return 1
+    fi
+}
+
+# Test 20: Verify perform_ami_diagnostic_checks runs 5 automated checks
+test_ami_diagnostic_runs_five_checks() {
+    print_test "Verifying perform_ami_diagnostic_checks runs 5 automated checks"
+    
+    # Count "Check N/5:" patterns in the function
+    local check_count=$(sed -n '/^perform_ami_diagnostic_checks()/,/^[a-z_]*().*{/p' "$REPO_ROOT/install.sh" | grep -c "Check [0-9]/5:")
+    
+    if [ "$check_count" -eq 5 ]; then
+        print_pass "perform_ami_diagnostic_checks runs 5 automated checks"
+        return 0
+    else
+        print_fail "Expected 5 checks, found $check_count"
+        return 1
+    fi
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -304,6 +372,10 @@ main() {
     test_redis_health_check_in_install || true
     test_install_reads_database_credentials || true
     test_redis_connectivity_check || true
+    test_perform_ami_diagnostic_checks_exists || true
+    test_ami_checks_use_pollinations_ai || true
+    test_no_manual_check_instructions || true
+    test_ami_diagnostic_runs_five_checks || true
     
     print_summary
 }
