@@ -21,6 +21,11 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\HandleCors::class,
         ]);
 
+        // Register VoIP phone whitelist middleware alias
+        $middleware->alias([
+            'voip.whitelist' => \App\Http\Middleware\VoipPhoneWhitelist::class,
+        ]);
+
         $middleware->redirectGuestsTo(fn () => throw new \Illuminate\Auth\AuthenticationException());
     })
     ->withExceptions(function (Exceptions $exceptions) {

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Helpers\GrandStreamActionUrls;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
@@ -53,6 +54,7 @@ class GrandStreamProvisioningService
         $config = $this->addExtensionConfig($config, $extension, $options);
         $config = $this->addNetworkConfig($config, $options);
         $config = $this->addBLFConfig($config, $options);
+        $config = $this->addActionUrlConfig($config, $options);
 
         return $config;
     }
@@ -152,6 +154,23 @@ class GrandStreamProvisioningService
     }
 
     /**
+     * Add Action URL configuration for phone events
+     */
+    protected function addActionUrlConfig($config, $options = [])
+    {
+        $config['action_urls'] = GrandStreamActionUrls::getAllActionUrls();
+        return $config;
+    }
+
+    /**
+     * Get Action URL configuration for phones
+     */
+    public function getActionUrlConfig()
+    {
+        return GrandStreamActionUrls::getActionUrlConfig();
+    }
+
+    /**
      * Convert configuration to GrandStream XML format
      */
     public function toXML($config)
@@ -187,6 +206,21 @@ class GrandStreamProvisioningService
         $xml .= "    <P57>9</P57>\n"; // PCMU (ulaw)
         $xml .= "    <P58>8</P58>\n"; // PCMA (alaw)
         $xml .= "    <P59>0</P59>\n"; // G722 (HD)
+
+        // Action URL settings
+        if (isset($config['action_urls'])) {
+            $xml .= "    <!-- Action URL Configuration -->\n";
+            $actionUrlConfig = $this->getActionUrlConfig();
+            $pValues = $actionUrlConfig['p_values'];
+            
+            foreach ($config['action_urls'] as $event => $url) {
+                if (isset($pValues[$event])) {
+                    $pValue = $pValues[$event];
+                    $escapedUrl = htmlspecialchars($url, ENT_XML1, 'UTF-8');
+                    $xml .= "    <{$pValue}>{$escapedUrl}</{$pValue}>\n";
+                }
+            }
+        }
 
         $xml .= "  </config>\n";
         $xml .= "</gs_provision>\n";
@@ -1015,5 +1049,186 @@ class GrandStreamProvisioningService
         ];
         
         return $this->setPhoneConfig($ip, $config, $credentials);
+    }
+
+    /**
+     * Check current Action URL configuration on a phone
+     * Returns the current values and whether they match expected values
+     */
+    public function checkActionUrls($ip, $credentials = [])
+    {
+        $result = $this->getPhoneConfig($ip, $credentials);
+        
+        if (!$result['success']) {
+            return $result;
+        }
+
+        $currentConfig = $result['config'];
+        $actionUrlConfig = $this->getActionUrlConfig();
+        $pValues = $actionUrlConfig['p_values'];
+        $expectedUrls = $actionUrlConfig['action_urls'];
+
+        $actionUrlStatus = [];
+        $hasConflicts = false;
+        $needsUpdate = false;
+
+        foreach ($pValues as $event => $pValue) {
+            $currentValue = $currentConfig[$pValue] ?? '';
+            $expectedValue = $expectedUrls[$event] ?? '';
+
+            $status = [
+                'event' => $event,
+                'p_value' => $pValue,
+                'current' => $currentValue,
+                'expected' => $expectedValue,
+                'matches' => $currentValue === $expectedValue,
+            ];
+
+            // Detect conflicts - if current value is not empty and doesn't match expected
+            if (!empty($currentValue) && $currentValue !== $expectedValue) {
+                $status['conflict'] = true;
+                $hasConflicts = true;
+            } else {
+                $status['conflict'] = false;
+            }
+
+            // Needs update if current doesn't match expected
+            if ($currentValue !== $expectedValue) {
+                $needsUpdate = true;
+            }
+
+            $actionUrlStatus[$event] = $status;
+        }
+
+        return [
+            'success' => true,
+            'ip' => $ip,
+            'action_urls' => $actionUrlStatus,
+            'has_conflicts' => $hasConflicts,
+            'needs_update' => $needsUpdate,
+            'summary' => [
+                'total' => count($pValues),
+                'matching' => count(array_filter($actionUrlStatus, fn($s) => $s['matches'])),
+                'conflicts' => count(array_filter($actionUrlStatus, fn($s) => $s['conflict'])),
+            ],
+        ];
+    }
+
+    /**
+     * Update Action URLs on a phone
+     * @param bool $forceUpdate If true, overwrites existing non-matching values without confirmation
+     */
+    public function updateActionUrls($ip, $credentials = [], $forceUpdate = false)
+    {
+        // First check current status
+        $checkResult = $this->checkActionUrls($ip, $credentials);
+        
+        if (!$checkResult['success']) {
+            return $checkResult;
+        }
+
+        // If there are conflicts and force update is not enabled, require confirmation
+        if ($checkResult['has_conflicts'] && !$forceUpdate) {
+            return [
+                'success' => false,
+                'requires_confirmation' => true,
+                'ip' => $ip,
+                'message' => 'Phone has existing Action URL configuration that differs from expected values. Set forceUpdate to true to overwrite.',
+                'conflicts' => array_filter($checkResult['action_urls'], fn($s) => $s['conflict']),
+            ];
+        }
+
+        // If no update needed
+        if (!$checkResult['needs_update']) {
+            return [
+                'success' => true,
+                'ip' => $ip,
+                'message' => 'Action URLs are already configured correctly',
+                'updated' => false,
+            ];
+        }
+
+        // Build configuration to set
+        $actionUrlConfig = $this->getActionUrlConfig();
+        $pValues = $actionUrlConfig['p_values'];
+        $expectedUrls = $actionUrlConfig['action_urls'];
+
+        $configToSet = [];
+        foreach ($pValues as $event => $pValue) {
+            $configToSet[$pValue] = $expectedUrls[$event];
+        }
+
+        // Apply configuration
+        $result = $this->setPhoneConfig($ip, $configToSet, $credentials);
+        
+        if ($result['success']) {
+            Log::info('Action URLs updated on phone', [
+                'ip' => $ip,
+                'forced' => $forceUpdate,
+            ]);
+        }
+
+        return [
+            'success' => $result['success'],
+            'ip' => $ip,
+            'message' => $result['success'] ? 'Action URLs updated successfully' : 'Failed to update Action URLs',
+            'updated' => $result['success'],
+            'error' => $result['error'] ?? null,
+        ];
+    }
+
+    /**
+     * Provision extension to phone with Action URLs
+     * This is a complete provisioning that includes both SIP account and Action URLs
+     */
+    public function provisionPhoneComplete($ip, $extension, $accountNumber = 1, $credentials = [], $forceActionUrls = false)
+    {
+        // Provision extension first
+        $extensionResult = $this->provisionExtensionToPhone($ip, $extension, $accountNumber, $credentials);
+        
+        if (!$extensionResult['success']) {
+            return [
+                'success' => false,
+                'message' => 'Failed to provision extension',
+                'extension_error' => $extensionResult['error'] ?? $extensionResult['message'] ?? 'Unknown error',
+            ];
+        }
+
+        // Update Action URLs
+        $actionUrlResult = $this->updateActionUrls($ip, $credentials, $forceActionUrls);
+        
+        // Check if Action URL update requires confirmation
+        if (isset($actionUrlResult['requires_confirmation']) && $actionUrlResult['requires_confirmation']) {
+            return [
+                'success' => true, // Extension provisioned successfully
+                'ip' => $ip,
+                'extension' => $extension['extension_number'],
+                'account_number' => $accountNumber,
+                'extension_provisioned' => true,
+                'action_urls_result' => $actionUrlResult,
+            ];
+        }
+
+        // Check if Action URL update failed
+        if (!$actionUrlResult['success'] && !isset($actionUrlResult['requires_confirmation'])) {
+            return [
+                'success' => false,
+                'message' => 'Extension provisioned but Action URL update failed',
+                'ip' => $ip,
+                'extension' => $extension['extension_number'],
+                'account_number' => $accountNumber,
+                'extension_provisioned' => true,
+                'action_urls_result' => $actionUrlResult,
+            ];
+        }
+
+        return [
+            'success' => true,
+            'ip' => $ip,
+            'extension' => $extension['extension_number'],
+            'account_number' => $accountNumber,
+            'extension_provisioned' => true,
+            'action_urls_result' => $actionUrlResult,
+        ];
     }
 }

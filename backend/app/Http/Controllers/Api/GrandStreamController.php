@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
 use App\Services\GrandStreamProvisioningService;
 use App\Models\Extension;
 use Illuminate\Http\Request;
@@ -354,5 +355,87 @@ class GrandStreamController extends Controller
             'success' => true,
             'phones' => $phones,
         ]);
+    }
+
+    /**
+     * Check Action URL configuration on a phone
+     * Returns current values and whether they match expected RayanPBX values
+     */
+    public function checkActionUrls(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->checkActionUrls(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Update Action URLs on a phone
+     * Configures the phone to send webhooks to RayanPBX
+     */
+    public function updateActionUrls(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+            'force' => 'nullable|boolean',
+        ]);
+
+        $result = $this->provisioningService->updateActionUrls(
+            $request->input('ip'),
+            $request->input('credentials', []),
+            $request->input('force', false)
+        );
+
+        // If requires confirmation, return 409 Conflict
+        if (isset($result['requires_confirmation']) && $result['requires_confirmation']) {
+            return response()->json($result, 409);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * Complete phone provisioning with extension and Action URLs
+     */
+    public function provisionComplete(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'extension_id' => 'required|integer|exists:extensions,id',
+            'account_number' => 'nullable|integer|min:1|max:6',
+            'credentials' => 'nullable|array',
+            'force_action_urls' => 'nullable|boolean',
+        ]);
+
+        $extension = Extension::findOrFail($request->extension_id);
+
+        $result = $this->provisioningService->provisionPhoneComplete(
+            $request->input('ip'),
+            $extension->toArray(),
+            $request->input('account_number', 1),
+            $request->input('credentials', []),
+            $request->input('force_action_urls', false)
+        );
+
+        // If Action URLs require confirmation, return 409 Conflict
+        if (isset($result['action_urls_result']['requires_confirmation']) && 
+            $result['action_urls_result']['requires_confirmation']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Extension provisioned but Action URLs require confirmation',
+                'extension_provisioned' => true,
+                'action_urls_result' => $result['action_urls_result'],
+            ], 409);
+        }
+
+        return response()->json($result);
     }
 }

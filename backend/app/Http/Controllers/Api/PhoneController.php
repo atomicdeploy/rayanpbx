@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
 use App\Services\GrandStreamProvisioningService;
 use App\Services\TR069Service;
 use Illuminate\Http\Request;
