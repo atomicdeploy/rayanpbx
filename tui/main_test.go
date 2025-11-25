@@ -707,6 +707,9 @@ func TestVoIPControlMenuRollover(t *testing.T) {
 	}
 	
 	// Test rollover from first to last (pressing up at cursor=0)
+	// Note: initVoIPControlMenu sets currentScreen to voipPhoneControlScreen,
+	// and handleVoIPPhonesKeyPress has special handling for this screen
+	// that manages cursor navigation in the control menu
 	m.cursor = 0
 	m.handleVoIPPhonesKeyPress("up")
 	if m.cursor != menuLen-1 {
