@@ -656,7 +656,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleAsteriskMenuSelection()
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
-				m.handleSystemSettingsAction()
+				cmd := m.handleSystemSettingsAction()
+				if cmd != nil {
+					return m, cmd
+				}
 			} else if m.currentScreen == docsListScreen {
 				// Open selected document
 				if m.selectedDocIdx < len(m.docsList) {
@@ -2963,7 +2966,7 @@ func (m *model) renderSystemSettings() string {
 	return menuStyle.Render(s)
 }
 
-func (m *model) handleSystemSettingsAction() {
+func (m *model) handleSystemSettingsAction() tea.Cmd {
 	switch m.cursor {
 	case 0:
 		// Toggle Mode
@@ -2979,12 +2982,13 @@ func (m *model) handleSystemSettingsAction() {
 		m.setMode("development", true)
 	case 4:
 		// Run System Upgrade
-		m.runSystemUpgrade()
+		return m.runSystemUpgrade()
 	case 5:
 		// Back to main menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
 	}
+	return nil
 }
 
 func (m *model) toggleAppMode() {
@@ -3058,8 +3062,9 @@ func (m *model) setMode(env string, debug bool) {
 	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Changes will take effect after service restart.", env, debug)
 }
 
-// runSystemUpgrade executes the upgrade script
-func (m *model) runSystemUpgrade() {
+// runSystemUpgrade executes the upgrade script using tea.ExecProcess
+// This properly suspends the TUI and allows user interaction with the script
+func (m *model) runSystemUpgrade() tea.Cmd {
 	// Use absolute path for security
 	upgradeScript := "/opt/rayanpbx/scripts/upgrade.sh"
 	
@@ -3067,41 +3072,29 @@ func (m *model) runSystemUpgrade() {
 	fileInfo, err := os.Stat(upgradeScript)
 	if os.IsNotExist(err) {
 		m.errorMsg = fmt.Sprintf("Upgrade script not found at: %s", upgradeScript)
-		return
+		return nil
 	}
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Error checking upgrade script: %v", err)
-		return
+		return nil
 	}
 	if !fileInfo.Mode().IsRegular() {
 		m.errorMsg = fmt.Sprintf("Upgrade script is not a regular file: %s", upgradeScript)
-		return
+		return nil
 	}
-	
-	// Display a message and exit TUI to run upgrade
-	fmt.Println("\n🚀 Launching system upgrade...")
-	fmt.Println("The TUI will close and the upgrade script will start.")
-	fmt.Println()
 	
 	// Prepare the command with sudo
 	cmd := exec.Command("sudo", "bash", upgradeScript)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	
-	// Execute the upgrade script
-	if err := cmd.Run(); err != nil {
-		// Check for specific error types
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			fmt.Printf("Upgrade script exited with status %d\n", exitErr.ExitCode())
-		} else {
-			fmt.Printf("Error running upgrade script: %v\n", err)
+	// Use tea.ExecProcess to run the command outside the TUI
+	// This properly suspends the alternate screen and allows user interaction
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return commandFinishedMsg{output: "", err: fmt.Errorf("upgrade failed: %v", err)}
 		}
-		os.Exit(1)
-	}
-	
-	// Exit successfully after upgrade completes
-	os.Exit(0)
+		return commandFinishedMsg{output: "System upgrade completed successfully.", err: nil}
+	})
 }
 
 // Helper function to replace environment variable value in .env content
