@@ -19,8 +19,16 @@ class TR069Service
 
     private string $acsPassword;
 
+    /**
+     * Unified HTTP client for making outbound requests
+     */
     private HttpClientService $httpClient;
 
+    /**
+     * Create a new TR069Service instance
+     *
+     * @param  HttpClientService|null  $httpClient  Optional HTTP client for dependency injection/testing
+     */
     public function __construct(?HttpClientService $httpClient = null)
     {
         $this->acsUrl = config('rayanpbx.tr069.acs_url', 'http://localhost:7547/');

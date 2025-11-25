@@ -6,8 +6,16 @@ use Exception;
 
 class SystemctlService
 {
+    /**
+     * Unified HTTP client for making outbound requests (e.g., AI solutions)
+     */
     private HttpClientService $httpClient;
 
+    /**
+     * Create a new SystemctlService instance
+     *
+     * @param  HttpClientService|null  $httpClient  Optional HTTP client for dependency injection/testing
+     */
     public function __construct(?HttpClientService $httpClient = null)
     {
         $this->httpClient = $httpClient ?? new HttpClientService;

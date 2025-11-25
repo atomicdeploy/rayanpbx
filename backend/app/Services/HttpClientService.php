@@ -16,6 +16,21 @@ use Illuminate\Support\Facades\Http;
 class HttpClientService
 {
     /**
+     * Environment variable names for proxy configuration
+     */
+    private const ENV_HTTP_PROXY = 'http_proxy';
+
+    private const ENV_HTTP_PROXY_UPPER = 'HTTP_PROXY';
+
+    private const ENV_HTTPS_PROXY = 'https_proxy';
+
+    private const ENV_HTTPS_PROXY_UPPER = 'HTTPS_PROXY';
+
+    private const ENV_NO_PROXY = 'no_proxy';
+
+    private const ENV_NO_PROXY_UPPER = 'NO_PROXY';
+
+    /**
      * Default timeout in seconds
      */
     protected int $timeout;
@@ -94,9 +109,9 @@ class HttpClientService
      */
     protected function getProxyConfig(): ?array
     {
-        $httpProxy = env('http_proxy') ?? env('HTTP_PROXY');
-        $httpsProxy = env('https_proxy') ?? env('HTTPS_PROXY');
-        $noProxy = env('no_proxy') ?? env('NO_PROXY');
+        $httpProxy = env(self::ENV_HTTP_PROXY) ?? env(self::ENV_HTTP_PROXY_UPPER);
+        $httpsProxy = env(self::ENV_HTTPS_PROXY) ?? env(self::ENV_HTTPS_PROXY_UPPER);
+        $noProxy = env(self::ENV_NO_PROXY) ?? env(self::ENV_NO_PROXY_UPPER);
 
         if (! $httpProxy && ! $httpsProxy) {
             return null;
@@ -217,14 +232,7 @@ class HttpClientService
     ) {
         $client = $this->client($options)->withBasicAuth($username, $password);
 
-        return match (strtoupper($method)) {
-            'GET' => $client->get($url, $data),
-            'POST' => $client->post($url, $data),
-            'PUT' => $client->put($url, $data),
-            'PATCH' => $client->patch($url, $data),
-            'DELETE' => $client->delete($url, $data),
-            default => $client->get($url, $data),
-        };
+        return $this->executeRequest($client, $method, $url, $data);
     }
 
     /**
@@ -247,13 +255,27 @@ class HttpClientService
             'auth' => [$username, $password, 'digest'],
         ]);
 
+        return $this->executeRequest($client, $method, $url);
+    }
+
+    /**
+     * Execute HTTP request based on method
+     *
+     * @param  PendingRequest  $client  Configured HTTP client
+     * @param  string  $method  HTTP method
+     * @param  string  $url  Target URL
+     * @param  array  $data  Request data (used for GET query params or POST body)
+     * @return \Illuminate\Http\Client\Response
+     */
+    protected function executeRequest(PendingRequest $client, string $method, string $url, array $data = [])
+    {
         return match (strtoupper($method)) {
-            'GET' => $client->get($url),
-            'POST' => $client->post($url),
-            'PUT' => $client->put($url),
-            'PATCH' => $client->patch($url),
-            'DELETE' => $client->delete($url),
-            default => $client->get($url),
+            'GET' => $client->get($url, $data),
+            'POST' => $client->post($url, $data),
+            'PUT' => $client->put($url, $data),
+            'PATCH' => $client->patch($url, $data),
+            'DELETE' => $client->delete($url, $data),
+            default => $client->get($url, $data),
         };
     }
 

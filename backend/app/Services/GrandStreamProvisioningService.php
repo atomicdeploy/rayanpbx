@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Storage;
  */
 class GrandStreamProvisioningService
 {
+    /**
+     * Unified HTTP client for phone communication
+     */
     protected HttpClientService $httpClient;
 
     protected $supportedModels = [
@@ -40,6 +43,11 @@ class GrandStreamProvisioningService
         ],
     ];
 
+    /**
+     * Create a new GrandStreamProvisioningService instance
+     *
+     * @param  HttpClientService|null  $httpClient  Optional HTTP client for dependency injection/testing
+     */
     public function __construct(?HttpClientService $httpClient = null)
     {
         $this->httpClient = $httpClient ?? new HttpClientService;
