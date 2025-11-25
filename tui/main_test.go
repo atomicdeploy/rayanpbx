@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // TestUsageCommandsGeneration tests that usage commands are generated correctly
@@ -683,5 +685,247 @@ func TestParseCommand(t *testing.T) {
 				t.Errorf("parseCommand(%q) args[%d] = %q, expected %q", tc.input, i, arg, tc.args[i])
 			}
 		}
+	}
+}
+
+// TestMenuRolloverNavigation tests that menu navigation wraps around at boundaries
+func TestMenuRolloverNavigation(t *testing.T) {
+	testCases := []struct {
+		name         string
+		screen       screen
+		menuLen      int
+		setupFunc    func(*model)
+		getCursor    func(*model) int
+		setCursor    func(*model, int)
+	}{
+		{
+			name:    "Main menu rollover",
+			screen:  mainMenu,
+			setupFunc: func(m *model) {},
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+		{
+			name:    "Diagnostics menu rollover",
+			screen:  diagnosticsMenuScreen,
+			setupFunc: func(m *model) {},
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+		{
+			name:    "Asterisk menu rollover",
+			screen:  asteriskMenuScreen,
+			setupFunc: func(m *model) {},
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+		{
+			name:    "SIP test menu rollover",
+			screen:  sipTestMenuScreen,
+			setupFunc: func(m *model) {},
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+		{
+			name:    "Hello World menu rollover",
+			screen:  helloWorldScreen,
+			setupFunc: func(m *model) {},
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := initialModel(nil, nil, false)
+			m.currentScreen = tc.screen
+			tc.setupFunc(&m)
+			
+			// Get menu length based on screen type
+			var menuLen int
+			switch tc.screen {
+			case mainMenu:
+				menuLen = len(m.menuItems)
+			case diagnosticsMenuScreen:
+				menuLen = len(m.diagnosticsMenu)
+			case asteriskMenuScreen:
+				menuLen = len(m.asteriskMenu)
+			case sipTestMenuScreen:
+				menuLen = len(m.sipTestMenu)
+			case helloWorldScreen:
+				menuLen = len(m.helloWorldMenu)
+			}
+			
+			if menuLen == 0 {
+				t.Skip("Menu is empty")
+			}
+			
+			// Test rollover from first to last (pressing up at cursor=0)
+			tc.setCursor(&m, 0)
+			result, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+			newModel := result.(model)
+			if tc.getCursor(&newModel) != menuLen-1 {
+				t.Errorf("Expected cursor to rollover to %d (last), got %d", menuLen-1, tc.getCursor(&newModel))
+			}
+			
+			// Test rollover from last to first (pressing down at cursor=last)
+			tc.setCursor(&m, menuLen-1)
+			result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+			newModel = result.(model)
+			if tc.getCursor(&newModel) != 0 {
+				t.Errorf("Expected cursor to rollover to 0 (first), got %d", tc.getCursor(&newModel))
+			}
+		})
+	}
+}
+
+// TestHomeEndKeyNavigation tests Home and End key navigation
+func TestHomeEndKeyNavigation(t *testing.T) {
+	testCases := []struct {
+		name         string
+		screen       screen
+		setupFunc    func(*model)
+		getMenuLen   func(*model) int
+		getCursor    func(*model) int
+		setCursor    func(*model, int)
+	}{
+		{
+			name:    "Main menu Home/End",
+			screen:  mainMenu,
+			setupFunc: func(m *model) {},
+			getMenuLen: func(m *model) int { return len(m.menuItems) },
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+		{
+			name:    "Diagnostics menu Home/End",
+			screen:  diagnosticsMenuScreen,
+			setupFunc: func(m *model) {},
+			getMenuLen: func(m *model) int { return len(m.diagnosticsMenu) },
+			getCursor: func(m *model) int { return m.cursor },
+			setCursor: func(m *model, v int) { m.cursor = v },
+		},
+		{
+			name:    "Extensions list Home/End",
+			screen:  extensionsScreen,
+			setupFunc: func(m *model) {
+				m.extensions = []Extension{
+					{ID: 1, ExtensionNumber: "100", Name: "Test 1"},
+					{ID: 2, ExtensionNumber: "101", Name: "Test 2"},
+					{ID: 3, ExtensionNumber: "102", Name: "Test 3"},
+				}
+			},
+			getMenuLen: func(m *model) int { return len(m.extensions) },
+			getCursor: func(m *model) int { return m.selectedExtensionIdx },
+			setCursor: func(m *model, v int) { m.selectedExtensionIdx = v },
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := initialModel(nil, nil, false)
+			m.currentScreen = tc.screen
+			tc.setupFunc(&m)
+			
+			menuLen := tc.getMenuLen(&m)
+			if menuLen == 0 {
+				t.Skip("Menu/list is empty")
+			}
+			
+			// Test End key - should go to last item
+			tc.setCursor(&m, 0)
+			result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+			newModel := result.(model)
+			if tc.getCursor(&newModel) != menuLen-1 {
+				t.Errorf("Expected End key to move cursor to %d (last), got %d", menuLen-1, tc.getCursor(&newModel))
+			}
+			
+			// Test Home key - should go to first item
+			tc.setCursor(&m, menuLen-1)
+			result, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
+			newModel = result.(model)
+			if tc.getCursor(&newModel) != 0 {
+				t.Errorf("Expected Home key to move cursor to 0 (first), got %d", tc.getCursor(&newModel))
+			}
+		})
+	}
+}
+
+// TestInputModeRollover tests that form input navigation wraps around
+func TestInputModeRollover(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Initialize with some input fields
+	m.inputMode = true
+	m.inputFields = []string{"Field1", "Field2", "Field3"}
+	m.inputValues = []string{"", "", ""}
+	m.inputCursor = 0
+	
+	// Test rollover from first to last (pressing up at inputCursor=0)
+	result, _ := m.handleInputMode(tea.KeyMsg{Type: tea.KeyUp})
+	newModel := result.(model)
+	if newModel.inputCursor != 2 {
+		t.Errorf("Expected inputCursor to rollover to 2 (last field), got %d", newModel.inputCursor)
+	}
+	
+	// Reset and test rollover from last to first (pressing down at inputCursor=last)
+	m.inputCursor = 2
+	result, _ = m.handleInputMode(tea.KeyMsg{Type: tea.KeyDown})
+	newModel = result.(model)
+	if newModel.inputCursor != 0 {
+		t.Errorf("Expected inputCursor to rollover to 0 (first field), got %d", newModel.inputCursor)
+	}
+}
+
+// TestInputModeHomeEnd tests Home and End keys in input mode
+func TestInputModeHomeEnd(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Initialize with some input fields
+	m.inputMode = true
+	m.inputFields = []string{"Field1", "Field2", "Field3", "Field4"}
+	m.inputValues = []string{"", "", "", ""}
+	m.inputCursor = 1
+	
+	// Test Home key - should go to first field
+	result, _ := m.handleInputMode(tea.KeyMsg{Type: tea.KeyHome})
+	newModel := result.(model)
+	if newModel.inputCursor != 0 {
+		t.Errorf("Expected Home key to move inputCursor to 0, got %d", newModel.inputCursor)
+	}
+	
+	// Test End key - should go to last field
+	result, _ = newModel.handleInputMode(tea.KeyMsg{Type: tea.KeyEnd})
+	newModel = result.(model)
+	if newModel.inputCursor != 3 {
+		t.Errorf("Expected End key to move inputCursor to 3 (last field), got %d", newModel.inputCursor)
+	}
+}
+
+// TestVoIPControlMenuRollover tests that VoIP control menu navigation wraps around
+func TestVoIPControlMenuRollover(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.initVoIPControlMenu()
+	
+	menuLen := len(m.voipControlMenu)
+	if menuLen == 0 {
+		t.Fatal("voipControlMenu is empty")
+	}
+	
+	// Test rollover from first to last (pressing up at cursor=0)
+	// Note: initVoIPControlMenu sets currentScreen to voipPhoneControlScreen,
+	// and handleVoIPPhonesKeyPress has special handling for this screen
+	// that manages cursor navigation in the control menu
+	m.cursor = 0
+	m.handleVoIPPhonesKeyPress("up")
+	if m.cursor != menuLen-1 {
+		t.Errorf("Expected cursor to rollover to %d (last), got %d", menuLen-1, m.cursor)
+	}
+	
+	// Test rollover from last to first (pressing down at cursor=last)
+	m.cursor = menuLen - 1
+	m.handleVoIPPhonesKeyPress("down")
+	if m.cursor != 0 {
+		t.Errorf("Expected cursor to rollover to 0 (first), got %d", m.cursor)
 	}
 }
