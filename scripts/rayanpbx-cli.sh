@@ -575,6 +575,221 @@ cmd_diag_check_sip() {
     bash "$script_path" check-sip "${1:-5060}" "${2:-true}"
 }
 
+# Check AMI (Asterisk Manager Interface) socket health
+cmd_diag_check_ami() {
+    print_header "🔌 AMI Socket Health Check"
+    
+    local auto_fix="${1:-true}"
+    
+    local script_path="$SCRIPT_DIR/health-check.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Health check script not found"
+        exit 1
+    fi
+    
+    # Get AMI credentials from .env if available
+    local ami_host="127.0.0.1"
+    local ami_port="5038"
+    local ami_username="admin"
+    local ami_secret="rayanpbx_ami_secret"
+    
+    if [ -f "$ENV_FILE" ]; then
+        ami_host=$(grep "^ASTERISK_AMI_HOST=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "127.0.0.1")
+        ami_port=$(grep "^ASTERISK_AMI_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "5038")
+        ami_username=$(grep "^ASTERISK_AMI_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+        ami_secret=$(grep "^ASTERISK_AMI_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx_ami_secret")
+        print_verbose "Using AMI credentials from .env: host=$ami_host, port=$ami_port, user=$ami_username"
+    fi
+    
+    # Run the check-ami command from health-check.sh
+    bash "$script_path" check-ami "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "$auto_fix"
+}
+
+# Reapply AMI credentials - parse manager.conf and fix any misconfigurations
+cmd_diag_reapply_ami() {
+    print_header "🔧 Reapply AMI Credentials"
+    
+    local manager_conf="/etc/asterisk/manager.conf"
+    local ami_secret=""
+    local ami_username="admin"
+    
+    # Get expected credentials from .env if available
+    if [ -f "$ENV_FILE" ]; then
+        ami_username=$(grep "^ASTERISK_AMI_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+        ami_secret=$(grep "^ASTERISK_AMI_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx_ami_secret")
+        print_info "Expected AMI username from .env: $ami_username"
+        print_verbose "Expected AMI secret from .env: (hidden)"
+    else
+        ami_secret="rayanpbx_ami_secret"
+        print_warn ".env file not found, using default credentials"
+    fi
+    
+    # Check if manager.conf exists
+    if [ ! -f "$manager_conf" ]; then
+        print_error "manager.conf not found at $manager_conf"
+        print_info "Run the install script to create it, or create it manually"
+        exit 1
+    fi
+    
+    print_info "Checking current manager.conf configuration..."
+    echo ""
+    
+    # Parse current values from manager.conf
+    local current_enabled=$(grep -A20 '^\[general\]' "$manager_conf" 2>/dev/null | grep -E '^\s*enabled\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    local current_port=$(grep -A20 '^\[general\]' "$manager_conf" 2>/dev/null | grep -E '^\s*port\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    local current_bindaddr=$(grep -A20 '^\[general\]' "$manager_conf" 2>/dev/null | grep -E '^\s*bindaddr\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    
+    # Check if the expected user section exists
+    local user_section_exists=false
+    if grep -q "^\[$ami_username\]" "$manager_conf" 2>/dev/null; then
+        user_section_exists=true
+    fi
+    
+    local current_secret=""
+    local current_permit=""
+    local current_read=""
+    local current_write=""
+    
+    if [ "$user_section_exists" = true ]; then
+        current_secret=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*secret\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_permit=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*permit\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_read=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*read\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_write=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*write\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    fi
+    
+    # Display current configuration
+    echo -e "${CYAN}Current manager.conf configuration:${NC}"
+    echo -e "  ${DIM}[general]${NC}"
+    echo -e "    enabled    = ${current_enabled:-${RED}not set${NC}}"
+    echo -e "    port       = ${current_port:-${RED}not set${NC}}"
+    echo -e "    bindaddr   = ${current_bindaddr:-${RED}not set${NC}}"
+    echo ""
+    
+    if [ "$user_section_exists" = true ]; then
+        echo -e "  ${DIM}[$ami_username]${NC}"
+        echo -e "    secret     = ${current_secret:+***hidden***}${current_secret:-${RED}not set${NC}}"
+        echo -e "    permit     = ${current_permit:-${RED}not set${NC}}"
+        echo -e "    read       = ${current_read:-${RED}not set${NC}}"
+        echo -e "    write      = ${current_write:-${RED}not set${NC}}"
+    else
+        echo -e "  ${RED}[$ami_username] section not found!${NC}"
+    fi
+    echo ""
+    
+    # Check for issues
+    local issues_found=()
+    
+    if [ "$current_enabled" != "yes" ]; then
+        issues_found+=("AMI is not enabled (current: '$current_enabled', expected: 'yes')")
+    fi
+    if [ "$current_port" != "5038" ]; then
+        issues_found+=("AMI port is incorrect (current: '$current_port', expected: '5038')")
+    fi
+    if [ "$current_bindaddr" != "127.0.0.1" ]; then
+        issues_found+=("AMI bind address is incorrect (current: '$current_bindaddr', expected: '127.0.0.1')")
+    fi
+    if [ "$user_section_exists" != true ]; then
+        issues_found+=("[$ami_username] section does not exist")
+    else
+        if [ "$current_secret" != "$ami_secret" ]; then
+            issues_found+=("AMI secret mismatch (manager.conf value differs from .env)")
+        fi
+        if [ "$current_read" != "all" ]; then
+            issues_found+=("AMI read permission incorrect (current: '$current_read', expected: 'all')")
+        fi
+        if [ "$current_write" != "all" ]; then
+            issues_found+=("AMI write permission incorrect (current: '$current_write', expected: 'all')")
+        fi
+    fi
+    
+    if [ ${#issues_found[@]} -eq 0 ]; then
+        print_success "All AMI configuration values are correct!"
+        echo ""
+        
+        # Test AMI connection
+        print_info "Testing AMI connection..."
+        if command -v nc &> /dev/null; then
+            local ami_host="127.0.0.1"
+            local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$ami_host" "5038" 2>/dev/null | head -10)
+            
+            if echo "$ami_response" | grep -qi "Success"; then
+                print_success "AMI connection and authentication successful!"
+            elif echo "$ami_response" | grep -qi "Authentication failed"; then
+                print_error "AMI authentication failed despite correct configuration"
+                print_info "Try reloading Asterisk manager: asterisk -rx 'manager reload'"
+            else
+                print_warn "Could not verify AMI connection"
+            fi
+        else
+            print_info "Install 'nc' (netcat) for connection testing"
+        fi
+        
+        return 0
+    fi
+    
+    echo -e "${YELLOW}Issues found: ${#issues_found[@]}${NC}"
+    for issue in "${issues_found[@]}"; do
+        echo -e "  ${RED}•${NC} $issue"
+    done
+    echo ""
+    
+    # Apply fixes
+    print_info "Applying fixes to manager.conf..."
+    
+    # Source ini-helper for proper INI file manipulation
+    if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
+        source "$SCRIPT_DIR/ini-helper.sh"
+        
+        # Backup current config
+        local backup=$(backup_config "$manager_conf")
+        print_success "Created backup: $backup"
+        
+        # Apply all required settings
+        ensure_ini_section "$manager_conf" "general"
+        set_ini_value "$manager_conf" "general" "enabled" "yes"
+        set_ini_value "$manager_conf" "general" "port" "5038"
+        set_ini_value "$manager_conf" "general" "bindaddr" "127.0.0.1"
+        
+        ensure_ini_section "$manager_conf" "$ami_username"
+        set_ini_value "$manager_conf" "$ami_username" "secret" "$ami_secret"
+        set_ini_value "$manager_conf" "$ami_username" "deny" "0.0.0.0/0.0.0.0"
+        set_ini_value "$manager_conf" "$ami_username" "permit" "127.0.0.1/255.255.255.255"
+        set_ini_value "$manager_conf" "$ami_username" "read" "all"
+        set_ini_value "$manager_conf" "$ami_username" "write" "all"
+        
+        print_success "manager.conf updated successfully"
+        
+        # Reload Asterisk manager
+        print_info "Reloading Asterisk manager..."
+        if asterisk -rx "manager reload" > /dev/null 2>&1; then
+            print_success "Asterisk manager reloaded"
+            sleep 2
+            
+            # Verify the fix worked
+            print_info "Verifying AMI connection..."
+            if command -v nc &> /dev/null; then
+                local ami_host="127.0.0.1"
+                local ami_response=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$ami_host" "5038" 2>/dev/null | head -10)
+                
+                if echo "$ami_response" | grep -qi "Success"; then
+                    print_success "AMI connection and authentication now working!"
+                else
+                    print_warn "AMI may need a full Asterisk restart"
+                    print_info "Try: systemctl restart asterisk"
+                fi
+            fi
+        else
+            print_warn "Could not reload Asterisk manager"
+            print_info "Try: systemctl restart asterisk"
+        fi
+    else
+        print_error "ini-helper.sh not found - cannot safely modify manager.conf"
+        print_info "Please manually edit $manager_conf"
+        exit 1
+    fi
+}
+
 # SIP Testing commands
 cmd_sip_test_tools() {
     print_header "🔧 SIP Testing Tools"
@@ -1143,6 +1358,8 @@ cmd_help() {
         echo -e "   ${GREEN}test-extension${NC} <number>           Test extension registration"
         echo -e "   ${GREEN}health-check${NC}                      Run system health check"
         echo -e "   ${GREEN}check-sip${NC} [port] [auto-fix]       Check SIP port is listening (validates connection)"
+        echo -e "   ${GREEN}check-ami${NC} [auto-fix]              Check AMI socket health and optionally auto-fix"
+        echo -e "   ${GREEN}reapply-ami${NC}                       Reapply AMI credentials from .env to manager.conf"
         echo ""
         
         echo -e "${CYAN}📞 sip-test${NC} ${DIM}- SIP testing suite${NC}"
@@ -1344,16 +1561,18 @@ main() {
             ;;
         diag)
             case "${2:-}" in
-                test-extension) cmd_diag_test_extension "$3" ;;
+                test-extension) cmd_diag_test_extension "${3:-}" ;;
                 health-check) cmd_diag_health_check ;;
-                check-sip) cmd_diag_check_sip "$3" "$4" ;;
+                check-sip) cmd_diag_check_sip "${3:-}" "${4:-}" ;;
+                check-ami) cmd_diag_check_ami "${3:-true}" ;;
+                reapply-ami) cmd_diag_reapply_ami ;;
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
             esac
             ;;
         sip-test)
             case "${2:-}" in
                 tools) cmd_sip_test_tools ;;
-                install) cmd_sip_test_install "$3" ;;
+                install) cmd_sip_test_install "${3:-}" ;;
                 register) cmd_sip_test_register "$3" "$4" "$5" ;;
                 call) cmd_sip_test_call "$3" "$4" "$5" "$6" "$7" ;;
                 full) cmd_sip_test_full "$3" "$4" "$5" "$6" "$7" ;;

@@ -428,12 +428,20 @@ url_encode() {
 
 # Query Pollinations.AI for AI-powered solutions
 # Handles timeouts and error cases gracefully
+# Automatically includes system context (Asterisk v22, Ubuntu) in the prompt
 query_pollinations_ai() {
     local query="$1"
     local max_chars="${2:-800}"
     
+    # Build system context prompt (without sensitive info)
+    # This helps AI provide more accurate solutions for our specific setup
+    local system_context="System context: RayanPBX with Asterisk v22, Ubuntu 24.04 LTS, PJSIP stack. "
+    
+    # Combine system context with user query
+    local full_query="${system_context}${query}"
+    
     # URL encode the query
-    local encoded_query=$(url_encode "$query")
+    local encoded_query=$(url_encode "$full_query")
     
     # Fetch solution from Pollinations.AI with proper timeout and error handling
     # --connect-timeout: max time for connection establishment
@@ -715,6 +723,261 @@ perform_ami_diagnostic_checks() {
         echo -e "${WHITE}AMI configuration appears to be correct.${RESET}"
         echo ""
         return 0
+    fi
+}
+
+# Parse manager.conf and verify/fix AMI credentials
+# This function compares expected values from .env with actual values in manager.conf
+# When verbose mode is enabled, it displays detailed comparison information
+# Returns: 0 = no fixes needed, 1 = fixes applied successfully, 2 = fixes failed
+verify_and_fix_ami_credentials() {
+    local ami_host="${1:-127.0.0.1}"
+    local ami_port="${2:-5038}"
+    local ami_username="${3:-admin}"
+    local ami_secret="${4:-rayanpbx_ami_secret}"
+    local auto_fix="${5:-true}"
+    
+    local manager_conf="/etc/asterisk/manager.conf"
+    local issues_found=()
+    local fixes_applied=false
+    
+    print_verbose "Verifying AMI credentials in manager.conf..."
+    print_verbose "Expected: host=$ami_host, port=$ami_port, user=$ami_username"
+    
+    # Check if manager.conf exists
+    if [ ! -f "$manager_conf" ]; then
+        print_warning "manager.conf not found at $manager_conf"
+        
+        if [ "$auto_fix" = "true" ]; then
+            print_info "Creating manager.conf with required configuration..."
+            
+            # Create the file with proper configuration
+            mkdir -p /etc/asterisk
+            cat > "$manager_conf" << EOF
+; Asterisk Manager Interface (AMI) Configuration
+; Created by RayanPBX installer
+
+[general]
+enabled = yes
+port = $ami_port
+bindaddr = $ami_host
+
+[$ami_username]
+secret = $ami_secret
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.255
+read = all
+write = all
+EOF
+            
+            chown asterisk:asterisk "$manager_conf" 2>/dev/null || true
+            chmod 640 "$manager_conf" 2>/dev/null || true
+            
+            print_success "Created manager.conf with AMI configuration"
+            return 1  # Fixes applied
+        else
+            return 2  # Cannot fix
+        fi
+    fi
+    
+    # Parse current values from manager.conf
+    local current_enabled=$(grep -A20 '^\[general\]' "$manager_conf" 2>/dev/null | grep -E '^\s*enabled\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    local current_port=$(grep -A20 '^\[general\]' "$manager_conf" 2>/dev/null | grep -E '^\s*port\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    local current_bindaddr=$(grep -A20 '^\[general\]' "$manager_conf" 2>/dev/null | grep -E '^\s*bindaddr\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    
+    # Check if the expected user section exists
+    local user_section_exists=false
+    if grep -q "^\[$ami_username\]" "$manager_conf" 2>/dev/null; then
+        user_section_exists=true
+    fi
+    
+    local current_secret=""
+    local current_permit=""
+    local current_deny=""
+    local current_read=""
+    local current_write=""
+    
+    if [ "$user_section_exists" = true ]; then
+        current_secret=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*secret\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_permit=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*permit\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_deny=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*deny\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_read=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*read\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        current_write=$(grep -A20 "^\[$ami_username\]" "$manager_conf" 2>/dev/null | grep -E '^\s*write\s*=' | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+    fi
+    
+    # Display verbose comparison if enabled
+    if [ "$VERBOSE" = true ]; then
+        echo ""
+        echo -e "${CYAN}${BOLD}📋 AMI Configuration Comparison:${RESET}"
+        echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+        echo ""
+        echo -e "${CYAN}[general] section:${RESET}"
+        
+        # enabled
+        if [ "$current_enabled" = "yes" ]; then
+            echo -e "  enabled    : ${GREEN}$current_enabled${RESET} ${DIM}(expected: yes)${RESET} ✓"
+        else
+            echo -e "  enabled    : ${RED}${current_enabled:-not set}${RESET} ${DIM}(expected: yes)${RESET} ✗"
+        fi
+        
+        # port
+        if [ "$current_port" = "$ami_port" ]; then
+            echo -e "  port       : ${GREEN}$current_port${RESET} ${DIM}(expected: $ami_port)${RESET} ✓"
+        else
+            echo -e "  port       : ${RED}${current_port:-not set}${RESET} ${DIM}(expected: $ami_port)${RESET} ✗"
+        fi
+        
+        # bindaddr
+        if [ "$current_bindaddr" = "$ami_host" ]; then
+            echo -e "  bindaddr   : ${GREEN}$current_bindaddr${RESET} ${DIM}(expected: $ami_host)${RESET} ✓"
+        else
+            echo -e "  bindaddr   : ${YELLOW}${current_bindaddr:-not set}${RESET} ${DIM}(expected: $ami_host)${RESET} ?"
+        fi
+        
+        echo ""
+        
+        if [ "$user_section_exists" = true ]; then
+            echo -e "${CYAN}[$ami_username] section:${RESET}"
+            
+            # secret (masked)
+            if [ "$current_secret" = "$ami_secret" ]; then
+                echo -e "  secret     : ${GREEN}***matches***${RESET} ${DIM}(expected value)${RESET} ✓"
+            else
+                echo -e "  secret     : ${RED}***mismatch***${RESET} ${DIM}(different from expected)${RESET} ✗"
+            fi
+            
+            # deny
+            if [ -n "$current_deny" ]; then
+                echo -e "  deny       : ${GREEN}$current_deny${RESET} ✓"
+            else
+                echo -e "  deny       : ${YELLOW}not set${RESET} ?"
+            fi
+            
+            # permit
+            if [ -n "$current_permit" ]; then
+                echo -e "  permit     : ${GREEN}$current_permit${RESET} ✓"
+            else
+                echo -e "  permit     : ${RED}not set${RESET} ✗"
+            fi
+            
+            # read
+            if [ "$current_read" = "all" ]; then
+                echo -e "  read       : ${GREEN}$current_read${RESET} ${DIM}(expected: all)${RESET} ✓"
+            else
+                echo -e "  read       : ${RED}${current_read:-not set}${RESET} ${DIM}(expected: all)${RESET} ✗"
+            fi
+            
+            # write
+            if [ "$current_write" = "all" ]; then
+                echo -e "  write      : ${GREEN}$current_write${RESET} ${DIM}(expected: all)${RESET} ✓"
+            else
+                echo -e "  write      : ${RED}${current_write:-not set}${RESET} ${DIM}(expected: all)${RESET} ✗"
+            fi
+        else
+            echo -e "${RED}[$ami_username] section not found!${RESET}"
+        fi
+        
+        echo ""
+        echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    fi
+    
+    # Check for issues
+    if [ "$current_enabled" != "yes" ]; then
+        issues_found+=("AMI is not enabled (current: '$current_enabled', expected: 'yes')")
+    fi
+    if [ "$current_port" != "$ami_port" ]; then
+        issues_found+=("AMI port is incorrect (current: '$current_port', expected: '$ami_port')")
+    fi
+    if [ "$user_section_exists" != true ]; then
+        issues_found+=("[$ami_username] section does not exist")
+    else
+        if [ "$current_secret" != "$ami_secret" ]; then
+            issues_found+=("AMI secret mismatch (manager.conf value differs from expected)")
+        fi
+        if [ "$current_read" != "all" ]; then
+            issues_found+=("AMI read permission incorrect (current: '$current_read', expected: 'all')")
+        fi
+        if [ "$current_write" != "all" ]; then
+            issues_found+=("AMI write permission incorrect (current: '$current_write', expected: 'all')")
+        fi
+        if [ -z "$current_permit" ]; then
+            issues_found+=("AMI permit not set (should include '127.0.0.1/255.255.255.255')")
+        fi
+    fi
+    
+    # If no issues, we're done
+    if [ ${#issues_found[@]} -eq 0 ]; then
+        print_success "All AMI credentials are correctly configured"
+        return 0
+    fi
+    
+    # Report issues
+    print_warning "Found ${#issues_found[@]} issue(s) in AMI configuration:"
+    for issue in "${issues_found[@]}"; do
+        echo -e "  ${RED}•${RESET} $issue"
+    done
+    echo ""
+    
+    # Auto-fix if enabled
+    if [ "$auto_fix" = "true" ]; then
+        print_info "Attempting to fix AMI configuration..."
+        
+        # Source ini-helper for proper INI file manipulation
+        local ini_helper=""
+        if [ -f "$INSTALL_SCRIPT_DIR/scripts/ini-helper.sh" ]; then
+            ini_helper="$INSTALL_SCRIPT_DIR/scripts/ini-helper.sh"
+        elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
+            ini_helper="/opt/rayanpbx/scripts/ini-helper.sh"
+        fi
+        
+        if [ -n "$ini_helper" ] && [ -f "$ini_helper" ]; then
+            source "$ini_helper"
+            
+            # Backup current config
+            local backup=$(backup_config "$manager_conf")
+            print_verbose "Created backup: $backup"
+            
+            # Apply all required settings
+            ensure_ini_section "$manager_conf" "general"
+            set_ini_value "$manager_conf" "general" "enabled" "yes"
+            set_ini_value "$manager_conf" "general" "port" "$ami_port"
+            set_ini_value "$manager_conf" "general" "bindaddr" "$ami_host"
+            
+            ensure_ini_section "$manager_conf" "$ami_username"
+            set_ini_value "$manager_conf" "$ami_username" "secret" "$ami_secret"
+            set_ini_value "$manager_conf" "$ami_username" "deny" "0.0.0.0/0.0.0.0"
+            set_ini_value "$manager_conf" "$ami_username" "permit" "127.0.0.1/255.255.255.255"
+            set_ini_value "$manager_conf" "$ami_username" "read" "all"
+            set_ini_value "$manager_conf" "$ami_username" "write" "all"
+            
+            # Set proper ownership and permissions
+            chown asterisk:asterisk "$manager_conf" 2>/dev/null || true
+            chmod 640 "$manager_conf" 2>/dev/null || true
+            
+            print_success "manager.conf updated successfully"
+            fixes_applied=true
+            
+            # Reload Asterisk manager
+            if systemctl is-active --quiet asterisk 2>/dev/null; then
+                print_info "Reloading Asterisk manager..."
+                if asterisk -rx "manager reload" > /dev/null 2>&1; then
+                    print_success "Asterisk manager reloaded"
+                    sleep 2
+                else
+                    print_warning "Could not reload Asterisk manager"
+                    print_info "Try: systemctl restart asterisk"
+                fi
+            fi
+            
+            return 1  # Fixes applied
+        else
+            print_warning "ini-helper.sh not found - cannot safely modify manager.conf"
+            print_info "Please manually edit $manager_conf or run: rayanpbx-cli diag reapply-ami"
+            return 2  # Cannot fix
+        fi
+    else
+        print_info "Auto-fix is disabled. Run with auto_fix=true or use: rayanpbx-cli diag reapply-ami"
+        return 2  # Cannot fix
     fi
 }
 
@@ -3124,6 +3387,18 @@ EOF
         print_verbose "Using AMI credentials from .env: host=$AMI_HOST, port=$AMI_PORT, user=$AMI_USERNAME"
     fi
     
+    # First, verify and fix AMI credentials in manager.conf if needed
+    # This ensures the configuration is correct before we try to connect
+    print_verbose "Verifying AMI credentials in manager.conf..."
+    VERIFY_RESULT=0
+    verify_and_fix_ami_credentials "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET" "true" && VERIFY_RESULT=$? || VERIFY_RESULT=$?
+    
+    if [ $VERIFY_RESULT -eq 1 ]; then
+        # Fixes were applied, give Asterisk time to reload
+        print_info "AMI configuration was updated, waiting for Asterisk to apply changes..."
+        sleep 2
+    fi
+    
     # Use the check_and_fix_ami function if available, otherwise inline check
     if type check_and_fix_ami &>/dev/null; then
         # Use the comprehensive check from health-check.sh
@@ -3146,6 +3421,11 @@ EOF
             # Run automated diagnostic checks instead of asking user to manually check
             # This function performs all the checks automatically and uses Pollinations.AI for solutions
             perform_ami_diagnostic_checks "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET"
+            
+            # Show the reapply-ami command as a fix option
+            echo -e "${CYAN}${BOLD}🔧 To manually reapply AMI credentials:${RESET}"
+            echo -e "  ${WHITE}sudo rayanpbx-cli diag reapply-ami${RESET}"
+            echo ""
             
             echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
             echo ""
@@ -3171,6 +3451,12 @@ EOF
                     echo ""
                     # Run automated diagnostic checks instead of asking user to check manually
                     perform_ami_diagnostic_checks "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET"
+                    
+                    # Show the reapply-ami command as a fix option
+                    echo -e "${CYAN}${BOLD}🔧 To manually reapply AMI credentials:${RESET}"
+                    echo -e "  ${WHITE}sudo rayanpbx-cli diag reapply-ami${RESET}"
+                    echo ""
+                    
                     FAILED_SERVICES+=("Asterisk AMI")
                 fi
             else
@@ -3184,7 +3470,12 @@ EOF
             echo ""
             # Run automated diagnostic checks instead of asking user to check manually
             perform_ami_diagnostic_checks "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET"
+            
+            # Show the reapply-ami command as a fix option
+            echo -e "${CYAN}${BOLD}🔧 To manually reapply AMI credentials:${RESET}"
+            echo -e "  ${WHITE}sudo rayanpbx-cli diag reapply-ami${RESET}"
             echo ""
+            
             FAILED_SERVICES+=("Asterisk AMI")
         fi
     fi
