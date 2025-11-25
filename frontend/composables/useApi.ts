@@ -165,5 +165,57 @@ export const useApi = () => {
         body: { channel, extension, context },
       })
     },
+
+    // VoIP Phone Management
+    async getPhones() {
+      return apiFetch('/phones')
+    },
+
+    async getPhone(identifier: string) {
+      return apiFetch(`/phones/${identifier}`)
+    },
+
+    async controlPhone(ip: string, action: string, credentials: any = {}, config: any = {}, confirmDestructive = false) {
+      return apiFetch('/phones/control', {
+        method: 'POST',
+        body: { ip, action, credentials, config, confirm_destructive: confirmDestructive },
+      })
+    },
+
+    async provisionPhone(ip: string, extensionId: number, accountNumber = 1, credentials: any = {}) {
+      return apiFetch('/phones/provision', {
+        method: 'POST',
+        body: { ip, extension_id: extensionId, account_number: accountNumber, credentials },
+      })
+    },
+
+    // GrandStream-specific APIs
+    async scanGrandstreamNetwork(network: string) {
+      return apiFetch('/grandstream/scan', {
+        method: 'POST',
+        body: { network },
+      })
+    },
+
+    async checkPhoneActionUrls(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/action-urls/check', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async updatePhoneActionUrls(ip: string, credentials: any = {}, force = false) {
+      return apiFetch('/grandstream/action-urls/update', {
+        method: 'POST',
+        body: { ip, credentials, force },
+      })
+    },
+
+    async provisionPhoneComplete(ip: string, extensionId: number, accountNumber = 1, credentials: any = {}, forceActionUrls = false) {
+      return apiFetch('/grandstream/provision-complete', {
+        method: 'POST',
+        body: { ip, extension_id: extensionId, account_number: accountNumber, credentials, force_action_urls: forceActionUrls },
+      })
+    },
   }
 }
