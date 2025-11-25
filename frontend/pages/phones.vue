@@ -176,7 +176,12 @@
       <div v-if="showActionUrlConfirmModal" class="action-url-confirm-modal">
         <div class="modal-content">
           <h3>⚠️ Confirm Action URL Update</h3>
-          <p>The phone has existing Action URL configuration that differs from RayanPBX values.</p>
+          <p v-if="provisionContext">
+            The extension was provisioned successfully, but the phone has existing Action URL configuration that differs from RayanPBX values.
+          </p>
+          <p v-else>
+            The phone has existing Action URL configuration that differs from RayanPBX values.
+          </p>
           <div v-if="actionUrlConflicts" class="conflicts-list">
             <h4>Conflicts:</h4>
             <div v-for="(conflict, event) in actionUrlConflicts" :key="event" class="conflict-item">
@@ -188,10 +193,10 @@
             </div>
           </div>
           <div class="modal-actions">
-            <button @click="updateActionUrls(true)" class="btn btn-danger">
-              Force Update
+            <button @click="forceUpdateActionUrls" class="btn btn-danger">
+              Force Update Action URLs
             </button>
-            <button @click="showActionUrlConfirmModal = false" class="btn btn-secondary">
+            <button @click="cancelActionUrlUpdate" class="btn btn-secondary">
               Cancel
             </button>
           </div>
@@ -259,6 +264,9 @@ const includeActionUrls = ref(true)
 const notification = ref(null)
 const actionUrlStatus = ref(null)
 const actionUrlConflicts = ref(null)
+
+// Store provision context for re-provisioning with force flag
+const provisionContext = ref(null)
 
 const credentials = ref({
   username: 'admin',
@@ -344,7 +352,8 @@ async function refreshPhoneStatus() {
       needsCredentials.value = true
     }
   } catch (error) {
-    console.error('Failed to get phone status:', error)
+    // Only log error message to avoid exposing sensitive data
+    console.error('Failed to get phone status:', error?.message || 'Unknown error')
   }
 }
 
@@ -413,17 +422,27 @@ async function loadExtensions() {
     const data = await response.json()
     extensions.value = data
   } catch (error) {
-    console.error('Failed to load extensions:', error)
+    // Only log error message to avoid exposing sensitive data
+    console.error('Failed to load extensions:', error?.message || 'Unknown error')
   }
 }
 
-async function provisionExtension() {
+async function provisionExtension(forceActionUrls = false) {
   if (!selectedExtension.value) {
     showNotification('Please select an extension', 'error')
     return
   }
 
   try {
+    // Store provision context for potential re-provisioning with force flag
+    provisionContext.value = {
+      ip: selectedPhone.value.ip,
+      extension_id: selectedExtension.value,
+      account_number: accountNumber.value,
+      credentials: { ...credentials.value },
+      include_action_urls: includeActionUrls.value
+    }
+
     // Use complete provisioning if Action URLs are included
     const endpoint = includeActionUrls.value ? '/api/grandstream/provision-complete' : '/api/phones/provision'
     
@@ -438,25 +457,52 @@ async function provisionExtension() {
         extension_id: selectedExtension.value,
         account_number: accountNumber.value,
         credentials: credentials.value,
-        force_action_urls: false
+        force_action_urls: forceActionUrls
       })
     })
     const data = await response.json()
+    
+    if (!response.ok && response.status !== 409) {
+      // Server error - show detailed message
+      const errorMessage = data.error || data.message || `Provisioning failed (HTTP ${response.status})`
+      showNotification(errorMessage, 'error')
+      return
+    }
     
     if (response.status === 409 && data.action_urls_result?.requires_confirmation) {
       // Action URLs have conflicts - show confirmation modal
       actionUrlConflicts.value = data.action_urls_result.conflicts
       showActionUrlConfirmModal.value = true
       showProvisionModal.value = false
-      showNotification('Extension provisioned but Action URLs need confirmation', 'warning')
+      
+      const message = data.extension_provisioned 
+        ? 'Extension provisioned successfully. Action URLs have conflicts that need confirmation.'
+        : 'Action URLs have conflicts that need confirmation.'
+      showNotification(message, 'warning')
     } else if (data.success) {
+      provisionContext.value = null // Clear context on success
       showNotification('Extension provisioned successfully', 'success')
       showProvisionModal.value = false
+      showActionUrlConfirmModal.value = false
     } else {
-      showNotification(data.error || 'Provisioning failed', 'error')
+      const errorMessage = data.error || data.message || 'Provisioning failed'
+      showNotification(errorMessage, 'error')
     }
   } catch (error) {
-    showNotification('Provisioning failed', 'error')
+    // Only log error message, not the full error object to avoid exposing sensitive data
+    console.error('Provisioning error:', error?.message || 'Network or server error')
+    showNotification('Provisioning failed: Network or server error', 'error')
+  }
+}
+
+// Handle Force Update from the conflict modal
+async function forceUpdateActionUrls() {
+  // If we have provision context (came from provisioning flow), re-provision with force flag
+  if (provisionContext.value && provisionContext.value.include_action_urls) {
+    await provisionExtension(true)
+  } else {
+    // Otherwise, just update Action URLs directly
+    await updateActionUrls(true)
   }
 }
 
@@ -512,23 +558,36 @@ async function updateActionUrls(force = false) {
     const data = await response.json()
     
     if (response.status === 409 && data.requires_confirmation) {
-      // Conflicts found - show confirmation modal
+      // Conflicts found - show confirmation modal (without provision context)
+      provisionContext.value = null
       actionUrlConflicts.value = data.conflicts
       showActionUrlConfirmModal.value = true
       showNotification('Action URL conflicts found - confirmation required', 'warning')
     } else if (!response.ok) {
-      showNotification(data.error || `Failed to update Action URLs (${response.status})`, 'error')
+      const errorMessage = data.error || data.message || `Failed to update Action URLs (HTTP ${response.status})`
+      showNotification(errorMessage, 'error')
     } else if (data.success) {
+      provisionContext.value = null
       showActionUrlConfirmModal.value = false
       showNotification(data.message || 'Action URLs updated successfully', 'success')
       // Refresh status
       await checkActionUrls()
     } else {
-      showNotification(data.error || 'Failed to update Action URLs', 'error')
+      const errorMessage = data.error || data.message || 'Failed to update Action URLs'
+      showNotification(errorMessage, 'error')
     }
   } catch (error) {
-    showNotification('Failed to update Action URLs', 'error')
+    // Only log error message to avoid exposing sensitive data
+    console.error('Update Action URLs error:', error?.message || 'Network or server error')
+    showNotification('Failed to update Action URLs: Network or server error', 'error')
   }
+}
+
+// Cancel action URL update and clear context
+function cancelActionUrlUpdate() {
+  showActionUrlConfirmModal.value = false
+  provisionContext.value = null
+  actionUrlConflicts.value = null
 }
 
 function showNotification(message, type = 'info') {

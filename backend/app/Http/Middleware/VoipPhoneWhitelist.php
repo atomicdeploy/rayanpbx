@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Helpers\NetworkHelper;
 use App\Services\GrandStreamProvisioningService;
 use Closure;
 use Illuminate\Http\Request;
@@ -12,8 +13,10 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Middleware to whitelist VoIP phone IP addresses
  * 
- * This middleware restricts access to webhook endpoints to only registered VoIP phone IPs.
- * It uses cached phone IPs from Asterisk PJSIP and also allows local/private network IPs.
+ * This middleware restricts access to webhook endpoints to only:
+ * - Local network IPs (auto-detected from the machine's NICs)
+ * - Registered VoIP phone IPs (cached from Asterisk PJSIP)
+ * - Additional whitelisted IPs/CIDRs from configuration
  */
 class VoipPhoneWhitelist
 {
@@ -31,11 +34,14 @@ class VoipPhoneWhitelist
     {
         $clientIp = $request->ip();
 
-        // Check if IP is whitelisted
-        if (!$this->isIpWhitelisted($clientIp)) {
+        // Check if IP is whitelisted using NetworkHelper
+        $registeredPhoneIps = $this->getRegisteredPhoneIps();
+        
+        if (!NetworkHelper::isIpWhitelisted($clientIp, $registeredPhoneIps)) {
             Log::warning('VoIP webhook access denied: IP not whitelisted', [
                 'ip' => $clientIp,
                 'uri' => $request->getRequestUri(),
+                'local_cidrs' => NetworkHelper::getLocalNetworkCidrs(),
             ]);
 
             return response()->json([
@@ -45,78 +51,6 @@ class VoipPhoneWhitelist
         }
 
         return $next($request);
-    }
-
-    /**
-     * Check if an IP address is whitelisted
-     */
-    protected function isIpWhitelisted(string $ip): bool
-    {
-        // Always allow localhost
-        if ($ip === '127.0.0.1' || $ip === '::1') {
-            return true;
-        }
-
-        // Allow common private network ranges (configurable)
-        if ($this->isPrivateIp($ip) && $this->shouldAllowPrivateNetworks()) {
-            return true;
-        }
-
-        // Check against registered phone IPs
-        $registeredPhoneIps = $this->getRegisteredPhoneIps();
-        if (in_array($ip, $registeredPhoneIps, true)) {
-            return true;
-        }
-
-        // Check against additional whitelisted IPs from config
-        $additionalIps = config('rayanpbx.voip_webhook_whitelist', []);
-        if (in_array($ip, $additionalIps, true)) {
-            return true;
-        }
-
-        // Check CIDR ranges from config
-        $cidrRanges = config('rayanpbx.voip_webhook_cidr_whitelist', []);
-        foreach ($cidrRanges as $cidr) {
-            if ($this->ipInCidr($ip, $cidr)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Check if IP is in a private network range
-     */
-    protected function isPrivateIp(string $ip): bool
-    {
-        // Check if the IP is a valid IPv4 address first
-        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return false;
-        }
-
-        // Private network ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-        $privateRanges = [
-            '10.0.0.0/8',
-            '172.16.0.0/12',
-            '192.168.0.0/16',
-        ];
-
-        foreach ($privateRanges as $range) {
-            if ($this->ipInCidr($ip, $range)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Check if private networks should be allowed (for development/internal deployment)
-     */
-    protected function shouldAllowPrivateNetworks(): bool
-    {
-        return config('rayanpbx.voip_webhook_allow_private', true);
     }
 
     /**
@@ -157,6 +91,8 @@ class VoipPhoneWhitelist
                     }
                 }
                 
+                Log::debug('Registered phone IPs loaded', ['count' => count($ips)]);
+                
                 return array_unique($ips);
             } catch (\Throwable $e) {
                 Log::error('Failed to get registered phone IPs', [
@@ -168,39 +104,11 @@ class VoipPhoneWhitelist
     }
 
     /**
-     * Check if an IP is within a CIDR range
-     */
-    protected function ipInCidr(string $ip, string $cidr): bool
-    {
-        if (strpos($cidr, '/') === false) {
-            return $ip === $cidr;
-        }
-
-        [$subnet, $bits] = explode('/', $cidr, 2);
-        $bits = (int)$bits;
-        
-        if ($bits < 0 || $bits > 32) {
-            return false;
-        }
-
-        $ipLong = ip2long($ip);
-        $subnetLong = ip2long($subnet);
-
-        if ($ipLong === false || $subnetLong === false) {
-            return false;
-        }
-
-        $mask = -1 << (32 - $bits);
-        $subnetLong &= $mask;
-
-        return ($ipLong & $mask) === $subnetLong;
-    }
-
-    /**
      * Clear the cached phone IPs (call when phones are added/removed)
      */
     public static function clearCache(): void
     {
         Cache::forget('registered_phone_ips');
+        NetworkHelper::clearCache();
     }
 }
