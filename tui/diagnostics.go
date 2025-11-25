@@ -504,13 +504,20 @@ func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
 	}
 	result.WriteString("✅ Asterisk service is running\n")
 	
-	// Step 2: Check PJSIP transports
+	// Step 2: Check PJSIP transports - warn if neither UDP nor TCP is configured
 	transports, err := dm.asterisk.ExecuteCLICommand("pjsip show transports")
-	if err != nil || (!strings.Contains(transports, "transport-udp") && !strings.Contains(transports, "transport-tcp")) {
-		result.WriteString("⚠️  PJSIP transports not configured\n")
-		result.WriteString("   Check /etc/asterisk/pjsip.conf\n")
+	if err != nil || (!strings.Contains(transports, "transport-udp") || !strings.Contains(transports, "transport-tcp")) {
+		// Check if at least one transport is configured
+		if err != nil || (!strings.Contains(transports, "transport-udp") && !strings.Contains(transports, "transport-tcp")) {
+			result.WriteString("⚠️  PJSIP transports not configured\n")
+			result.WriteString("   Check /etc/asterisk/pjsip.conf\n")
+		} else if !strings.Contains(transports, "transport-udp") {
+			result.WriteString("⚠️  UDP transport not configured (only TCP available)\n")
+		} else if !strings.Contains(transports, "transport-tcp") {
+			result.WriteString("⚠️  TCP transport not configured (only UDP available)\n")
+		}
 	} else {
-		result.WriteString("✅ PJSIP transports configured\n")
+		result.WriteString("✅ PJSIP transports configured (UDP and TCP)\n")
 	}
 	
 	// Step 3: Check if port is listening using system commands
@@ -522,11 +529,27 @@ func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
 	output, err := cmd.Output()
 	if err == nil {
 		lines := strings.Split(string(output), "\n")
-		portStr := fmt.Sprintf(":%d", port)
+		// Use word boundary matching: port followed by space or end of field
+		portPattern := fmt.Sprintf(":%d ", port) // Port followed by space
+		portPatternEnd := fmt.Sprintf(":%d\t", port) // Port followed by tab
 		for _, line := range lines {
-			if strings.Contains(line, portStr) {
+			// Match :PORT followed by whitespace to avoid false positives like :15060
+			if strings.Contains(line, portPattern) || strings.Contains(line, portPatternEnd) || 
+			   strings.HasSuffix(strings.Fields(line)[0], fmt.Sprintf(":%d", port)) {
 				portListening = true
 				listenInfo = strings.TrimSpace(line)
+				break
+			}
+			// Also check for exact port in 4th or 5th column (ss output format)
+			fields := strings.Fields(line)
+			for _, field := range fields {
+				if strings.HasSuffix(field, fmt.Sprintf(":%d", port)) {
+					portListening = true
+					listenInfo = strings.TrimSpace(line)
+					break
+				}
+			}
+			if portListening {
 				break
 			}
 		}
@@ -536,11 +559,17 @@ func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
 		output, err = cmd.Output()
 		if err == nil {
 			lines := strings.Split(string(output), "\n")
-			portStr := fmt.Sprintf(":%d", port)
 			for _, line := range lines {
-				if strings.Contains(line, portStr) {
-					portListening = true
-					listenInfo = strings.TrimSpace(line)
+				// Check each field for exact port match
+				fields := strings.Fields(line)
+				for _, field := range fields {
+					if strings.HasSuffix(field, fmt.Sprintf(":%d", port)) {
+						portListening = true
+						listenInfo = strings.TrimSpace(line)
+						break
+					}
+				}
+				if portListening {
 					break
 				}
 			}
@@ -594,12 +623,19 @@ func (dm *DiagnosticsManager) CheckSIPPortQuiet() (bool, string, error) {
 		}
 	}
 	
-	if strings.Contains(string(output), ":5060") {
-		ips := GetLocalIPAddresses()
-		if len(ips) > 0 {
-			return true, fmt.Sprintf("%s:5060", ips[0]), nil
+	// Check for exact port match to avoid false positives
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		for _, field := range fields {
+			if strings.HasSuffix(field, ":5060") {
+				ips := GetLocalIPAddresses()
+				if len(ips) > 0 {
+					return true, fmt.Sprintf("%s:5060", ips[0]), nil
+				}
+				return true, "0.0.0.0:5060", nil
+			}
 		}
-		return true, "0.0.0.0:5060", nil
 	}
 	
 	return false, "", nil

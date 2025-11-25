@@ -710,7 +710,7 @@ check_sip_port() {
     
     # Step 2: Check if PJSIP transports are configured
     local transports=$(asterisk -rx "pjsip show transports" 2>/dev/null || echo "")
-    if ! echo "$transports" | grep -q "transport-udp\|transport-tcp"; then
+    if ! echo "$transports" | grep -qE "transport-udp|transport-tcp"; then
         print_warning "PJSIP transports not configured"
         if [ "$auto_fix" = "true" ]; then
             print_info "Attempting to configure PJSIP transports..."
@@ -737,7 +737,10 @@ bind=0.0.0.0:5060
 allow_reload=yes
 ; END MANAGED - RayanPBX SIP Transports
 EOF
-                    chown asterisk:asterisk "$pjsip_conf" 2>/dev/null || true
+                    # Attempt to set ownership, warn if it fails
+                    if ! chown asterisk:asterisk "$pjsip_conf" 2>/dev/null; then
+                        print_warning "Could not set ownership on pjsip.conf - Asterisk may have permission issues"
+                    fi
                     print_success "Added PJSIP transport configuration"
                     
                     # Reload PJSIP
