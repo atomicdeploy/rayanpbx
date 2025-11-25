@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -125,6 +127,9 @@ const (
 	deleteExtensionScreen
 	extensionDetailsScreen
 	extensionInfoScreen
+	sipHelpScreen
+	docsListScreen
+	docsViewScreen
 	systemSettingsScreen
 	configManagementScreen
 	configEditScreen
@@ -190,6 +195,17 @@ type model struct {
 	voipPhoneOutput    string
 	currentPhoneStatus *PhoneStatus
 	phoneCredentials   map[string]map[string]string
+	
+	// Menu position memory (preserve cursor position when navigating back)
+	mainMenuCursor        int
+	diagnosticsMenuCursor int
+	asteriskMenuCursor    int
+	sipTestMenuCursor     int
+	
+	// Documentation browser
+	docsList          []string
+	selectedDocIdx    int
+	currentDocContent string
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -357,6 +373,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
 				}
+			} else if m.currentScreen == docsListScreen {
+				// Navigate docs list
+				if m.selectedDocIdx > 0 {
+					m.selectedDocIdx--
+				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
 				m.handleVoIPPhonesKeyPress("up")
@@ -394,6 +415,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate extensions list
 				if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
+				}
+			} else if m.currentScreen == docsListScreen {
+				// Navigate docs list
+				if m.selectedDocIdx < len(m.docsList)-1 {
+					m.selectedDocIdx++
 				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
@@ -450,16 +476,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.inputCursor = 0
 			}
 		
+		case "h":
+			// Show help screen
+			if m.currentScreen == extensionsScreen || m.currentScreen == extensionInfoScreen {
+				m.currentScreen = sipHelpScreen
+				m.errorMsg = ""
+				m.successMsg = ""
+			}
+		
+		case "D":
+			// Show documentation browser (uppercase D only from sipHelpScreen)
+			if m.currentScreen == sipHelpScreen {
+				m.loadDocsList()
+				m.currentScreen = docsListScreen
+				m.selectedDocIdx = 0
+				m.errorMsg = ""
+				m.successMsg = ""
+			}
+		
 		case "r":
 			// Reload Asterisk PJSIP
 			if m.currentScreen == extensionInfoScreen {
-				cyan := color.New(color.FgCyan)
-				green := color.New(color.FgGreen)
-				cyan.Println("\n🔄 Reloading Asterisk PJSIP...")
 				if _, err := m.asteriskManager.ExecuteCLICommand("pjsip reload"); err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
 				} else {
-					green.Println("✅ PJSIP reloaded successfully")
 					m.successMsg = "PJSIP reloaded successfully"
 				}
 			}
@@ -467,14 +507,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			// Enable SIP debugging
 			if m.currentScreen == extensionInfoScreen {
-				cyan := color.New(color.FgCyan)
-				green := color.New(color.FgGreen)
-				cyan.Println("\n🔍 Enabling SIP debugging...")
-				if err := m.diagnosticsManager.EnableSIPDebug(); err != nil {
+				output, err := m.diagnosticsManager.EnableSIPDebugQuiet()
+				if err != nil {
 					m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
 				} else {
-					green.Println("✅ SIP debugging enabled")
 					m.successMsg = "SIP debugging enabled - check Asterisk console"
+					if output != "" {
+						m.diagnosticsOutput = output
+					}
 				}
 			}
 		
@@ -507,13 +547,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// VoIP Phones Management
 					m.initVoIPPhonesScreen()
 				case 3:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
+					m.asteriskMenuCursor = 0
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
 				case 4:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
+					m.diagnosticsMenuCursor = 0
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
@@ -527,11 +571,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
 				case 8:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					m.cursor = 0
 					m.errorMsg = ""
 					m.successMsg = ""
 				case 9:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
 				case 10:
@@ -543,17 +589,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.executeCommand(m.usageCommands[m.usageCursor].Command)
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
+				// Save diagnostics menu position before handling
+				m.diagnosticsMenuCursor = m.cursor
 				// Handle diagnostics menu selection
 				m.handleDiagnosticsMenuSelection()
 			} else if m.currentScreen == sipTestMenuScreen {
+				// Save SIP test menu position before handling
+				m.sipTestMenuCursor = m.cursor
 				// Handle SIP test menu selection
 				m.handleSipTestMenuSelection()
 			} else if m.currentScreen == asteriskMenuScreen {
+				// Save asterisk menu position before handling
+				m.asteriskMenuCursor = m.cursor
 				// Handle asterisk menu selection
 				m.handleAsteriskMenuSelection()
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
 				m.handleSystemSettingsAction()
+			} else if m.currentScreen == docsListScreen {
+				// Open selected document
+				if m.selectedDocIdx < len(m.docsList) {
+					m.loadDocContent(m.docsList[m.selectedDocIdx])
+					m.currentScreen = docsViewScreen
+				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone enter key
 				m.handleVoIPPhonesKeyPress("enter")
@@ -564,18 +622,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If in a diagnostics submenu, go back to diagnostics menu
 				if m.isDiagnosticsInputScreen() {
 					m.currentScreen = diagnosticsMenuScreen
+					m.cursor = m.diagnosticsMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
 				} else if m.currentScreen == diagnosticsMenuScreen {
 					m.currentScreen = mainMenu
-					m.cursor = 0
+					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
 				} else if m.currentScreen == sipTestMenuScreen {
 					m.currentScreen = diagnosticsMenuScreen
-					m.cursor = 0
+					m.cursor = m.diagnosticsMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.sipTestOutput = ""
@@ -584,16 +643,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.currentScreen == sipTestCallScreen ||
 					m.currentScreen == sipTestFullScreen {
 					m.currentScreen = sipTestMenuScreen
-					m.cursor = 0
+					m.cursor = m.sipTestMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == asteriskMenuScreen {
 					m.currentScreen = mainMenu
-					m.cursor = 0
+					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
 				} else if m.currentScreen == extensionInfoScreen {
+					m.currentScreen = extensionsScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == sipHelpScreen {
 					m.currentScreen = extensionsScreen
 					m.errorMsg = ""
 					m.successMsg = ""
@@ -603,12 +666,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.successMsg = ""
 				} else if m.currentScreen == configManagementScreen {
 					m.currentScreen = mainMenu
-					m.cursor = 0
+					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == configAddScreen || m.currentScreen == configEditScreen {
 					m.currentScreen = configManagementScreen
 					m.inputMode = false
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == docsListScreen {
+					m.currentScreen = sipHelpScreen
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == docsViewScreen {
+					m.currentScreen = docsListScreen
+					m.currentDocContent = ""
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == voipPhoneDetailsScreen || m.currentScreen == voipPhoneControlScreen || 
@@ -626,11 +698,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.successMsg = ""
 				} else if m.currentScreen == voipPhonesScreen {
 					m.currentScreen = mainMenu
-					m.cursor = 0
+					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
 					m.currentScreen = mainMenu
+					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 				}
@@ -709,6 +782,12 @@ func (m model) View() string {
 		s += m.renderDeleteExtension()
 	case extensionInfoScreen:
 		s += m.renderExtensionInfo()
+	case sipHelpScreen:
+		s += m.renderSipHelp()
+	case docsListScreen:
+		s += m.renderDocsList()
+	case docsViewScreen:
+		s += m.renderDocView()
 	case createTrunkScreen:
 		s += m.renderCreateTrunk()
 	case systemSettingsScreen:
@@ -738,7 +817,15 @@ func (m model) View() string {
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
-		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • ESC: Back • q: Quit")
+		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • h: Help • ESC: Back • q: Quit")
+	} else if m.currentScreen == extensionInfoScreen {
+		s += helpStyle.Render("r: Reload PJSIP • t: Test Suite • s: SIP Debug • h: Help Guide • ESC: Back • q: Quit")
+	} else if m.currentScreen == sipHelpScreen {
+		s += helpStyle.Render("D: Browse Docs • ESC: Back • q: Quit")
+	} else if m.currentScreen == docsListScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: View • ESC: Back • q: Quit")
+	} else if m.currentScreen == docsViewScreen {
+		s += helpStyle.Render("ESC: Back to List • q: Quit")
 	} else if m.currentScreen == trunksScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
@@ -810,7 +897,8 @@ func (m model) renderExtensions() string {
 		}
 	}
 
-	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, 'a' to add, 'e' to edit, 'd' to delete, 't' to toggle enable/disable, 'i' for info")
+	// Removed per-item tip from inside the box to avoid duplication with footer
+	// Global actions are shown in the footer
 
 	return menuStyle.Render(content)
 }
@@ -2078,12 +2166,18 @@ func (m model) renderExtensionInfo() string {
 	}
 	
 	ext := m.extensions[m.selectedExtensionIdx]
-	content := titleStyle.Render(fmt.Sprintf("📞 Extension Info & Diagnostics: %s", ext.ExtensionNumber)) + "\n\n"
+	content := titleStyle.Render(fmt.Sprintf("📞 Extension Info: %s", ext.ExtensionNumber)) + "\n\n"
 	
 	// Extension details
 	content += infoStyle.Render("📋 Extension Details:") + "\n"
 	content += fmt.Sprintf("  • Number: %s\n", successStyle.Render(ext.ExtensionNumber))
 	content += fmt.Sprintf("  • Name: %s\n", ext.Name)
+	content += fmt.Sprintf("  • Context: %s\n", ext.Context)
+	content += fmt.Sprintf("  • Transport: %s\n", ext.Transport)
+	content += fmt.Sprintf("  • Max Contacts: %d\n", ext.MaxContacts)
+	content += fmt.Sprintf("  • Codecs: %s\n", ext.Codecs)
+	content += fmt.Sprintf("  • Direct Media: %s\n", ext.DirectMedia)
+	content += fmt.Sprintf("  • Qualify Freq: %d sec\n", ext.QualifyFrequency)
 	content += fmt.Sprintf("  • Status: %s\n", func() string {
 		if ext.Enabled {
 			return successStyle.Render("✅ Enabled")
@@ -2122,21 +2216,57 @@ func (m model) renderExtensionInfo() string {
 	}
 	content += "\n"
 	
-	// SIP Client Setup Guide
-	content += infoStyle.Render("📱 SIP Client Setup Guide:") + "\n"
-	content += "  Configure your SIP phone/softphone with these settings:\n\n"
-	content += successStyle.Render("  Required Configuration:\n")
-	content += fmt.Sprintf("    • Extension/Username: %s\n", ext.ExtensionNumber)
-	content += fmt.Sprintf("    • Password: %s\n", "(your configured secret)")
-	content += fmt.Sprintf("    • SIP Server: %s\n", "(your PBX server IP or hostname)")
-	content += "    • Port: 5060 (default)\n"
-	content += "    • Transport: UDP (default)\n\n"
+	// SIP Client Configuration (per-extension specific data only)
+	content += infoStyle.Render("📱 SIP Client Configuration:") + "\n"
+	content += fmt.Sprintf("  • Username: %s\n", successStyle.Render(ext.ExtensionNumber))
+	content += "  • Password: (your configured secret)\n"
+	content += "  • SIP Server: (your PBX IP)\n"
+	content += "  • Port: 5060\n"
+	content += "  • Transport: UDP\n\n"
 	
-	content += infoStyle.Render("  Popular SIP Clients:\n")
-	content += "    • MicroSIP (Windows): https://www.microsip.org/\n"
-	content += "    • Linphone (Cross-platform): https://www.linphone.org/\n"
-	content += "    • GrandStream phones: Enterprise hardware phones\n"
-	content += "    • Yealink phones: Enterprise hardware phones\n\n"
+	if !ext.Enabled {
+		content += errorStyle.Render("  ⚠️  IMPORTANT: Extension is disabled!\n")
+		content += "  Enable it first before attempting registration.\n\n"
+	}
+	
+	return menuStyle.Render(content)
+}
+
+// renderSipHelp displays the dynamic SIP help guide with real system info
+func (m model) renderSipHelp() string {
+	content := titleStyle.Render("📚 SIP Client Setup Guide") + "\n\n"
+	
+	// System Info section - dynamic data
+	content += infoStyle.Render("🖥️ Your PBX Server:") + "\n"
+	hostname := GetSystemHostname()
+	content += fmt.Sprintf("  • Hostname: %s\n", successStyle.Render(hostname))
+	
+	ips := GetLocalIPAddresses()
+	content += "  • IP Addresses:\n"
+	for _, ip := range ips {
+		content += fmt.Sprintf("    - %s\n", successStyle.Render(ip))
+	}
+	content += "\n"
+	
+	// Popular SIP Clients section
+	content += infoStyle.Render("📱 Popular SIP Clients:") + "\n"
+	content += "  • MicroSIP (Windows): https://www.microsip.org/\n"
+	content += "  • Linphone (Cross-platform): https://www.linphone.org/\n"
+	content += "  • GrandStream phones: Enterprise hardware phones\n"
+	content += "  • Yealink phones: Enterprise hardware phones\n\n"
+	
+	// Required Configuration section with actual server info
+	content += infoStyle.Render("⚙️ Required Configuration:") + "\n"
+	content += "  • Username: (extension number)\n"
+	content += "  • Password: (your configured secret)\n"
+	// Use first IP as SIP server address - GetLocalIPAddresses already filters out loopback (127.x.x.x)
+	if len(ips) > 0 {
+		content += fmt.Sprintf("  • SIP Server: %s\n", successStyle.Render(ips[0]))
+	} else {
+		content += fmt.Sprintf("  • SIP Server: %s\n", successStyle.Render(hostname))
+	}
+	content += "  • Port: 5060 (default)\n"
+	content += "  • Transport: UDP (default)\n\n"
 	
 	// Test call instructions
 	content += infoStyle.Render("🧪 Testing Instructions:") + "\n"
@@ -2148,23 +2278,32 @@ func (m model) renderExtensionInfo() string {
 	// Troubleshooting tips
 	content += infoStyle.Render("🔧 Troubleshooting:") + "\n"
 	content += "  If registration fails:\n"
-	content += "    • Verify credentials match database\n"
-	content += "    • Check network connectivity to PBX\n"
-	content += "    • Ensure port 5060 is not blocked by firewall\n"
-	content += "    • Check Asterisk logs: /var/log/asterisk/full\n"
-	content += "    • Enable SIP debug: pjsip set logger on\n\n"
+	content += "  • Verify credentials match database\n"
+	content += "  • Check network connectivity to PBX\n"
+	content += "  • Ensure port 5060 is not blocked by firewall\n"
+	content += "  • Check Asterisk logs: /var/log/asterisk/full\n"
+	content += "  • Press 's' to enable SIP debugging\n\n"
 	
-	if !ext.Enabled {
-		content += errorStyle.Render("  ⚠️  IMPORTANT: Extension is disabled!\n")
-		content += "  Enable it first before attempting registration.\n\n"
+	// Codec information - dynamic from Asterisk
+	content += infoStyle.Render("🔊 Available Codecs:") + "\n"
+	if m.diagnosticsManager != nil {
+		codecs, _ := m.diagnosticsManager.GetEnabledCodecs()
+		for _, codec := range codecs {
+			desc := GetCodecDescription(codec)
+			content += fmt.Sprintf("  • %s\n", desc)
+		}
+	} else {
+		content += "  • ulaw (G.711u): Standard US codec, 64kbps\n"
+		content += "  • alaw (G.711a): Standard EU codec, 64kbps\n"
+		content += "  • g722: HD audio codec, 64kbps, 16kHz\n"
 	}
+	content += "\n"
 	
-	// Quick actions
-	content += infoStyle.Render("⚡ Quick Actions:") + "\n"
-	content += "  • Press 'r' to reload Asterisk PJSIP\n"
-	content += "  • Press 't' to run SIP test suite\n"
-	content += "  • Press 's' to enable SIP debugging\n"
-	content += "  • Press ESC to go back\n"
+	// Documentation reference
+	content += infoStyle.Render("📄 Documentation:") + "\n"
+	content += "  • Press 'D' to browse full documentation\n"
+	content += "  • See SIP_TESTING_GUIDE.md for detailed testing info\n"
+	content += "  • See PJSIP_SETUP_GUIDE.md for setup instructions\n"
 	
 	return menuStyle.Render(content)
 }
@@ -2177,22 +2316,29 @@ func (m *model) handleDiagnosticsMenuSelection() {
 
 	switch m.cursor {
 	case 0: // Run System Health Check
-		m.diagnosticsManager.RunHealthCheck()
-		// Capture output will be shown in the menu
+		m.diagnosticsOutput = m.diagnosticsManager.GetHealthCheckOutput()
 		m.successMsg = "Health check completed"
 	case 1: // Show System Information
 		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
 	case 2: // Enable SIP Debugging
-		if err := m.diagnosticsManager.EnableSIPDebug(); err != nil {
+		output, err := m.diagnosticsManager.EnableSIPDebugQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
 		} else {
 			m.successMsg = "SIP debugging enabled"
+			if output != "" {
+				m.diagnosticsOutput = "SIP Debug Output:\n" + output
+			}
 		}
 	case 3: // Disable SIP Debugging
-		if err := m.diagnosticsManager.DisableSIPDebug(); err != nil {
+		output, err := m.diagnosticsManager.DisableSIPDebugQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to disable SIP debug: %v", err)
 		} else {
 			m.successMsg = "SIP debugging disabled"
+			if output != "" {
+				m.diagnosticsOutput = "SIP Debug Output:\n" + output
+			}
 		}
 	case 4: // Test Extension Registration
 		m.currentScreen = diagTestExtensionScreen
@@ -2223,7 +2369,7 @@ func (m *model) handleDiagnosticsMenuSelection() {
 		m.cursor = 0
 	case 9: // Back to Main Menu
 		m.currentScreen = mainMenu
-		m.cursor = 0
+		m.cursor = m.mainMenuCursor
 	}
 }
 
@@ -2240,7 +2386,8 @@ func (m *model) handleSipTestMenuSelection() {
 		cmd := exec.Command("bash", SipTestScriptPath, "tools")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			m.sipTestOutput = fmt.Sprintf("Error checking tools: %v", err)
+			details := ParseCommandError(err, output)
+			m.sipTestOutput = FormatVerboseError(details)
 		} else {
 			m.sipTestOutput = string(output)
 		}
@@ -2267,7 +2414,7 @@ func (m *model) handleSipTestMenuSelection() {
 		m.inputCursor = 0
 	case 5: // Back to Diagnostics
 		m.currentScreen = diagnosticsMenuScreen
-		m.cursor = 0
+		m.cursor = m.diagnosticsMenuCursor
 	}
 }
 
@@ -2279,40 +2426,40 @@ func (m *model) handleAsteriskMenuSelection() {
 
 	switch m.cursor {
 	case 0: // Start Asterisk Service
-		if err := m.asteriskManager.StartService(); err != nil {
+		if err := m.asteriskManager.StartServiceQuiet(); err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to start service: %v", err)
 		} else {
 			m.successMsg = "Asterisk service started successfully"
 		}
 	case 1: // Stop Asterisk Service
-		if err := m.asteriskManager.StopService(); err != nil {
+		if err := m.asteriskManager.StopServiceQuiet(); err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to stop service: %v", err)
 		} else {
 			m.successMsg = "Asterisk service stopped successfully"
 		}
 	case 2: // Restart Asterisk Service
-		if err := m.asteriskManager.RestartService(); err != nil {
+		if err := m.asteriskManager.RestartServiceQuiet(); err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to restart service: %v", err)
 		} else {
 			m.successMsg = "Asterisk service restarted successfully"
 		}
 	case 3: // Show Service Status
-		m.asteriskManager.PrintServiceStatus()
+		m.asteriskOutput = m.asteriskManager.GetServiceStatusOutput()
 		m.successMsg = "Service status displayed"
 	case 4: // Reload PJSIP Configuration
-		if err := m.asteriskManager.ReloadPJSIP(); err != nil {
+		if err := m.asteriskManager.ReloadPJSIPQuiet(); err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
 		} else {
 			m.successMsg = "PJSIP configuration reloaded successfully"
 		}
 	case 5: // Reload Dialplan
-		if err := m.asteriskManager.ReloadDialplan(); err != nil {
+		if err := m.asteriskManager.ReloadDialplanQuiet(); err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload dialplan: %v", err)
 		} else {
 			m.successMsg = "Dialplan reloaded successfully"
 		}
 	case 6: // Reload All Modules
-		if err := m.asteriskManager.ReloadAll(); err != nil {
+		if err := m.asteriskManager.ReloadAllQuiet(); err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload modules: %v", err)
 		} else {
 			m.successMsg = "All modules reloaded successfully"
@@ -2351,7 +2498,7 @@ func (m *model) handleAsteriskMenuSelection() {
 		}
 	case 11: // Back to Main Menu
 		m.currentScreen = mainMenu
-		m.cursor = 0
+		m.cursor = m.mainMenuCursor
 	}
 }
 
@@ -2449,8 +2596,9 @@ func (m *model) executeSipTestRegister() {
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
-		m.sipTestOutput = string(output)
+		details := ParseCommandError(err, output)
+		m.errorMsg = fmt.Sprintf("Test failed: %s (exit code %d)", details.ErrorType, details.ExitCode)
+		m.sipTestOutput = FormatVerboseError(details)
 	} else {
 		m.successMsg = "Registration test completed"
 		m.sipTestOutput = string(output)
@@ -2479,8 +2627,9 @@ func (m *model) executeSipTestCall() {
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
-		m.sipTestOutput = string(output)
+		details := ParseCommandError(err, output)
+		m.errorMsg = fmt.Sprintf("Test failed: %s (exit code %d)", details.ErrorType, details.ExitCode)
+		m.sipTestOutput = FormatVerboseError(details)
 	} else {
 		m.successMsg = "Call test completed"
 		m.sipTestOutput = string(output)
@@ -2509,8 +2658,9 @@ func (m *model) executeSipTestFull() {
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Test failed: %v", err)
-		m.sipTestOutput = string(output)
+		details := ParseCommandError(err, output)
+		m.errorMsg = fmt.Sprintf("Test failed: %s (exit code %d)", details.ErrorType, details.ExitCode)
+		m.sipTestOutput = FormatVerboseError(details)
 	} else {
 		m.successMsg = "Full test suite completed"
 		m.sipTestOutput = string(output)
@@ -2713,6 +2863,109 @@ func replaceEnvValue(content, key, value string) string {
 		content += "\n"
 	}
 	return content + replacement + "\n"
+}
+
+// loadDocsList loads the list of markdown documentation files
+func (m *model) loadDocsList() {
+	m.docsList = []string{}
+	
+	// Look for markdown files in common locations
+	paths := []string{
+		"/opt/rayanpbx",
+		".",
+		"..",
+	}
+	
+	for _, basePath := range paths {
+		files, err := os.ReadDir(basePath)
+		if err != nil {
+			continue
+		}
+		
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
+				fullPath := filepath.Join(basePath, file.Name())
+				m.docsList = append(m.docsList, fullPath)
+			}
+		}
+		
+		// If we found files, stop looking
+		if len(m.docsList) > 0 {
+			break
+		}
+	}
+	
+	// Sort the list
+	sort.Strings(m.docsList)
+}
+
+// loadDocContent loads the content of a documentation file
+func (m *model) loadDocContent(filePath string) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		m.currentDocContent = fmt.Sprintf("Error reading file: %v", err)
+		return
+	}
+	m.currentDocContent = string(content)
+}
+
+// renderDocsList renders the documentation files list
+func (m model) renderDocsList() string {
+	content := titleStyle.Render("📚 Documentation Browser") + "\n\n"
+	
+	if len(m.docsList) == 0 {
+		content += "No documentation files found.\n"
+		content += "Looking in: /opt/rayanpbx, current directory\n"
+		return menuStyle.Render(content)
+	}
+	
+	content += infoStyle.Render(fmt.Sprintf("Found %d documentation files:", len(m.docsList))) + "\n\n"
+	
+	for i, doc := range m.docsList {
+		cursor := " "
+		if i == m.selectedDocIdx {
+			cursor = "▶"
+		}
+		
+		// Just show the filename, not the full path
+		filename := filepath.Base(doc)
+		line := fmt.Sprintf("%s %s\n", cursor, filename)
+		
+		if i == m.selectedDocIdx {
+			content += successStyle.Render(line)
+		} else {
+			content += line
+		}
+	}
+	
+	return menuStyle.Render(content)
+}
+
+// renderDocView renders the content of a documentation file
+func (m model) renderDocView() string {
+	if m.selectedDocIdx >= len(m.docsList) {
+		return menuStyle.Render("No document selected")
+	}
+	
+	filename := filepath.Base(m.docsList[m.selectedDocIdx])
+	content := titleStyle.Render(fmt.Sprintf("📄 %s", filename)) + "\n\n"
+	
+	// Display the content with some basic formatting
+	docContent := m.currentDocContent
+	
+	// Maximum lines to display in terminal view to avoid scrolling issues
+	const maxDocDisplayLines = 40
+	
+	// Limit the display height to avoid overwhelming the terminal
+	lines := strings.Split(docContent, "\n")
+	if len(lines) > maxDocDisplayLines {
+		docContent = strings.Join(lines[:maxDocDisplayLines], "\n")
+		docContent += fmt.Sprintf("\n\n... (%d more lines)", len(lines)-maxDocDisplayLines)
+	}
+	
+	content += docContent
+	
+	return menuStyle.Render(content)
 }
 
 func main() {
