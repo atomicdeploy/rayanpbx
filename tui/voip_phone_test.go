@@ -408,16 +408,15 @@ func TestVoIPPhonesScreenNavigation(t *testing.T) {
 		t.Errorf("Expected selectedPhoneIdx 0, got %d", m.selectedPhoneIdx)
 	}
 	
-	// Test boundary - can't go below 0
+	// Test rollover - up at first item goes to last item
 	m.handleVoIPPhonesKeyPress("up")
-	if m.selectedPhoneIdx != 0 {
-		t.Errorf("Expected selectedPhoneIdx to stay at 0, got %d", m.selectedPhoneIdx)
+	if m.selectedPhoneIdx != 2 {
+		t.Errorf("Expected selectedPhoneIdx to rollover to 2 (last item), got %d", m.selectedPhoneIdx)
 	}
 	
-	// Test boundary - can't go above max
-	m.selectedPhoneIdx = 2
+	// Test rollover - down at last item goes to first item
 	m.handleVoIPPhonesKeyPress("down")
-	if m.selectedPhoneIdx != 2 {
-		t.Errorf("Expected selectedPhoneIdx to stay at 2, got %d", m.selectedPhoneIdx)
+	if m.selectedPhoneIdx != 0 {
+		t.Errorf("Expected selectedPhoneIdx to rollover to 0 (first item), got %d", m.selectedPhoneIdx)
 	}
 }

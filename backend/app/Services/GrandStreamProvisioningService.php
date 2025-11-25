@@ -5,11 +5,10 @@ namespace App\Services;
 use App\Helpers\GrandStreamActionUrls;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Http;
 
 /**
  * GrandStream Phone Provisioning Service
- * 
+ *
  * Handles automatic provisioning for GrandStream GXP series phones:
  * - GXP1625: 2 lines, 2.3" LCD
  * - GXP1628: 2 lines, 2.3" LCD, PoE
@@ -17,12 +16,18 @@ use Illuminate\Support\Facades\Http;
  */
 class GrandStreamProvisioningService
 {
+    
+    /**
+     * Unified HTTP client for phone communication
+     */
+    protected HttpClientService $httpClient;
+  
     /**
      * Regex pattern to match GrandStream phone models
      * GrandStream models start with: GXP, GRP, GXV, DP, WP, GAC, or HT
      */
     protected const GRANDSTREAM_MODEL_PATTERN = '/\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*/i';
-    
+
     protected $supportedModels = [
         'GXP1625' => [
             'lines' => 2,
@@ -46,13 +51,23 @@ class GrandStreamProvisioningService
     ];
 
     /**
+     * Create a new GrandStreamProvisioningService instance
+     *
+     * @param  HttpClientService|null  $httpClient  Optional HTTP client for dependency injection/testing
+     */
+    public function __construct(?HttpClientService $httpClient = null)
+    {
+        $this->httpClient = $httpClient ?? new HttpClientService;
+    }
+
+    /**
      * Generate provisioning configuration for a phone
      */
     public function generateConfig($mac, $extension, $options = [])
     {
         $model = $options['model'] ?? 'GXP1628';
-        
-        if (!isset($this->supportedModels[$model])) {
+
+        if (! isset($this->supportedModels[$model])) {
             throw new \Exception("Unsupported phone model: $model");
         }
 
@@ -71,7 +86,7 @@ class GrandStreamProvisioningService
     protected function getBaseConfig($model)
     {
         $modelInfo = $this->supportedModels[$model];
-        
+
         return [
             'model' => $model,
             'template' => $modelInfo['template'],
@@ -104,7 +119,7 @@ class GrandStreamProvisioningService
     protected function addExtensionConfig($config, $extension, $options)
     {
         $accountNumber = $options['account_number'] ?? 1; // Which line on the phone
-        
+
         $config['accounts'][$accountNumber] = [
             'account_active' => 1,
             'account_name' => $extension['name'] ?? "Extension {$extension['extension_number']}",
@@ -147,7 +162,7 @@ class GrandStreamProvisioningService
     {
         if (isset($options['blf_list']) && is_array($options['blf_list'])) {
             $config['blf'] = [];
-            
+
             foreach ($options['blf_list'] as $index => $ext) {
                 $config['blf'][$index] = [
                     'extension' => $ext,
@@ -165,6 +180,7 @@ class GrandStreamProvisioningService
     protected function addActionUrlConfig($config, $options = [])
     {
         $config['action_urls'] = GrandStreamActionUrls::getAllActionUrls();
+
         return $config;
     }
 
@@ -200,7 +216,7 @@ class GrandStreamProvisioningService
         if (isset($config['network'])) {
             $xml .= "    <!-- Network Configuration -->\n";
             $xml .= "    <P8>{$config['network']['dhcp']}</P8>\n"; // DHCP
-            if (!$config['network']['dhcp']) {
+            if (! $config['network']['dhcp']) {
                 $xml .= "    <P9>{$config['network']['static_ip']}</P9>\n";
                 $xml .= "    <P10>{$config['network']['subnet_mask']}</P10>\n";
                 $xml .= "    <P11>{$config['network']['gateway']}</P11>\n";
@@ -218,7 +234,7 @@ class GrandStreamProvisioningService
             $xml .= "    <!-- Action URL Configuration -->\n";
             $actionUrlConfig = $this->getActionUrlConfig();
             $pValues = $actionUrlConfig['p_values'];
-            
+
             foreach ($config['action_urls'] as $event => $url) {
                 if (isset($pValues[$event])) {
                     $pValue = $pValues[$event];
@@ -241,15 +257,15 @@ class GrandStreamProvisioningService
     public function discoverPhones($network = '192.168.1.0/24')
     {
         Log::info("Discovering phones on network: $network");
-        
+
         $devices = [];
-        
+
         // Try LLDP discovery first
         try {
             $lldpDevices = $this->discoverViaLLDP();
             $devices = array_merge($devices, $lldpDevices);
         } catch (\Exception $e) {
-            Log::warning("LLDP discovery failed: " . $e->getMessage());
+            Log::warning('LLDP discovery failed: '.$e->getMessage());
         }
         
         // Try ARP table discovery
@@ -265,15 +281,15 @@ class GrandStreamProvisioningService
             $nmapDevices = $this->discoverViaNmap($network);
             $devices = array_merge($devices, $nmapDevices);
         } catch (\Exception $e) {
-            Log::warning("Nmap discovery failed: " . $e->getMessage());
+            Log::warning('Nmap discovery failed: '.$e->getMessage());
         }
-        
+
         // Deduplicate by MAC or IP
         $devices = $this->deduplicateDevices($devices);
-        
+
         // Get registered phones from Asterisk
         $registeredPhones = $this->getRegisteredPhonesFromAsterisk();
-        
+
         return [
             'status' => 'success',
             'count' => count($devices),
@@ -282,7 +298,7 @@ class GrandStreamProvisioningService
             'network' => $network,
         ];
     }
-    
+
     /**
      * Discover phones via LLDP protocol
      * Runs all available lldpctl formats and merges results for maximum data
@@ -292,6 +308,9 @@ class GrandStreamProvisioningService
         $allDevices = [];
         
         // Try json0 format first (most structured and verbose, easiest to parse)
+        $devices = [];
+
+        // Try lldpctl command (requires lldpd package)
         $output = [];
         $returnCode = 0;
         exec('lldpctl -f json0 2>&1', $output, $returnCode);
@@ -499,9 +518,15 @@ class GrandStreamProvisioningService
             }
         }
         
+        if ($returnCode !== 0) {
+            throw new \Exception('LLDP discovery requires lldpd to be installed');
+        }
+
+        $devices = $this->parseLLDPCtlOutput(implode("\n", $output));
+
         return $devices;
     }
-    
+
     /**
      * Parse lldpctl -f json output
      */
@@ -658,45 +683,45 @@ class GrandStreamProvisioningService
     {
         $devices = [];
         $phoneMap = [];
-        
+
         $lines = explode("\n", $output);
         $currentInterface = null;
-        
+
         foreach ($lines as $line) {
             $line = trim($line);
             if (empty($line)) {
                 continue;
             }
-            
+
             $parts = explode('=', $line, 2);
             if (count($parts) !== 2) {
                 continue;
             }
-            
-            list($key, $value) = $parts;
-            
+
+            [$key, $value] = $parts;
+
             // Extract interface name
             if (strpos($key, 'lldp.') === 0) {
                 preg_match('/lldp\.([^.]+)\./', $key, $matches);
-                if (!empty($matches[1])) {
+                if (! empty($matches[1])) {
                     $currentInterface = $matches[1];
                 }
             }
-            
+
             if ($currentInterface === null) {
                 continue;
             }
-            
+
             // Initialize phone entry if needed
-            if (!isset($phoneMap[$currentInterface])) {
+            if (! isset($phoneMap[$currentInterface])) {
                 $phoneMap[$currentInterface] = [
                     'discovery_type' => 'lldp',
                     'last_seen' => now()->toISOString(),
                 ];
             }
-            
+
             $phone = &$phoneMap[$currentInterface];
-            
+
             // Parse LLDP fields
             if (strpos($key, '.chassis.mac') !== false) {
                 $phone['mac'] = $value;
@@ -713,17 +738,17 @@ class GrandStreamProvisioningService
                 $phone['model'] = $vendorModel['model'];
             }
         }
-        
+
         // Filter for VoIP phones
         foreach ($phoneMap as $phone) {
             if ($this->isVoIPPhone($phone)) {
                 $devices[] = $phone;
             }
         }
-        
+
         return $devices;
     }
-    
+
     /**
      * Parse lldpcli show neighbors human-readable output
      * 
@@ -990,18 +1015,18 @@ class GrandStreamProvisioningService
     protected function discoverViaNmap($network)
     {
         $devices = [];
-        
+
         // Validate network CIDR notation
-        if (!$this->isValidCIDR($network)) {
-            throw new \Exception("Invalid network CIDR notation");
+        if (! $this->isValidCIDR($network)) {
+            throw new \Exception('Invalid network CIDR notation');
         }
-        
+
         // Check if nmap is available
         exec('which nmap 2>&1', $output, $returnCode);
         if ($returnCode !== 0) {
-            throw new \Exception("Nmap is not installed");
+            throw new \Exception('Nmap is not installed');
         }
-        
+
         // Scan for common VoIP ports
         $output = [];
         $cmd = sprintf(
@@ -1009,42 +1034,42 @@ class GrandStreamProvisioningService
             escapeshellarg($network)
         );
         exec($cmd, $output, $returnCode);
-        
+
         if ($returnCode !== 0) {
-            throw new \Exception("Nmap scan failed");
+            throw new \Exception('Nmap scan failed');
         }
-        
+
         $devices = $this->parseNmapOutput(implode("\n", $output));
-        
+
         return $devices;
     }
-    
+
     /**
      * Validate CIDR notation for network address
      */
     protected function isValidCIDR($cidr)
     {
         // Check format: IP/mask
-        if (!preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $cidr)) {
+        if (! preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $cidr)) {
             return false;
         }
-        
-        list($ip, $mask) = explode('/', $cidr);
-        
+
+        [$ip, $mask] = explode('/', $cidr);
+
         // Validate IP address
-        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return false;
         }
-        
+
         // Validate mask (0-32)
-        $mask = (int)$mask;
+        $mask = (int) $mask;
         if ($mask < 0 || $mask > 32) {
             return false;
         }
-        
+
         return true;
     }
-    
+
     /**
      * Parse nmap greppable output
      */
@@ -1052,34 +1077,34 @@ class GrandStreamProvisioningService
     {
         $devices = [];
         $lines = explode("\n", $output);
-        
+
         foreach ($lines as $line) {
             if (strpos($line, 'Host:') !== 0) {
                 continue;
             }
-            
+
             // Parse: Host: 192.168.1.100 ()  Status: Up
             preg_match('/Host:\s+(\S+)/', $line, $matches);
             if (empty($matches[1])) {
                 continue;
             }
-            
+
             $ip = $matches[1];
-            
+
             // Check for VoIP-related ports
-            if (strpos($line, '80/open') === false && 
-                strpos($line, '443/open') === false && 
+            if (strpos($line, '80/open') === false &&
+                strpos($line, '443/open') === false &&
                 strpos($line, '5060/open') === false) {
                 continue;
             }
-            
+
             $device = [
                 'ip' => $ip,
                 'discovery_type' => 'nmap',
                 'last_seen' => now()->toISOString(),
                 'online' => true,
             ];
-            
+
             // Try to detect vendor via HTTP
             try {
                 $vendorModel = $this->detectVendorViaHTTP($ip);
@@ -1088,13 +1113,13 @@ class GrandStreamProvisioningService
             } catch (\Exception $e) {
                 // Ignore detection errors
             }
-            
+
             $devices[] = $device;
         }
-        
+
         return $devices;
     }
-    
+
     /**
      * Parse system description to extract vendor and model
      */
@@ -1106,7 +1131,7 @@ class GrandStreamProvisioningService
         
         // Check for GrandStream model prefixes first (e.g., "GXP1630 1.0.7.64")
         // GrandStream models start with GXP, GRP, GXV, DP, WP, GAC, or HT
-        if (preg_match(self::GRANDSTREAM_MODEL_PATTERN, $description, $matches)) {
+        if (preg_match(self::GRANDSTREAM_MODEL_PATTERN, $description, $matches) || strpos($description, 'grandstream') !== false) {
             $vendor = 'GrandStream';
             $model = strtoupper($matches[0]);
         }
@@ -1162,15 +1187,15 @@ class GrandStreamProvisioningService
         
         return ['vendor' => $vendor, 'model' => $model];
     }
-    
+
     /**
      * Detect vendor via HTTP headers/content
      */
     protected function detectVendorViaHTTP($ip)
     {
         try {
-            $response = Http::timeout(3)->get("http://{$ip}/");
-            
+            $response = $this->httpClient->localClient(3)->get("http://{$ip}/");
+
             // Check Server header
             $server = $response->header('Server');
             if ($server && strpos(strtolower($server), 'grandstream') !== false) {
@@ -1179,7 +1204,7 @@ class GrandStreamProvisioningService
             if ($server && strpos(strtolower($server), 'yealink') !== false) {
                 return ['vendor' => 'Yealink'];
             }
-            
+
             // Check body content
             $body = strtolower($response->body());
             if (strpos($body, 'grandstream') !== false) {
@@ -1194,19 +1219,19 @@ class GrandStreamProvisioningService
         } catch (\Exception $e) {
             // HTTP detection failed
         }
-        
+
         return ['vendor' => 'Unknown'];
     }
-    
+
     /**
      * Check if device is likely a VoIP phone
      */
     protected function isVoIPPhone($device)
     {
         $voipVendors = ['grandstream', 'yealink', 'polycom', 'cisco', 'snom', 'panasonic', 'fanvil'];
-        
+
         // Check vendor
-        if (!empty($device['vendor'])) {
+        if (! empty($device['vendor'])) {
             $vendorLower = strtolower($device['vendor']);
             foreach ($voipVendors as $v) {
                 if (strpos($vendorLower, $v) !== false) {
@@ -1214,9 +1239,9 @@ class GrandStreamProvisioningService
                 }
             }
         }
-        
+
         // Check hostname
-        if (!empty($device['hostname'])) {
+        if (! empty($device['hostname'])) {
             $hostLower = strtolower($device['hostname']);
             foreach ($voipVendors as $v) {
                 if (strpos($hostLower, $v) !== false) {
@@ -1224,15 +1249,15 @@ class GrandStreamProvisioningService
                 }
             }
         }
-        
+
         // Check if model is set
-        if (!empty($device['model'])) {
+        if (! empty($device['model'])) {
             return true;
         }
-        
+
         return false;
     }
-    
+
     /**
      * Deduplicate devices by MAC or IP
      */
@@ -1240,16 +1265,16 @@ class GrandStreamProvisioningService
     {
         $seen = [];
         $result = [];
-        
+
         foreach ($devices as $device) {
             $key = $device['mac'] ?? $device['ip'] ?? null;
-            
-            if ($key && !isset($seen[$key])) {
+
+            if ($key && ! isset($seen[$key])) {
                 $seen[$key] = true;
                 $result[] = $device;
             }
         }
-        
+
         return $result;
     }
 
@@ -1263,37 +1288,37 @@ class GrandStreamProvisioningService
             // Use escapeshellcmd for security - no user input is used here
             $command = escapeshellcmd('asterisk -rx "pjsip show endpoints"');
             $output = shell_exec($command);
-            
-            if (!$output) {
+
+            if (! $output) {
                 return [];
             }
-            
+
             $phones = [];
             $lines = explode("\n", $output);
-            
+
             foreach ($lines as $line) {
                 $line = trim($line);
-                
+
                 // Skip headers and empty lines
-                if (empty($line) || strpos($line, '=====') !== false || 
+                if (empty($line) || strpos($line, '=====') !== false ||
                     strpos($line, 'Endpoint:') !== false || strpos($line, '<Endpoint') !== false) {
                     continue;
                 }
-                
+
                 // Parse endpoint line
                 $fields = preg_split('/\s+/', $line);
                 if (count($fields) >= 2) {
                     $extension = $fields[0];
-                    
+
                     // Skip if not an endpoint line
                     if (strpos($extension, ':') !== false || empty($extension)) {
                         continue;
                     }
-                    
+
                     // Extract IP from contact info
                     $ip = $this->extractIPFromLine($line);
-                    
-                    if (!empty($ip)) {
+
+                    if (! empty($ip)) {
                         $phones[] = [
                             'extension' => $extension,
                             'ip' => $ip,
@@ -1303,10 +1328,11 @@ class GrandStreamProvisioningService
                     }
                 }
             }
-            
+
             return $phones;
         } catch (\Exception $e) {
-            Log::error("Failed to get registered phones", ['error' => $e->getMessage()]);
+            Log::error('Failed to get registered phones', ['error' => $e->getMessage()]);
+
             return [];
         }
     }
@@ -1319,6 +1345,7 @@ class GrandStreamProvisioningService
         if (preg_match('/@(\d+\.\d+\.\d+\.\d+)/', $line, $matches)) {
             return $matches[1];
         }
+
         return null;
     }
 
@@ -1328,20 +1355,15 @@ class GrandStreamProvisioningService
     protected function detectUserAgent($ip)
     {
         try {
-            $ch = curl_init("http://{$ip}/");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 2);
-            curl_setopt($ch, CURLOPT_HEADER, true);
-            curl_setopt($ch, CURLOPT_NOBODY, true);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode == 200 && preg_match('/Server:\s*([^\r\n]+)/i', $response, $matches)) {
-                return $matches[1];
+            $response = $this->httpClient->localClient(2)->head("http://{$ip}/");
+
+            if ($response->successful()) {
+                $server = $response->header('Server');
+                if ($server) {
+                    return $server;
+                }
             }
-            
+
             return 'Unknown';
         } catch (\Exception $e) {
             return 'Unknown';
@@ -1357,29 +1379,21 @@ class GrandStreamProvisioningService
         $password = $credentials['password'] ?? '';
 
         try {
-            /*
-                // TODO: merge and remove
-                $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation");
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-                curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
-                curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-
-                $response = curl_exec($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-            */
-
             // GrandStream phones expose status API at /cgi-bin/api-sys_operation
-            $response = Http::timeout(5)
-                ->withBasicAuth($username, $password)
-                ->get("http://{$ip}/cgi-bin/api-sys_operation");
+            $response = $this->httpClient->withBasicAuth(
+                "http://{$ip}/cgi-bin/api-sys_operation",
+                $username,
+                $password,
+                'GET',
+                [],
+                ['timeout' => 5]
+            );
 
             if ($response->successful()) {
                 // Prefer JSON; fall back to XML if necessary
                 $data = $response->json();
 
-                if (!$data) {
+                if (! $data) {
                     $xml = @simplexml_load_string($response->body());
                     $data = $xml ? json_decode(json_encode($xml), true) : [];
                 }
@@ -1413,7 +1427,7 @@ class GrandStreamProvisioningService
                 'ip' => $ip,
                 'status' => 'error',
                 'error' => $e->getMessage(),
-                'message' => 'Failed to get phone status: ' . $e->getMessage(),
+                'message' => 'Failed to get phone status: '.$e->getMessage(),
             ];
         }
     }
@@ -1424,7 +1438,7 @@ class GrandStreamProvisioningService
     public function pingHost($ip, $timeout = 2)
     {
         // Validate IP address
-        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return false;
         }
 
@@ -1432,7 +1446,7 @@ class GrandStreamProvisioningService
         $returnCode = 0;
 
         // Use system ping command
-        $cmd = sprintf('ping -c 1 -W %d %s 2>&1', (int)$timeout, escapeshellarg($ip));
+        $cmd = sprintf('ping -c 1 -W %d %s 2>&1', (int) $timeout, escapeshellarg($ip));
         exec($cmd, $output, $returnCode);
 
         return $returnCode === 0;
@@ -1457,13 +1471,13 @@ class GrandStreamProvisioningService
     {
         // Generate configuration
         $extension = \App\Models\Extension::find($extensionId);
-        
-        if (!$extension) {
+
+        if (! $extension) {
             throw new \Exception("Extension not found: $extensionId");
         }
 
         $config = $this->generateConfig($mac, $extension->toArray());
-        
+
         // Store configuration for provisioning server
         $filename = "cfg{$mac}.xml";
         Storage::disk('local')->put("provisioning/{$filename}", $this->toXML($config));
@@ -1473,7 +1487,7 @@ class GrandStreamProvisioningService
             'mac' => $mac,
             'extension' => $extension->extension_number,
             'config_file' => $filename,
-            'provisioning_url' => config('rayanpbx.provisioning_base_url') . "/{$filename}",
+            'provisioning_url' => config('rayanpbx.provisioning_base_url')."/{$filename}",
         ];
     }
 
@@ -1492,36 +1506,34 @@ class GrandStreamProvisioningService
     {
         $username = $credentials['username'] ?? 'admin';
         $password = $credentials['password'] ?? '';
-        
+
         try {
-            $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation?request=reboot");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
-            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode != 200 && $httpCode != 202) {
-                throw new \Exception("HTTP error: {$httpCode}");
+            $response = $this->httpClient->withBasicAuth(
+                "http://{$ip}/cgi-bin/api-sys_operation?request=reboot",
+                $username,
+                $password,
+                'POST',
+                [],
+                ['timeout' => 10]
+            );
+
+            if (! $response->successful() && $response->status() !== 202) {
+                throw new \Exception('HTTP error: '.$response->status());
             }
-            
-            Log::info("Phone rebooted", ['ip' => $ip]);
-            
+
+            Log::info('Phone rebooted', ['ip' => $ip]);
+
             return [
                 'success' => true,
                 'message' => 'Phone reboot command sent successfully',
                 'ip' => $ip,
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to reboot phone", [
+            Log::error('Failed to reboot phone', [
                 'ip' => $ip,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => 'Failed to reboot phone',
@@ -1537,36 +1549,34 @@ class GrandStreamProvisioningService
     {
         $username = $credentials['username'] ?? 'admin';
         $password = $credentials['password'] ?? '';
-        
+
         try {
-            $ch = curl_init("http://{$ip}/cgi-bin/api-sys_operation?request=factory_reset");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
-            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode != 200 && $httpCode != 202) {
-                throw new \Exception("HTTP error: {$httpCode}");
+            $response = $this->httpClient->withBasicAuth(
+                "http://{$ip}/cgi-bin/api-sys_operation?request=factory_reset",
+                $username,
+                $password,
+                'POST',
+                [],
+                ['timeout' => 10]
+            );
+
+            if (! $response->successful() && $response->status() !== 202) {
+                throw new \Exception('HTTP error: '.$response->status());
             }
-            
-            Log::warning("Phone factory reset", ['ip' => $ip]);
-            
+
+            Log::warning('Phone factory reset', ['ip' => $ip]);
+
             return [
                 'success' => true,
                 'message' => 'Phone factory reset command sent successfully',
                 'ip' => $ip,
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to factory reset phone", [
+            Log::error('Failed to factory reset phone', [
                 'ip' => $ip,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => 'Failed to factory reset phone',
@@ -1582,43 +1592,42 @@ class GrandStreamProvisioningService
     {
         $username = $credentials['username'] ?? 'admin';
         $password = $credentials['password'] ?? '';
-        
+
         try {
-            $ch = curl_init("http://{$ip}/cgi-bin/api-get_config");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
-            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode != 200) {
-                throw new \Exception("HTTP error: {$httpCode}");
+            $response = $this->httpClient->withBasicAuth(
+                "http://{$ip}/cgi-bin/api-get_config",
+                $username,
+                $password,
+                'GET',
+                [],
+                ['timeout' => 10]
+            );
+
+            if (! $response->successful()) {
+                throw new \Exception('HTTP error: '.$response->status());
             }
-            
+
             // Parse response
-            $config = json_decode($response, true);
-            if (!$config) {
+            $config = $response->json();
+            if (! $config) {
                 // Try XML parsing
-                $xml = simplexml_load_string($response);
+                $xml = @simplexml_load_string($response->body());
                 if ($xml) {
                     $config = json_decode(json_encode($xml), true);
                 }
             }
-            
+
             return [
                 'success' => true,
                 'config' => $config ?? [],
                 'ip' => $ip,
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to get phone config", [
+            Log::error('Failed to get phone config', [
                 'ip' => $ip,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => 'Failed to get phone configuration',
@@ -1634,44 +1643,31 @@ class GrandStreamProvisioningService
     {
         $username = $credentials['username'] ?? 'admin';
         $password = $credentials['password'] ?? '';
-        
+
         try {
-            $jsonData = json_encode($config);
-            
-            if ($jsonData === false) {
-                throw new \Exception('Failed to encode configuration data: ' . json_last_error_msg());
+            $response = $this->httpClient->client([
+                'timeout' => 10,
+                'headers' => ['Content-Type' => 'application/json'],
+            ])->withBasicAuth($username, $password)
+                ->post("http://{$ip}/cgi-bin/api-set_config", $config);
+
+            if (! $response->successful() && $response->status() !== 202) {
+                throw new \Exception('HTTP error: '.$response->status());
             }
-            
-            $ch = curl_init("http://{$ip}/cgi-bin/api-set_config");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonData);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
-            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode != 200 && $httpCode != 202) {
-                throw new \Exception("HTTP error: {$httpCode}");
-            }
-            
-            Log::info("Phone configuration updated", ['ip' => $ip]);
-            
+
+            Log::info('Phone configuration updated', ['ip' => $ip]);
+
             return [
                 'success' => true,
                 'message' => 'Phone configuration updated successfully',
                 'ip' => $ip,
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to set phone config", [
+            Log::error('Failed to set phone config', [
                 'ip' => $ip,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => 'Failed to set phone configuration',
@@ -1686,16 +1682,16 @@ class GrandStreamProvisioningService
     public function provisionExtensionToPhone($ip, $extension, $accountNumber = 1, $credentials = [])
     {
         $sipServer = config('rayanpbx.sip_server_ip', '127.0.0.1');
-        
+
         $config = [
             "P{$accountNumber}47" => $sipServer, // SIP Server
             "P{$accountNumber}35" => $extension['extension_number'], // SIP User ID
             "P{$accountNumber}36" => $extension['extension_number'], // Authenticate ID
             "P{$accountNumber}34" => $extension['secret'], // Authenticate Password
             "P{$accountNumber}3" => $extension['name'], // Name
-            "P{$accountNumber}270" => "1", // Account Active
+            "P{$accountNumber}270" => '1', // Account Active
         ];
-        
+
         return $this->setPhoneConfig($ip, $config, $credentials);
     }
 
@@ -1706,8 +1702,8 @@ class GrandStreamProvisioningService
     public function checkActionUrls($ip, $credentials = [])
     {
         $result = $this->getPhoneConfig($ip, $credentials);
-        
-        if (!$result['success']) {
+
+        if (! $result['success']) {
             return $result;
         }
 
@@ -1733,7 +1729,7 @@ class GrandStreamProvisioningService
             ];
 
             // Detect conflicts - if current value is not empty and doesn't match expected
-            if (!empty($currentValue) && $currentValue !== $expectedValue) {
+            if (! empty($currentValue) && $currentValue !== $expectedValue) {
                 $status['conflict'] = true;
                 $hasConflicts = true;
             } else {
@@ -1756,38 +1752,39 @@ class GrandStreamProvisioningService
             'needs_update' => $needsUpdate,
             'summary' => [
                 'total' => count($pValues),
-                'matching' => count(array_filter($actionUrlStatus, fn($s) => $s['matches'])),
-                'conflicts' => count(array_filter($actionUrlStatus, fn($s) => $s['conflict'])),
+                'matching' => count(array_filter($actionUrlStatus, fn ($s) => $s['matches'])),
+                'conflicts' => count(array_filter($actionUrlStatus, fn ($s) => $s['conflict'])),
             ],
         ];
     }
 
     /**
      * Update Action URLs on a phone
-     * @param bool $forceUpdate If true, overwrites existing non-matching values without confirmation
+     *
+     * @param  bool  $forceUpdate  If true, overwrites existing non-matching values without confirmation
      */
     public function updateActionUrls($ip, $credentials = [], $forceUpdate = false)
     {
         // First check current status
         $checkResult = $this->checkActionUrls($ip, $credentials);
-        
-        if (!$checkResult['success']) {
+
+        if (! $checkResult['success']) {
             return $checkResult;
         }
 
         // If there are conflicts and force update is not enabled, require confirmation
-        if ($checkResult['has_conflicts'] && !$forceUpdate) {
+        if ($checkResult['has_conflicts'] && ! $forceUpdate) {
             return [
                 'success' => false,
                 'requires_confirmation' => true,
                 'ip' => $ip,
                 'message' => 'Phone has existing Action URL configuration that differs from expected values. Set forceUpdate to true to overwrite.',
-                'conflicts' => array_filter($checkResult['action_urls'], fn($s) => $s['conflict']),
+                'conflicts' => array_filter($checkResult['action_urls'], fn ($s) => $s['conflict']),
             ];
         }
 
         // If no update needed
-        if (!$checkResult['needs_update']) {
+        if (! $checkResult['needs_update']) {
             return [
                 'success' => true,
                 'ip' => $ip,
@@ -1808,7 +1805,7 @@ class GrandStreamProvisioningService
 
         // Apply configuration
         $result = $this->setPhoneConfig($ip, $configToSet, $credentials);
-        
+
         if ($result['success']) {
             Log::info('Action URLs updated on phone', [
                 'ip' => $ip,
@@ -1833,8 +1830,8 @@ class GrandStreamProvisioningService
     {
         // Provision extension first
         $extensionResult = $this->provisionExtensionToPhone($ip, $extension, $accountNumber, $credentials);
-        
-        if (!$extensionResult['success']) {
+
+        if (! $extensionResult['success']) {
             return [
                 'success' => false,
                 'message' => 'Failed to provision extension',
@@ -1844,7 +1841,7 @@ class GrandStreamProvisioningService
 
         // Update Action URLs
         $actionUrlResult = $this->updateActionUrls($ip, $credentials, $forceActionUrls);
-        
+
         // Check if Action URL update requires confirmation
         if (isset($actionUrlResult['requires_confirmation']) && $actionUrlResult['requires_confirmation']) {
             return [
@@ -1858,7 +1855,7 @@ class GrandStreamProvisioningService
         }
 
         // Check if Action URL update failed
-        if (!$actionUrlResult['success'] && !isset($actionUrlResult['requires_confirmation'])) {
+        if (! $actionUrlResult['success'] && ! isset($actionUrlResult['requires_confirmation'])) {
             return [
                 'success' => false,
                 'message' => 'Extension provisioned but Action URL update failed',

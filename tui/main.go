@@ -58,6 +58,12 @@ type UsageCommand struct {
 	Description string
 }
 
+// commandFinishedMsg is sent when an external command finishes
+type commandFinishedMsg struct {
+	output string
+	err    error
+}
+
 // Field indices for extension creation form
 const (
 	extFieldNumber = iota
@@ -163,8 +169,10 @@ type model struct {
 	inputCursor int
 
 	// CLI usage navigation
-	usageCommands []UsageCommand
-	usageCursor   int
+	usageCommands    []UsageCommand
+	usageCursor      int
+	usageOutput      string // Output from executed command
+	pendingCommand   string // Command waiting to be executed externally
 
 	// Diagnostics
 	diagnosticsManager *DiagnosticsManager
@@ -212,6 +220,13 @@ type model struct {
 	helloWorldSetup  *HelloWorldSetup
 	helloWorldStatus HelloWorldStatus
 	helloWorldMenu   []string
+
+	// Configuration Management scrolling state
+	configScrollOffset  int          // Current scroll offset for config list
+	configVisibleRows   int          // Number of visible rows in viewport
+	configItems         []EnvConfig  // Cached config items
+	configCursor        int          // Cursor position within config items
+	configSearchQuery   string       // Search/filter query
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -335,11 +350,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "k":
 				if m.selectedPhoneIdx > 0 {
 					m.selectedPhoneIdx--
+				} else if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = len(m.discoveredPhones) - 1
 				}
 				return m, nil
 			case "down", "j":
 				if m.selectedPhoneIdx < len(m.discoveredPhones)-1 {
 					m.selectedPhoneIdx++
+				} else if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = 0
+				}
+				return m, nil
+			case "home":
+				m.selectedPhoneIdx = 0
+				return m, nil
+			case "end":
+				if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = len(m.discoveredPhones) - 1
 				}
 				return m, nil
 			}
@@ -361,97 +388,200 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "up", "k":
 			if m.currentScreen == usageScreen {
-				// Navigate usage commands
+				// Navigate usage commands with rollover
 				if m.usageCursor > 0 {
 					m.usageCursor--
+				} else if len(m.usageCommands) > 0 {
+					m.usageCursor = len(m.usageCommands) - 1
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
-				// Navigate diagnostics menu
+				// Navigate diagnostics menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.diagnosticsMenu) > 0 {
+					m.cursor = len(m.diagnosticsMenu) - 1
 				}
 			} else if m.currentScreen == sipTestMenuScreen {
-				// Navigate SIP test menu
+				// Navigate SIP test menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.sipTestMenu) > 0 {
+					m.cursor = len(m.sipTestMenu) - 1
 				}
 			} else if m.currentScreen == asteriskMenuScreen {
-				// Navigate asterisk menu
+				// Navigate asterisk menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.asteriskMenu) > 0 {
+					m.cursor = len(m.asteriskMenu) - 1
 				}
 			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu
+				// Navigate Hello World menu with rollover
 				if m.cursor > 0 {
 					m.cursor--
+				} else if len(m.helloWorldMenu) > 0 {
+					m.cursor = len(m.helloWorldMenu) - 1
 				}
 			} else if m.currentScreen == systemSettingsScreen {
+				// Navigate system settings with rollover (6 options)
 				if m.cursor > 0 {
 					m.cursor--
+				} else {
+					m.cursor = 5
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list
+				// Navigate extensions list with rollover
 				if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
+				} else if len(m.extensions) > 0 {
+					m.selectedExtensionIdx = len(m.extensions) - 1
 				}
 			} else if m.currentScreen == docsListScreen {
-				// Navigate docs list
+				// Navigate docs list with rollover
 				if m.selectedDocIdx > 0 {
 					m.selectedDocIdx--
+				} else if len(m.docsList) > 0 {
+					m.selectedDocIdx = len(m.docsList) - 1
 				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
 				m.handleVoIPPhonesKeyPress("up")
 			} else if m.cursor > 0 {
 				m.cursor--
+			} else if len(m.menuItems) > 0 {
+				// Main menu rollover
+				m.cursor = len(m.menuItems) - 1
 			}
 
 		case "down", "j":
 			if m.currentScreen == usageScreen {
-				// Navigate usage commands
+				// Navigate usage commands with rollover
 				if m.usageCursor < len(m.usageCommands)-1 {
 					m.usageCursor++
+				} else if len(m.usageCommands) > 0 {
+					m.usageCursor = 0
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
-				// Navigate diagnostics menu
+				// Navigate diagnostics menu with rollover
 				if m.cursor < len(m.diagnosticsMenu)-1 {
 					m.cursor++
+				} else if len(m.diagnosticsMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == sipTestMenuScreen {
-				// Navigate SIP test menu
+				// Navigate SIP test menu with rollover
 				if m.cursor < len(m.sipTestMenu)-1 {
 					m.cursor++
+				} else if len(m.sipTestMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == asteriskMenuScreen {
-				// Navigate asterisk menu
+				// Navigate asterisk menu with rollover
 				if m.cursor < len(m.asteriskMenu)-1 {
 					m.cursor++
+				} else if len(m.asteriskMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu
+				// Navigate Hello World menu with rollover
 				if m.cursor < len(m.helloWorldMenu)-1 {
 					m.cursor++
+				} else if len(m.helloWorldMenu) > 0 {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 6 options (added upgrade)
+				// System settings has 6 options with rollover
 				if m.cursor < 5 {
 					m.cursor++
+				} else {
+					m.cursor = 0
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list
+				// Navigate extensions list with rollover
 				if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
+				} else if len(m.extensions) > 0 {
+					m.selectedExtensionIdx = 0
 				}
 			} else if m.currentScreen == docsListScreen {
-				// Navigate docs list
+				// Navigate docs list with rollover
 				if m.selectedDocIdx < len(m.docsList)-1 {
 					m.selectedDocIdx++
+				} else if len(m.docsList) > 0 {
+					m.selectedDocIdx = 0
 				}
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone navigation
 				m.handleVoIPPhonesKeyPress("down")
 			} else if m.cursor < len(m.menuItems)-1 {
 				m.cursor++
+			} else if len(m.menuItems) > 0 {
+				// Main menu rollover
+				m.cursor = 0
+			}
+
+		case "home":
+			// Jump to first item in current list/menu
+			if m.currentScreen == usageScreen {
+				m.usageCursor = 0
+			} else if m.currentScreen == extensionsScreen {
+				m.selectedExtensionIdx = 0
+			} else if m.currentScreen == docsListScreen {
+				m.selectedDocIdx = 0
+			} else if m.currentScreen == voipPhonesScreen {
+				m.selectedPhoneIdx = 0
+			} else if m.currentScreen == voipDiscoveryScreen {
+				m.selectedPhoneIdx = 0
+			} else {
+				m.cursor = 0
+			}
+
+		case "end":
+			// Jump to last item in current list/menu
+			if m.currentScreen == usageScreen {
+				if len(m.usageCommands) > 0 {
+					m.usageCursor = len(m.usageCommands) - 1
+				}
+			} else if m.currentScreen == diagnosticsMenuScreen {
+				if len(m.diagnosticsMenu) > 0 {
+					m.cursor = len(m.diagnosticsMenu) - 1
+				}
+			} else if m.currentScreen == sipTestMenuScreen {
+				if len(m.sipTestMenu) > 0 {
+					m.cursor = len(m.sipTestMenu) - 1
+				}
+			} else if m.currentScreen == asteriskMenuScreen {
+				if len(m.asteriskMenu) > 0 {
+					m.cursor = len(m.asteriskMenu) - 1
+				}
+			} else if m.currentScreen == helloWorldScreen {
+				if len(m.helloWorldMenu) > 0 {
+					m.cursor = len(m.helloWorldMenu) - 1
+				}
+			} else if m.currentScreen == systemSettingsScreen {
+				m.cursor = 5
+			} else if m.currentScreen == extensionsScreen {
+				if len(m.extensions) > 0 {
+					m.selectedExtensionIdx = len(m.extensions) - 1
+				}
+			} else if m.currentScreen == docsListScreen {
+				if len(m.docsList) > 0 {
+					m.selectedDocIdx = len(m.docsList) - 1
+				}
+			} else if m.currentScreen == voipPhonesScreen {
+				if len(m.voipPhones) > 0 {
+					m.selectedPhoneIdx = len(m.voipPhones) - 1
+				}
+			} else if m.currentScreen == voipPhoneControlScreen {
+				if len(m.voipControlMenu) > 0 {
+					m.cursor = len(m.voipControlMenu) - 1
+				}
+			} else if m.currentScreen == voipDiscoveryScreen {
+				if len(m.discoveredPhones) > 0 {
+					m.selectedPhoneIdx = len(m.discoveredPhones) - 1
+				}
+			} else if len(m.menuItems) > 0 {
+				m.cursor = len(m.menuItems) - 1
 			}
 
 		case "a":
@@ -613,7 +743,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 9:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
-					m.cursor = 0
+					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
 				case 10:
@@ -626,7 +756,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == usageScreen {
 				// Execute selected command
 				if m.usageCursor < len(m.usageCommands) {
-					m.executeCommand(m.usageCommands[m.usageCursor].Command)
+					cmd := m.executeCommand(m.usageCommands[m.usageCursor].Command)
+					if cmd != nil {
+						return m, cmd
+					}
 				}
 			} else if m.currentScreen == diagnosticsMenuScreen {
 				// Save diagnostics menu position before handling
@@ -645,7 +778,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleAsteriskMenuSelection()
 			} else if m.currentScreen == systemSettingsScreen {
 				// Handle system settings menu selection
-				m.handleSystemSettingsAction()
+				cmd := m.handleSystemSettingsAction()
+				if cmd != nil {
+					return m, cmd
+				}
 			} else if m.currentScreen == docsListScreen {
 				// Open selected document
 				if m.selectedDocIdx < len(m.docsList) {
@@ -757,6 +893,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+	case commandFinishedMsg:
+		// Handle completion of external command execution
+		if msg.err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to execute command: %v", msg.err)
+			m.usageOutput = ""
+		} else {
+			m.successMsg = "Command executed successfully"
+			m.usageOutput = msg.output
+			m.errorMsg = ""
+		}
+		m.pendingCommand = ""
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -1405,6 +1554,16 @@ func (m model) renderSipTestFull() string {
 func (m model) renderUsage() string {
 	content := infoStyle.Render("📖 CLI Usage Guide") + "\n\n"
 
+	// Display command output if any
+	if m.usageOutput != "" {
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+		content += m.usageOutput
+		if !strings.HasSuffix(m.usageOutput, "\n") {
+			content += "\n"
+		}
+		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+	}
+
 	if len(m.usageCommands) == 0 {
 		content += "Loading commands...\n"
 	} else {
@@ -1462,13 +1621,153 @@ func getUsageCommands() []UsageCommand {
 	}
 }
 
-// executeCommand shows a message about executing the command
-// TODO: Implement actual command execution using exec.Command for better user experience
-func (m *model) executeCommand(command string) {
-	// For now, just show that the command would be executed
-	// In a real implementation, this could use exec.Command to run it
-	m.successMsg = fmt.Sprintf("Command ready to execute: %s", command)
-	m.errorMsg = "Note: Command execution is simulated in TUI. Please run in terminal."
+// executeCommand executes a CLI command and captures its output.
+// For most commands, output is captured and displayed in the TUI.
+// For long-running commands (start, stop, restart, update), the command
+// is run outside the TUI so the user can see the output.
+// Returns a tea.Cmd if the command should be run externally, nil otherwise.
+func (m *model) executeCommand(command string) tea.Cmd {
+	// Clear previous output
+	m.usageOutput = ""
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	// Check if this is a long-running or interactive command that needs to run outside TUI
+	// We check for specific command patterns to avoid false positives
+	isLongRunning := isLongRunningCommand(command)
+	
+	if isLongRunning {
+		// Store the command and return a tea.Cmd to run it externally
+		m.pendingCommand = command
+		return m.runCommandExternally(command)
+	}
+	
+	// For quick commands, execute and capture output immediately
+	output, err := m.runCommandCapture(command)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to execute command: %v", err)
+		return nil
+	}
+	
+	m.successMsg = "Command executed successfully"
+	m.usageOutput = output
+	return nil
+}
+
+// isLongRunningCommand checks if a command is potentially long-running or interactive
+// These commands should be run outside the TUI so the user can see output and interact
+func isLongRunningCommand(command string) bool {
+	// Service management commands that need to run outside TUI
+	longRunningPatterns := []string{
+		"systemctl start",
+		"systemctl stop", 
+		"systemctl restart",
+		"service start",
+		"service stop",
+		"service restart",
+		"asterisk start",
+		"asterisk stop",
+		"asterisk restart",
+		"system update",
+		"--update",
+	}
+	
+	cmdLower := strings.ToLower(command)
+	for _, pattern := range longRunningPatterns {
+		if strings.Contains(cmdLower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseCommand splits a command string into executable and arguments
+// It handles simple quoted strings
+func parseCommand(command string) (string, []string, error) {
+	if command == "" {
+		return "", nil, fmt.Errorf("empty command")
+	}
+	
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := rune(0)
+	
+	for _, char := range command {
+		switch {
+		case char == '"' || char == '\'':
+			if inQuotes && char == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			} else if !inQuotes {
+				inQuotes = true
+				quoteChar = char
+			} else {
+				current.WriteRune(char)
+			}
+		case char == ' ' && !inQuotes:
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(char)
+		}
+	}
+	
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	
+	if len(parts) == 0 {
+		return "", nil, fmt.Errorf("empty command")
+	}
+	
+	return parts[0], parts[1:], nil
+}
+
+// runCommandCapture executes a command and captures its output
+func (m *model) runCommandCapture(command string) (string, error) {
+	executable, args, err := parseCommand(command)
+	if err != nil {
+		return "", err
+	}
+	
+	// Create the command
+	cmd := exec.Command(executable, args...)
+	
+	// Capture output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Include output in error for better debugging
+		if len(output) > 0 {
+			return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
+		}
+		return "", err
+	}
+	
+	return string(output), nil
+}
+
+// runCommandExternally runs a command outside the TUI using tea.ExecProcess
+// This allows the user to see the command output and interact with it
+func (m *model) runCommandExternally(command string) tea.Cmd {
+	executable, args, err := parseCommand(command)
+	if err != nil {
+		return nil
+	}
+	
+	// Create the command
+	cmd := exec.Command(executable, args...)
+	cmd.Stdin = os.Stdin
+	
+	// Use tea.ExecProcess to run the command outside the TUI
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return commandFinishedMsg{output: "", err: err}
+		}
+		return commandFinishedMsg{output: fmt.Sprintf("Command '%s' completed successfully.", command), err: nil}
+	})
 }
 
 // initCreateExtension initializes the extension creation form with advanced PJSIP options
@@ -1586,11 +1885,23 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		if m.inputCursor > 0 {
 			m.inputCursor--
+		} else if len(m.inputFields) > 0 {
+			m.inputCursor = len(m.inputFields) - 1
 		}
 
 	case "down":
 		if m.inputCursor < len(m.inputFields)-1 {
 			m.inputCursor++
+		} else if len(m.inputFields) > 0 {
+			m.inputCursor = 0
+		}
+
+	case "home":
+		m.inputCursor = 0
+
+	case "end":
+		if len(m.inputFields) > 0 {
+			m.inputCursor = len(m.inputFields) - 1
 		}
 
 	case "enter":
@@ -2481,43 +2792,70 @@ func (m *model) handleAsteriskMenuSelection() {
 
 	switch m.cursor {
 	case 0: // Start Asterisk Service
-		if err := m.asteriskManager.StartServiceQuiet(); err != nil {
+		output, err := m.asteriskManager.StartServiceQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to start service: %v", err)
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		} else {
 			m.successMsg = "Asterisk service started successfully"
+			m.asteriskOutput = output
 		}
 	case 1: // Stop Asterisk Service
-		if err := m.asteriskManager.StopServiceQuiet(); err != nil {
+		output, err := m.asteriskManager.StopServiceQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to stop service: %v", err)
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		} else {
 			m.successMsg = "Asterisk service stopped successfully"
+			m.asteriskOutput = output
 		}
 	case 2: // Restart Asterisk Service
-		if err := m.asteriskManager.RestartServiceQuiet(); err != nil {
+		output, err := m.asteriskManager.RestartServiceQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to restart service: %v", err)
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		} else {
 			m.successMsg = "Asterisk service restarted successfully"
+			m.asteriskOutput = output
 		}
 	case 3: // Show Service Status
 		m.asteriskOutput = m.asteriskManager.GetServiceStatusOutput()
 		m.successMsg = "Service status displayed"
 	case 4: // Reload PJSIP Configuration
-		if err := m.asteriskManager.ReloadPJSIPQuiet(); err != nil {
+		output, err := m.asteriskManager.ReloadPJSIPQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
 		} else {
 			m.successMsg = "PJSIP configuration reloaded successfully"
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		}
 	case 5: // Reload Dialplan
-		if err := m.asteriskManager.ReloadDialplanQuiet(); err != nil {
+		output, err := m.asteriskManager.ReloadDialplanQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload dialplan: %v", err)
 		} else {
 			m.successMsg = "Dialplan reloaded successfully"
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		}
 	case 6: // Reload All Modules
-		if err := m.asteriskManager.ReloadAllQuiet(); err != nil {
+		output, err := m.asteriskManager.ReloadAllQuiet()
+		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload modules: %v", err)
 		} else {
 			m.successMsg = "All modules reloaded successfully"
+			if output != "" {
+				m.asteriskOutput = output
+			}
 		}
 	case 7: // Show PJSIP Endpoints
 		output, err := m.asteriskManager.ShowEndpoints()
@@ -2762,7 +3100,7 @@ func (m *model) renderSystemSettings() string {
 	return menuStyle.Render(s)
 }
 
-func (m *model) handleSystemSettingsAction() {
+func (m *model) handleSystemSettingsAction() tea.Cmd {
 	switch m.cursor {
 	case 0:
 		// Toggle Mode
@@ -2778,12 +3116,13 @@ func (m *model) handleSystemSettingsAction() {
 		m.setMode("development", true)
 	case 4:
 		// Run System Upgrade
-		m.runSystemUpgrade()
+		return m.runSystemUpgrade()
 	case 5:
 		// Back to main menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
 	}
+	return nil
 }
 
 func (m *model) toggleAppMode() {
@@ -2857,8 +3196,9 @@ func (m *model) setMode(env string, debug bool) {
 	m.successMsg = fmt.Sprintf("Mode set to %s (debug: %v). Changes will take effect after service restart.", env, debug)
 }
 
-// runSystemUpgrade executes the upgrade script
-func (m *model) runSystemUpgrade() {
+// runSystemUpgrade executes the upgrade script using tea.ExecProcess
+// This properly suspends the TUI and allows user interaction with the script
+func (m *model) runSystemUpgrade() tea.Cmd {
 	// Use absolute path for security
 	upgradeScript := "/opt/rayanpbx/scripts/upgrade.sh"
 	
@@ -2866,41 +3206,36 @@ func (m *model) runSystemUpgrade() {
 	fileInfo, err := os.Stat(upgradeScript)
 	if os.IsNotExist(err) {
 		m.errorMsg = fmt.Sprintf("Upgrade script not found at: %s", upgradeScript)
-		return
+		return nil
 	}
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Error checking upgrade script: %v", err)
-		return
+		return nil
 	}
 	if !fileInfo.Mode().IsRegular() {
 		m.errorMsg = fmt.Sprintf("Upgrade script is not a regular file: %s", upgradeScript)
-		return
+		return nil
 	}
 	
-	// Display a message and exit TUI to run upgrade
+	// Display a message and run upgrade
 	fmt.Println("\n🚀 Launching system upgrade...")
-	fmt.Println("The TUI will close and the upgrade script will start.")
+	fmt.Println("The TUI will now launch the upgrade script.")
 	fmt.Println()
 	
 	// Prepare the command with sudo
+	// Note: cmd.Stdout and cmd.Stderr are not set here because tea.ExecProcess
+	// automatically handles stdout/stderr redirection when it suspends the TUI
 	cmd := exec.Command("sudo", "bash", upgradeScript)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	
-	// Execute the upgrade script
-	if err := cmd.Run(); err != nil {
-		// Check for specific error types
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			fmt.Printf("Upgrade script exited with status %d\n", exitErr.ExitCode())
-		} else {
-			fmt.Printf("Error running upgrade script: %v\n", err)
+	// Use tea.ExecProcess to run the command outside the TUI
+	// This properly suspends the alternate screen and allows user interaction
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return commandFinishedMsg{output: "", err: fmt.Errorf("upgrade failed: %v", err)}
 		}
-		os.Exit(1)
-	}
-	
-	// Exit successfully after upgrade completes
-	os.Exit(0)
+		return commandFinishedMsg{output: "System upgrade completed successfully.", err: nil}
+	})
 }
 
 // Helper function to replace environment variable value in .env content
