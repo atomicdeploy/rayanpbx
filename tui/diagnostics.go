@@ -504,20 +504,21 @@ func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
 	}
 	result.WriteString("✅ Asterisk service is running\n")
 	
-	// Step 2: Check PJSIP transports - warn if neither UDP nor TCP is configured
+	// Step 2: Check PJSIP transports
 	transports, err := dm.asterisk.ExecuteCLICommand("pjsip show transports")
-	if err != nil || (!strings.Contains(transports, "transport-udp") || !strings.Contains(transports, "transport-tcp")) {
-		// Check if at least one transport is configured
-		if err != nil || (!strings.Contains(transports, "transport-udp") && !strings.Contains(transports, "transport-tcp")) {
-			result.WriteString("⚠️  PJSIP transports not configured\n")
-			result.WriteString("   Check /etc/asterisk/pjsip.conf\n")
-		} else if !strings.Contains(transports, "transport-udp") {
-			result.WriteString("⚠️  UDP transport not configured (only TCP available)\n")
-		} else if !strings.Contains(transports, "transport-tcp") {
-			result.WriteString("⚠️  TCP transport not configured (only UDP available)\n")
-		}
-	} else {
+	hasUDP := strings.Contains(transports, "transport-udp")
+	hasTCP := strings.Contains(transports, "transport-tcp")
+	
+	if err != nil || (!hasUDP && !hasTCP) {
+		// Neither transport is configured
+		result.WriteString("⚠️  PJSIP transports not configured\n")
+		result.WriteString("   Check /etc/asterisk/pjsip.conf\n")
+	} else if hasUDP && hasTCP {
 		result.WriteString("✅ PJSIP transports configured (UDP and TCP)\n")
+	} else if hasUDP {
+		result.WriteString("✅ PJSIP transport configured (UDP only)\n")
+	} else if hasTCP {
+		result.WriteString("✅ PJSIP transport configured (TCP only)\n")
 	}
 	
 	// Step 3: Check if port is listening using system commands
@@ -532,18 +533,18 @@ func (dm *DiagnosticsManager) CheckSIPPort(port int) string {
 		// Use word boundary matching: port followed by space or end of field
 		portPattern := fmt.Sprintf(":%d ", port) // Port followed by space
 		portPatternEnd := fmt.Sprintf(":%d\t", port) // Port followed by tab
+		portSuffix := fmt.Sprintf(":%d", port)
 		for _, line := range lines {
 			// Match :PORT followed by whitespace to avoid false positives like :15060
-			if strings.Contains(line, portPattern) || strings.Contains(line, portPatternEnd) || 
-			   strings.HasSuffix(strings.Fields(line)[0], fmt.Sprintf(":%d", port)) {
+			if strings.Contains(line, portPattern) || strings.Contains(line, portPatternEnd) {
 				portListening = true
 				listenInfo = strings.TrimSpace(line)
 				break
 			}
-			// Also check for exact port in 4th or 5th column (ss output format)
+			// Also check for exact port in each field (ss output format)
 			fields := strings.Fields(line)
 			for _, field := range fields {
-				if strings.HasSuffix(field, fmt.Sprintf(":%d", port)) {
+				if strings.HasSuffix(field, portSuffix) {
 					portListening = true
 					listenInfo = strings.TrimSpace(line)
 					break
