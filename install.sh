@@ -384,6 +384,78 @@ print_cmd() {
     echo -e "${DIM}   $ $1${RESET}"
 }
 
+# URL encode a string for use in URLs
+# Uses Python if available for proper encoding, falls back to sed-based encoding
+url_encode() {
+    local string="$1"
+    
+    # Try Python first for proper encoding
+    if command -v python3 &> /dev/null; then
+        printf '%s' "$string" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote_plus(sys.stdin.read()))" 2>/dev/null
+        return
+    fi
+    
+    # Fallback to sed-based encoding (covers common characters)
+    printf '%s' "$string" | sed -e 's/%/%25/g' \
+        -e 's/ /%20/g' \
+        -e 's/!/%21/g' \
+        -e 's/"/%22/g' \
+        -e 's/#/%23/g' \
+        -e 's/\$/%24/g' \
+        -e 's/\&/%26/g' \
+        -e "s/'/%27/g" \
+        -e 's/(/%28/g' \
+        -e 's/)/%29/g' \
+        -e 's/\*/%2A/g' \
+        -e 's/+/%2B/g' \
+        -e 's/,/%2C/g' \
+        -e 's/:/%3A/g' \
+        -e 's/;/%3B/g' \
+        -e 's/</%3C/g' \
+        -e 's/=/%3D/g' \
+        -e 's/>/%3E/g' \
+        -e 's/?/%3F/g' \
+        -e 's/@/%40/g' \
+        -e 's/\[/%5B/g' \
+        -e 's/\\/%5C/g' \
+        -e 's/\]/%5D/g' \
+        -e 's/\^/%5E/g' \
+        -e 's/{/%7B/g' \
+        -e 's/|/%7C/g' \
+        -e 's/}/%7D/g' \
+        -e 's/~/%7E/g'
+}
+
+# Query Pollinations.AI for AI-powered solutions
+# Handles timeouts and error cases gracefully
+query_pollinations_ai() {
+    local query="$1"
+    local max_chars="${2:-800}"
+    
+    # URL encode the query
+    local encoded_query=$(url_encode "$query")
+    
+    # Fetch solution from Pollinations.AI with proper timeout and error handling
+    # --connect-timeout: max time for connection establishment
+    # --max-time: max total time for the entire operation
+    local response=""
+    response=$(curl -s --connect-timeout 10 --max-time 30 \
+        -H "User-Agent: RayanPBX-Installer" \
+        "https://text.pollinations.ai/${encoded_query}" 2>/dev/null)
+    
+    local curl_exit=$?
+    
+    # Check for curl errors
+    if [ $curl_exit -ne 0 ]; then
+        echo ""
+        return 1
+    fi
+    
+    # Truncate response to max_chars
+    echo "$response" | head -c "$max_chars"
+    return 0
+}
+
 handle_asterisk_error() {
     local error_msg="$1"
     local context="${2:-Asterisk operation}"
@@ -394,11 +466,8 @@ handle_asterisk_error() {
     echo -e "${CYAN}🔍 Checking for solutions...${RESET}"
     echo ""
     
-    # URL encode the error message using sed for special characters
-    local encoded_query=$(printf '%s' "$error_msg $context" | sed 's/ /%20/g; s/!/%21/g; s/"/%22/g; s/#/%23/g; s/\$/%24/g; s/&/%26/g; s/'\''/%27/g; s/(/%28/g; s/)/%29/g; s/\*/%2A/g; s/+/%2B/g; s/,/%2C/g; s/:/%3A/g; s/;/%3B/g; s/=/%3D/g; s/?/%3F/g; s/@/%40/g; s/\[/%5B/g; s/\]/%5D/g')
-    
-    # Automatically fetch solution using GET request
-    local solution=$(curl -s "https://text.pollinations.ai/${encoded_query}" 2>/dev/null | head -c 500)
+    # Query Pollinations.AI for solution
+    local solution=$(query_pollinations_ai "$error_msg $context" 500)
     
     if [ -n "$solution" ]; then
         echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
@@ -407,6 +476,245 @@ handle_asterisk_error() {
     else
         echo -e "${DIM}Could not retrieve solution automatically. Check your internet connection.${RESET}"
         echo ""
+    fi
+}
+
+# Perform automated AMI checks and report results
+# This function automatically checks all the items that would otherwise be
+# listed as "Please check the following:" for manual verification
+perform_ami_diagnostic_checks() {
+    local ami_host="${1:-127.0.0.1}"
+    local ami_port="${2:-5038}"
+    local ami_username="${3:-admin}"
+    local ami_secret="${4:-rayanpbx_ami_secret}"
+    
+    echo ""
+    echo -e "${CYAN}${BOLD}🔍 Performing Automated AMI Diagnostic Checks...${RESET}"
+    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo ""
+    
+    local issues_found=()
+    local check_results=""
+    
+    # Check 1: Verify /etc/asterisk/manager.conf exists and is configured
+    echo -e "${CYAN}Check 1/5:${RESET} Verifying /etc/asterisk/manager.conf..."
+    if [ -f "/etc/asterisk/manager.conf" ]; then
+        print_success "manager.conf exists"
+        
+        # Check if file has content (not empty)
+        if [ -s "/etc/asterisk/manager.conf" ]; then
+            print_success "manager.conf has content"
+            check_results="${check_results}✓ manager.conf exists and has content\n"
+        else
+            print_error "manager.conf is empty"
+            issues_found+=("manager.conf is empty - needs configuration")
+            check_results="${check_results}✗ manager.conf is empty\n"
+        fi
+    else
+        print_error "manager.conf does not exist"
+        issues_found+=("/etc/asterisk/manager.conf file not found")
+        check_results="${check_results}✗ manager.conf not found\n"
+    fi
+    echo ""
+    
+    # Check 2: Ensure AMI is enabled (enabled = yes in [general] section)
+    echo -e "${CYAN}Check 2/5:${RESET} Checking if AMI is enabled in configuration..."
+    if [ -f "/etc/asterisk/manager.conf" ]; then
+        # Check for enabled = yes in [general] section
+        local ami_enabled=$(grep -A20 '^\[general\]' /etc/asterisk/manager.conf 2>/dev/null | grep -E '^enabled\s*=\s*yes' | head -1)
+        if [ -n "$ami_enabled" ]; then
+            print_success "AMI is enabled in [general] section"
+            check_results="${check_results}✓ AMI is enabled (enabled = yes)\n"
+        else
+            # Check if it's disabled or not set
+            local ami_disabled=$(grep -A20 '^\[general\]' /etc/asterisk/manager.conf 2>/dev/null | grep -E '^enabled\s*=\s*no' | head -1)
+            if [ -n "$ami_disabled" ]; then
+                print_error "AMI is explicitly disabled"
+                issues_found+=("AMI is disabled - change 'enabled = no' to 'enabled = yes' in [general] section")
+                check_results="${check_results}✗ AMI is disabled (enabled = no)\n"
+            else
+                print_warning "Cannot confirm AMI is enabled - missing 'enabled = yes' in [general]"
+                issues_found+=("AMI may not be enabled - add 'enabled = yes' to [general] section")
+                check_results="${check_results}? AMI enable status unclear\n"
+            fi
+        fi
+    else
+        print_error "Cannot check - manager.conf not found"
+        check_results="${check_results}✗ Cannot check AMI enable status\n"
+    fi
+    echo ""
+    
+    # Check 3: Check if port 5038 is not blocked by firewall
+    echo -e "${CYAN}Check 3/5:${RESET} Checking if port ${ami_port} is accessible..."
+    if is_port_listening "$ami_port"; then
+        print_success "Port $ami_port is listening"
+        check_results="${check_results}✓ Port $ami_port is listening\n"
+        
+        # Show what process is listening
+        local listen_info=""
+        if command -v ss &> /dev/null; then
+            listen_info=$(ss -tunlp 2>/dev/null | grep ":${ami_port}" | head -1)
+        elif command -v netstat &> /dev/null; then
+            listen_info=$(netstat -tunlp 2>/dev/null | grep ":${ami_port}" | head -1)
+        fi
+        if [ -n "$listen_info" ]; then
+            print_info "Listener: $listen_info"
+        fi
+    else
+        print_error "Port $ami_port is NOT listening"
+        issues_found+=("AMI port $ami_port is not listening - Asterisk may not have started AMI")
+        check_results="${check_results}✗ Port $ami_port is not listening\n"
+        
+        # Check if firewall might be blocking
+        if command -v ufw &> /dev/null; then
+            local ufw_status=$(ufw status 2>/dev/null | grep -i active)
+            if [ -n "$ufw_status" ]; then
+                print_warning "UFW firewall is active - check if port $ami_port is allowed"
+                check_results="${check_results}? UFW firewall is active\n"
+            fi
+        fi
+        if command -v iptables &> /dev/null; then
+            local iptables_drop=$(iptables -L INPUT -n 2>/dev/null | grep -E "DROP.*$ami_port")
+            if [ -n "$iptables_drop" ]; then
+                print_warning "iptables may be blocking port $ami_port"
+                issues_found+=("iptables may be blocking port $ami_port")
+                check_results="${check_results}? iptables may be blocking port\n"
+            fi
+        fi
+    fi
+    echo ""
+    
+    # Check 4: Verify Asterisk service is running
+    echo -e "${CYAN}Check 4/5:${RESET} Checking Asterisk service status..."
+    if systemctl is-active --quiet asterisk 2>/dev/null; then
+        print_success "Asterisk service is running"
+        check_results="${check_results}✓ Asterisk service is running\n"
+        
+        # Get uptime info
+        local uptime_info=$(systemctl show asterisk --property=ActiveEnterTimestamp --value 2>/dev/null)
+        if [ -n "$uptime_info" ]; then
+            print_info "Started: $uptime_info"
+        fi
+    else
+        print_error "Asterisk service is NOT running"
+        issues_found+=("Asterisk service is not running")
+        check_results="${check_results}✗ Asterisk service is not running\n"
+        
+        # Get recent error from journal
+        local recent_error=$(journalctl -u asterisk -n 5 --no-pager 2>/dev/null | grep -i "error\|fail" | tail -1)
+        if [ -n "$recent_error" ]; then
+            print_warning "Recent error: $recent_error"
+            check_results="${check_results}  Error: $recent_error\n"
+        fi
+    fi
+    echo ""
+    
+    # Check 5: Try to reload Asterisk manager and test connection
+    echo -e "${CYAN}Check 5/5:${RESET} Testing AMI connection..."
+    if systemctl is-active --quiet asterisk 2>/dev/null; then
+        # Try to reload manager
+        print_info "Attempting to reload Asterisk manager..."
+        asterisk -rx "manager reload" > /dev/null 2>&1 || true
+        sleep 1
+        
+        # Test AMI connection with netcat if available
+        if command -v nc &> /dev/null; then
+            # Use a temporary file for AMI credentials to avoid exposure in process list
+            local ami_temp_file=""
+            old_umask=$(umask)
+            umask 077
+            ami_temp_file=$(mktemp -t rayanpbx-ami.XXXXXX 2>/dev/null)
+            umask "$old_umask"
+            
+            if [ -n "$ami_temp_file" ] && [ -f "$ami_temp_file" ]; then
+                # Write AMI login command to temp file
+                printf "Action: Login\r\nUsername: %s\r\nSecret: %s\r\n\r\n" "$ami_username" "$ami_secret" > "$ami_temp_file"
+                
+                # Test AMI connection using temp file for credentials
+                local ami_response=$(timeout 5 cat "$ami_temp_file" | nc "$ami_host" "$ami_port" 2>/dev/null | head -10)
+                
+                # Clean up temp file immediately after use
+                rm -f "$ami_temp_file" 2>/dev/null
+                
+                if echo "$ami_response" | grep -qi "Success"; then
+                    print_success "AMI connection and authentication successful!"
+                    check_results="${check_results}✓ AMI authentication successful\n"
+                elif echo "$ami_response" | grep -qi "Authentication failed"; then
+                    print_error "AMI authentication failed - wrong credentials"
+                    issues_found+=("AMI authentication failed - check username/secret in manager.conf")
+                    check_results="${check_results}✗ AMI authentication failed\n"
+                elif [ -n "$ami_response" ]; then
+                    print_warning "AMI responded but with unexpected response"
+                    check_results="${check_results}? AMI response unexpected\n"
+                else
+                    print_error "AMI did not respond - connection timeout"
+                    issues_found+=("AMI connection timeout - service may not be responding")
+                    check_results="${check_results}✗ AMI connection timeout\n"
+                fi
+            else
+                print_warning "Could not create temp file for secure AMI test"
+                check_results="${check_results}? AMI test skipped (temp file error)\n"
+            fi
+        else
+            print_info "netcat (nc) not available - skipping connection test"
+            check_results="${check_results}? Connection test skipped (nc not installed)\n"
+        fi
+    else
+        print_warning "Skipping AMI connection test - Asterisk not running"
+        check_results="${check_results}? Connection test skipped (Asterisk not running)\n"
+    fi
+    echo ""
+    
+    # Summary of checks
+    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${CYAN}${BOLD}📋 Diagnostic Summary:${RESET}"
+    echo -e "${DIM}$check_results${RESET}"
+    
+    # If there are issues, get AI-powered solution from Pollinations.AI
+    if [ ${#issues_found[@]} -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}${BOLD}⚠️  Issues Found: ${#issues_found[@]}${RESET}"
+        for issue in "${issues_found[@]}"; do
+            echo -e "  ${RED}•${RESET} $issue"
+        done
+        echo ""
+        
+        # Build error message for AI
+        local error_summary="AMI socket is not working. Issues found: "
+        for issue in "${issues_found[@]}"; do
+            error_summary="${error_summary}${issue}; "
+        done
+        
+        # Use existing Pollinations.AI integration to get solution
+        echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
+        echo ""
+        
+        # Query Pollinations.AI using the helper function
+        local ai_solution=$(query_pollinations_ai "Asterisk AMI $error_summary How to fix?" 800)
+        
+        if [ -n "$ai_solution" ]; then
+            echo -e "${GREEN}${BOLD}💡 AI-Suggested Solution:${RESET}"
+            echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+            echo -e "${WHITE}${ai_solution}${RESET}"
+            echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+            echo ""
+        else
+            echo -e "${DIM}Could not retrieve AI solution. Check your internet connection.${RESET}"
+            echo ""
+        fi
+        
+        # Still show manual commands as fallback
+        echo -e "${CYAN}${BOLD}🔧 Manual Fix Commands:${RESET}"
+        echo -e "  ${WHITE}sudo rayanpbx-cli diag check-ami${RESET}"
+        echo -e "  ${WHITE}sudo /opt/rayanpbx/scripts/health-check.sh check-ami${RESET}"
+        echo ""
+        
+        return 1
+    else
+        echo -e "${GREEN}${BOLD}✅ All Checks Passed!${RESET}"
+        echo -e "${WHITE}AMI configuration appears to be correct.${RESET}"
+        echo ""
+        return 0
     fi
 }
 
@@ -2182,12 +2490,46 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     else
         print_error "Failed to start Asterisk service"
         echo ""
-        print_warning "To diagnose the issue manually, run these commands:"
-        print_cmd "systemctl status asterisk"
-        print_cmd "journalctl -u asterisk -n 50"
-        print_cmd "asterisk -rvvvvv  # Launch Asterisk console in verbose mode"
+        
+        # Perform automated diagnostics instead of asking user to run commands manually
+        echo -e "${CYAN}${BOLD}🔍 Running Automated Asterisk Diagnostics...${RESET}"
         echo ""
-        print_warning "Continuing with installation, but Asterisk may need manual intervention"
+        
+        # Check 1: Systemctl status
+        echo -e "${CYAN}Systemctl Status:${RESET}"
+        systemctl status asterisk --no-pager 2>&1 | head -15 || true
+        echo ""
+        
+        # Check 2: Journal errors
+        echo -e "${CYAN}Recent Errors from Journal:${RESET}"
+        local recent_errors=$(journalctl -u asterisk -n 20 --no-pager 2>/dev/null | grep -i "error\|fail\|warning" | tail -10)
+        if [ -n "$recent_errors" ]; then
+            echo -e "${DIM}$recent_errors${RESET}"
+        else
+            echo -e "${DIM}No recent errors found in journal.${RESET}"
+        fi
+        echo ""
+        
+        # Build error summary for AI
+        local error_summary="Asterisk failed to start. "
+        if [ -n "$recent_errors" ]; then
+            error_summary="${error_summary}Recent errors: $(echo "$recent_errors" | head -3 | tr '\n' ' ')"
+        fi
+        
+        # Use Pollinations.AI to get solution using the helper function
+        echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
+        local ai_solution=$(query_pollinations_ai "$error_summary How to fix?" 600)
+        
+        if [ -n "$ai_solution" ]; then
+            echo ""
+            echo -e "${GREEN}${BOLD}💡 AI-Suggested Solution:${RESET}"
+            echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+            echo -e "${WHITE}${ai_solution}${RESET}"
+            echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+        fi
+        echo ""
+        
+        print_warning "Continuing with installation, but Asterisk may need additional configuration"
     fi
 fi
 
@@ -2791,7 +3133,7 @@ EOF
         if [ $AMI_CHECK_EXIT_CODE -eq 0 ]; then
             print_success "✓ AMI socket is working correctly"
         elif [ $AMI_CHECK_EXIT_CODE -eq 2 ]; then
-            # Unfixable
+            # Unfixable - run automated diagnostic checks instead of asking user to check manually
             print_error "✗ AMI socket is not working and could not be fixed automatically"
             FAILED_SERVICES+=("Asterisk AMI")
             echo ""
@@ -2800,16 +3142,11 @@ EOF
             echo -e "${WHITE}The Asterisk Manager Interface (AMI) is not responding.${RESET}"
             echo -e "${WHITE}This is critical for RayanPBX to communicate with Asterisk.${RESET}"
             echo ""
-            echo -e "${CYAN}Please check the following:${RESET}"
-            echo -e "  ${DIM}1.${RESET} Verify /etc/asterisk/manager.conf exists and is configured correctly"
-            echo -e "  ${DIM}2.${RESET} Ensure AMI is enabled: ${WHITE}enabled = yes${RESET} in [general] section"
-            echo -e "  ${DIM}3.${RESET} Check that port ${WHITE}5038${RESET} is not blocked by firewall"
-            echo -e "  ${DIM}4.${RESET} Verify Asterisk service is running: ${WHITE}systemctl status asterisk${RESET}"
-            echo -e "  ${DIM}5.${RESET} Reload Asterisk: ${WHITE}asterisk -rx 'manager reload'${RESET}"
-            echo ""
-            echo -e "${CYAN}Manual fix commands:${RESET}"
-            echo -e "  ${WHITE}sudo rayanpbx-cli diag check-ami${RESET}"
-            echo -e "  ${WHITE}sudo /opt/rayanpbx/scripts/health-check.sh check-ami${RESET}"
+            
+            # Run automated diagnostic checks instead of asking user to manually check
+            # This function performs all the checks automatically and uses Pollinations.AI for solutions
+            perform_ami_diagnostic_checks "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET"
+            
             echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
             echo ""
         else
@@ -2831,10 +3168,9 @@ EOF
                     print_warning "✗ AMI is listening but authentication failed"
                     echo ""
                     echo -e "${YELLOW}${BOLD}⚠️  WARNING: AMI Authentication Issue!${RESET}"
-                    echo -e "${WHITE}Check that /etc/asterisk/manager.conf has correct credentials:${RESET}"
-                    echo -e "  ${DIM}Username:${RESET} ${WHITE}$AMI_USERNAME${RESET}"
-                    echo -e "  ${DIM}Secret:${RESET} ${WHITE}(check /opt/rayanpbx/.env for ASTERISK_AMI_SECRET)${RESET}"
                     echo ""
+                    # Run automated diagnostic checks instead of asking user to check manually
+                    perform_ami_diagnostic_checks "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET"
                     FAILED_SERVICES+=("Asterisk AMI")
                 fi
             else
@@ -2845,7 +3181,9 @@ EOF
             echo ""
             echo -e "${YELLOW}${BOLD}⚠️  WARNING: AMI Socket Not Available!${RESET}"
             echo -e "${WHITE}Asterisk Manager Interface is not running on port $AMI_PORT.${RESET}"
-            echo -e "${WHITE}Please check /etc/asterisk/manager.conf and restart Asterisk.${RESET}"
+            echo ""
+            # Run automated diagnostic checks instead of asking user to check manually
+            perform_ami_diagnostic_checks "$AMI_HOST" "$AMI_PORT" "$AMI_USERNAME" "$AMI_SECRET"
             echo ""
             FAILED_SERVICES+=("Asterisk AMI")
         fi

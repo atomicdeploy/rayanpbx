@@ -116,7 +116,7 @@ New methods:
 **Files**:
 - `PJSIP_SETUP_GUIDE.md` - Complete setup guide
 - `API_QUICK_REFERENCE.md` - API documentation
-- `scripts/test-pjsip-config.sh` - Automated test script
+- `tests/test-pjsip-config.sh` - Automated test script
 
 Content:
 - Step-by-step setup instructions
@@ -130,7 +130,7 @@ Content:
 ## Testing
 
 ### Automated Test Script
-Location: `scripts/test-pjsip-config.sh`
+Location: `tests/test-pjsip-config.sh`
 
 Checks:
 1. Asterisk service status
@@ -144,7 +144,7 @@ Checks:
 
 Run with:
 ```bash
-sudo ./scripts/test-pjsip-config.sh
+sudo ./tests/test-pjsip-config.sh
 ```
 
 ### Manual Testing Steps
@@ -224,7 +224,7 @@ Extension commands now:
 1. Check config was written: `grep "Extension 1001" /etc/asterisk/pjsip.conf`
 2. Check transport exists: `asterisk -rx "pjsip show transports"`
 3. Reload PJSIP: `asterisk -rx "pjsip reload"`
-4. Run test script: `sudo ./scripts/test-pjsip-config.sh`
+4. Run test script: `sudo ./tests/test-pjsip-config.sh`
 
 ### Issue: Extension can't register
 **Solution**:
@@ -284,7 +284,7 @@ Extension commands now:
 - Redis (optional, for event caching)
 
 ### Post-Deployment Steps
-1. Run test script: `./scripts/test-pjsip-config.sh`
+1. Run test script: `./tests/test-pjsip-config.sh`
 2. Start event monitor: `php artisan rayanpbx:monitor-events --daemon`
 3. Configure firewall rules for port 5060 (UDP) and 10000-20000 (RTP)
 4. Set external_media_address if behind NAT
@@ -320,7 +320,7 @@ All metrics confirmed via testing with the provided scripts and documentation.
 ### Documentation
 - `PJSIP_SETUP_GUIDE.md` - NEW: Complete setup guide
 - `API_QUICK_REFERENCE.md` - NEW: API documentation
-- `scripts/test-pjsip-config.sh` - NEW: Automated test script
+- `tests/test-pjsip-config.sh` - NEW: Automated test script
 
 ### Total Changes
 - 7 files modified
