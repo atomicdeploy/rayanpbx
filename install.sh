@@ -2472,6 +2472,66 @@ if next_step "Service Verification & Health Checks" "health-check"; then
     fi
     echo ""
 
+    # Check Database (MySQL/MariaDB)
+    print_progress "Checking Database (MySQL/MariaDB)..."
+    if systemctl is-active --quiet mysql || systemctl is-active --quiet mariadb; then
+        print_success "✓ Database service is running"
+        
+        # Get database credentials from .env if available
+        DB_HOST="127.0.0.1"
+        DB_USER="rayanpbx"
+        DB_PASS=""
+        DB_NAME="rayanpbx"
+        
+        if [ -f "/opt/rayanpbx/.env" ]; then
+            DB_HOST=$(grep "^DB_HOST=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "127.0.0.1")
+            DB_USER=$(grep "^DB_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx")
+            DB_PASS=$(grep "^DB_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+            DB_NAME=$(grep "^DB_DATABASE=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "rayanpbx")
+        fi
+        
+        # Test database connectivity
+        if [ -n "$DB_PASS" ]; then
+            if mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" -e "SELECT 1" "$DB_NAME" &>/dev/null; then
+                print_success "✓ Database connectivity verified"
+            else
+                print_warning "✗ Database connectivity issue"
+                echo -e "${YELLOW}  Could not connect to database '$DB_NAME' as user '$DB_USER'${RESET}"
+                FAILED_SERVICES+=("Database")
+            fi
+        else
+            print_info "  (Skipping connectivity test - no password available)"
+        fi
+    else
+        print_error "✗ Database service is not running"
+        print_info "Check status: systemctl status mysql (or mariadb)"
+        FAILED_SERVICES+=("Database")
+    fi
+    echo ""
+
+    # Check Redis
+    print_progress "Checking Redis..."
+    if systemctl is-active --quiet redis-server || systemctl is-active --quiet redis; then
+        print_success "✓ Redis service is running"
+        
+        # Test Redis connectivity
+        if command -v redis-cli &>/dev/null; then
+            if redis-cli ping 2>/dev/null | grep -qi "PONG"; then
+                print_success "✓ Redis connectivity verified"
+            else
+                print_warning "✗ Redis is running but not responding to PING"
+                FAILED_SERVICES+=("Redis")
+            fi
+        else
+            print_info "  (redis-cli not available for connectivity test)"
+        fi
+    else
+        print_warning "✗ Redis service is not running"
+        print_info "Redis is optional but improves performance and enables real-time features"
+        # Don't add to FAILED_SERVICES as Redis is optional
+    fi
+    echo ""
+
     # Check Asterisk
     print_progress "Checking Asterisk..."
     if systemctl is-active --quiet asterisk; then

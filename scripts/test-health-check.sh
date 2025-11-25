@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test script to verify AMI health check functionality in health-check.sh and install.sh
+# Test script to verify comprehensive health check functionality in health-check.sh and install.sh
 
 set -e
 
@@ -39,7 +39,7 @@ print_header() {
     echo -e "${CYAN}${BOLD}"
     echo "╔════════════════════════════════════════════════════════════╗"
     echo "║                                                            ║"
-    echo "║      🧪  AMI Health Check Test Suite  🧪                  ║"
+    echo "║      🧪  Comprehensive Health Check Test Suite  🧪        ║"
     echo "║                                                            ║"
     echo "╚════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}\n"
@@ -204,6 +204,60 @@ test_install_reads_ami_credentials() {
     fi
 }
 
+# Test 13: Verify Database health check is in install.sh
+test_database_health_check_in_install() {
+    print_test "Verifying Database health check is in install.sh"
+    
+    if grep -q "Checking Database" "$REPO_ROOT/install.sh"; then
+        print_pass "Database health check is in install.sh"
+        return 0
+    else
+        print_fail "Database health check is not in install.sh"
+        return 1
+    fi
+}
+
+# Test 14: Verify Redis health check is in install.sh
+test_redis_health_check_in_install() {
+    print_test "Verifying Redis health check is in install.sh"
+    
+    if grep -q "Checking Redis" "$REPO_ROOT/install.sh"; then
+        print_pass "Redis health check is in install.sh"
+        return 0
+    else
+        print_fail "Redis health check is not in install.sh"
+        return 1
+    fi
+}
+
+# Test 15: Verify install.sh reads database credentials from .env
+test_install_reads_database_credentials() {
+    print_test "Verifying install.sh reads database credentials from .env"
+    
+    if grep -q "DB_HOST" "$REPO_ROOT/install.sh" && \
+       grep -q "DB_USERNAME" "$REPO_ROOT/install.sh" && \
+       grep -q "DB_PASSWORD" "$REPO_ROOT/install.sh"; then
+        print_pass "install.sh reads database credentials from .env"
+        return 0
+    else
+        print_fail "install.sh does not properly read database credentials from .env"
+        return 1
+    fi
+}
+
+# Test 16: Verify Redis connectivity check exists in install.sh
+test_redis_connectivity_check() {
+    print_test "Verifying Redis connectivity check (redis-cli ping) exists in install.sh"
+    
+    if grep -q "redis-cli ping" "$REPO_ROOT/install.sh"; then
+        print_pass "Redis connectivity check exists in install.sh"
+        return 0
+    else
+        print_fail "Redis connectivity check does not exist in install.sh"
+        return 1
+    fi
+}
+
 # Print summary
 print_summary() {
     echo ""
@@ -240,6 +294,10 @@ main() {
     test_help_includes_ami || true
     test_ami_config_references_manager_conf || true
     test_install_reads_ami_credentials || true
+    test_database_health_check_in_install || true
+    test_redis_health_check_in_install || true
+    test_install_reads_database_credentials || true
+    test_redis_connectivity_check || true
     
     print_summary
 }
