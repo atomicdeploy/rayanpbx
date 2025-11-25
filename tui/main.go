@@ -3083,7 +3083,14 @@ func (m *model) runSystemUpgrade() tea.Cmd {
 		return nil
 	}
 	
+	// Display a message and run upgrade
+	fmt.Println("\n🚀 Launching system upgrade...")
+	fmt.Println("The TUI will now launch the upgrade script.")
+	fmt.Println()
+	
 	// Prepare the command with sudo
+	// Note: cmd.Stdout and cmd.Stderr are not set here because tea.ExecProcess
+	// automatically handles stdout/stderr redirection when it suspends the TUI
 	cmd := exec.Command("sudo", "bash", upgradeScript)
 	cmd.Stdin = os.Stdin
 	
