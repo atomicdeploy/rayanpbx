@@ -636,7 +636,7 @@ main() {
             print_info "Supported tools:"
             echo "  - pjsua:   Full-featured SIP user agent with audio playback (recommended)"
             echo "  - sipsak:  SIP Swiss Army Knife for quick tests"
-            echo "  - sipexer: Modern Go-based SIP testing tool (https://github.com/miconda/sipexer)"
+            echo "  - sipexer: Modern Go-based SIP testing tool"
             echo "  - sipp:    Performance testing and scenarios"
             echo
             print_info "For audio playback testing, use pjsua:"
