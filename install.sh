@@ -3033,6 +3033,10 @@ if next_step "RayanPBX Source Code" "source"; then
     local existing_ami_secret=""
     local existing_ami_username=""
     
+    # Initialize global AMI credential variables with defaults
+    RAYANPBX_AMI_USERNAME="${RAYANPBX_AMI_USERNAME:-admin}"
+    RAYANPBX_AMI_SECRET="${RAYANPBX_AMI_SECRET:-rayanpbx_ami_secret}"
+    
     if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
         source /opt/rayanpbx/scripts/ami-tools.sh
         
