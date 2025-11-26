@@ -76,10 +76,14 @@ func TestFormatVerboseError(t *testing.T) {
 	}
 }
 
-// TestFormatVerboseErrorTruncation tests that long output is truncated
+// TestFormatVerboseErrorTruncation tests that long output is truncated by lines
 func TestFormatVerboseErrorTruncation(t *testing.T) {
-	// Create a very long output (more than 1000 chars to trigger truncation)
-	longOutput := strings.Repeat("x", 1500)
+	// Create a very long output with many lines (more than 30 lines to trigger truncation)
+	var lines []string
+	for i := 0; i < 50; i++ {
+		lines = append(lines, fmt.Sprintf("Line %d: This is test output", i))
+	}
+	longOutput := strings.Join(lines, "\n")
 	
 	details := ErrorDetails{
 		ExitCode:   1,
@@ -93,6 +97,11 @@ func TestFormatVerboseErrorTruncation(t *testing.T) {
 	// Check that output is truncated
 	if !strings.Contains(formatted, "truncated") {
 		t.Error("Expected long output to be truncated")
+	}
+	
+	// Check that it mentions the log file path
+	if !strings.Contains(formatted, "View with: cat") {
+		t.Error("Expected truncated output to include instructions to view full log")
 	}
 }
 
