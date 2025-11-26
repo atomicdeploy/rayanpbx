@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/md5"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// BackupDir is the centralized backup directory for all RayanPBX config files
+const BackupDir = "/etc/asterisk/backups"
 
 // EnvConfig represents a single environment variable or section header
 type EnvConfig struct {
@@ -368,13 +372,49 @@ func (cm *ConfigManager) RemoveConfig(key string) error {
 	return cm.LoadConfigs()
 }
 
-// backupEnvFile creates a backup of the .env file
+// backupEnvFile creates a backup of the .env file in a centralized backup directory
+// It uses checksum comparison to avoid creating duplicate backups
 func (cm *ConfigManager) backupEnvFile() error {
-	backupPath := fmt.Sprintf("%s.backup.%s", cm.envPath, time.Now().Format("20060102150405"))
-	content, err := os.ReadFile(cm.envPath)
+	return backupConfigFile(cm.envPath)
+}
+
+// backupConfigFile creates a backup of any config file in the centralized backup directory
+// Uses checksum-based deduplication to avoid creating duplicate backups
+func backupConfigFile(filePath string) error {
+	// Ensure backup directory exists
+	if err := os.MkdirAll(BackupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	// Read the source file
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
+
+	// Calculate checksum of the file to backup
+	fileChecksum := fmt.Sprintf("%x", md5.Sum(content))
+	basename := filepath.Base(filePath)
+
+	// Check for existing backups with the same checksum
+	pattern := filepath.Join(BackupDir, basename+".*.backup")
+	matches, err := filepath.Glob(pattern)
+	if err == nil {
+		for _, existingBackup := range matches {
+			existingContent, err := os.ReadFile(existingBackup)
+			if err == nil {
+				existingChecksum := fmt.Sprintf("%x", md5.Sum(existingContent))
+				if fileChecksum == existingChecksum {
+					// Identical backup already exists
+					return nil
+				}
+			}
+		}
+	}
+
+	// No identical backup exists, create a new one
+	timestamp := time.Now().Format("20060102_150405")
+	backupPath := filepath.Join(BackupDir, fmt.Sprintf("%s.%s.backup", basename, timestamp))
 	return os.WriteFile(backupPath, content, 0644)
 }
 

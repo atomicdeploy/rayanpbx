@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -3870,10 +3869,8 @@ func (m *model) setMode(env string, debug bool) {
 		return
 	}
 
-	// Create backup with timestamp
-	timestamp := time.Now().Format("20060102_150405")
-	backupFile := fmt.Sprintf("%s.backup.%s", envFile, timestamp)
-	err = os.WriteFile(backupFile, content, 0644)
+	// Create backup using centralized backup function
+	err = backupConfigFile(envFile)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to create backup: %v", err)
 		return

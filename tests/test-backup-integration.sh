@@ -29,7 +29,11 @@ print_fail() {
 TEST_DIR=$(mktemp -d)
 TEST_ASTERISK_CONF="$TEST_DIR/manager.conf"
 
+# Set custom backup directory for testing
+export BACKUP_DIR="$TEST_DIR/backups"
+
 print_info "Test directory: $TEST_DIR"
+print_info "Backup directory: $BACKUP_DIR"
 
 # Create a sample Asterisk manager.conf
 cat > "$TEST_ASTERISK_CONF" << 'EOF'
@@ -63,7 +67,7 @@ set_ini_value "$TEST_ASTERISK_CONF" "admin" "secret" "rayanpbx_ami_secret"
 print_info "Modified configuration"
 
 # Count backups after first run
-backup_count1=$(find "$TEST_DIR" -name "manager.conf.backup.*" | wc -l)
+backup_count1=$(find "$BACKUP_DIR" -name "manager.conf.*.backup" | wc -l)
 print_info "Backups after first run: $backup_count1"
 
 # Simulate second installer run (upgrade scenario)
@@ -79,7 +83,7 @@ set_ini_value "$TEST_ASTERISK_CONF" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$TEST_ASTERISK_CONF" "admin" "secret" "rayanpbx_ami_secret"
 
 # Count backups after second run
-backup_count2=$(find "$TEST_DIR" -name "manager.conf.backup.*" | wc -l)
+backup_count2=$(find "$BACKUP_DIR" -name "manager.conf.*.backup" | wc -l)
 print_info "Backups after second run: $backup_count2"
 
 # Simulate third installer run
@@ -92,7 +96,7 @@ print_info "Third backup attempt: $backup3"
 set_ini_value "$TEST_ASTERISK_CONF" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$TEST_ASTERISK_CONF" "admin" "secret" "rayanpbx_ami_secret"
 
-backup_count3=$(find "$TEST_DIR" -name "manager.conf.backup.*" | wc -l)
+backup_count3=$(find "$BACKUP_DIR" -name "manager.conf.*.backup" | wc -l)
 print_info "Backups after third run: $backup_count3"
 
 echo ""
@@ -121,11 +125,11 @@ fi
 
 echo ""
 print_info "Listing all backup files:"
-find "$TEST_DIR" -name "manager.conf.backup.*" -exec basename {} \;
+find "$BACKUP_DIR" -name "manager.conf.*.backup" -exec basename {} \;
 
 # Verify backups have different content
 print_info "Verifying backup content differences..."
-backups=($(find "$TEST_DIR" -name "manager.conf.backup.*" | sort))
+backups=($(find "$BACKUP_DIR" -name "manager.conf.*.backup" | sort))
 
 if [ ${#backups[@]} -eq 2 ]; then
     # Compare checksums
