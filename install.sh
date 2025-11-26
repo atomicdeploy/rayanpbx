@@ -2991,7 +2991,9 @@ if next_step "Environment Configuration" "env-config"; then
             read -p "$(echo -e "  ${YELLOW}Username${RESET} [${GREEN}$DEV_USERNAME${RESET}]: ")" CUSTOM_USERNAME
             [ -n "$CUSTOM_USERNAME" ] && DEV_USERNAME="$CUSTOM_USERNAME"
             
-            read -p "$(echo -e "  ${YELLOW}Password${RESET} [${GREEN}$DEV_PASSWORD${RESET}]: ")" CUSTOM_PASSWORD
+            echo -ne "  ${YELLOW}Password${RESET} [${GREEN}$DEV_PASSWORD${RESET}]: "
+            read -s CUSTOM_PASSWORD
+            echo ""  # New line after hidden password input
             [ -n "$CUSTOM_PASSWORD" ] && DEV_PASSWORD="$CUSTOM_PASSWORD"
             echo ""
         fi
