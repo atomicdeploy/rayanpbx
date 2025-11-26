@@ -536,12 +536,12 @@ query_pollinations_ai() {
     
     # Truncate at complete lines instead of characters
     if [ "$total_lines" -gt "$max_lines" ]; then
-        printf '%s\n' "$response" | head -n "$max_lines"
+        printf '%s\n' "$response" | head -n "$max_lines" | tr -d '\n'
         echo ""
         echo -e "${DIM}$((($total_lines - $max_lines)) more lines available...)${RESET}"
         echo ""
         echo -e "📄 ${YELLOW}To view the full response run:${RESET}"
-        echo -e "cat ${DIM}$AI_RESPONSE_FILE${RESET}"
+        echo -e "   cat ${DIM}$AI_RESPONSE_FILE${RESET}"
     else
         echo "$response"
     fi
