@@ -133,7 +133,11 @@ install_tools() {
             SIPEXER_VERSION="v1.2.0"
             if ! command_exists go; then
                 print_warning "Go is required to install sipexer"
-                print_info "Install Go first: apt-get install golang-go"
+                print_info "Install Go using the RayanPBX installer (from project root):"
+                print_info "  cd /opt/rayanpbx && sudo ./install.sh --steps=go"
+                print_info ""
+                print_info "To see all available installation steps:"
+                print_info "  ./install.sh --list-steps"
                 return 1
             fi
             
