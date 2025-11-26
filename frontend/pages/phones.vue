@@ -519,25 +519,6 @@ async function refreshPhones() {
   }
 }
 
-async function scanNetwork() {
-  loading.value = true
-  
-  // Get network from config or use default
-  const network = localStorage.getItem('network_range') || '192.168.1.0/24'
-  
-  try {
-    const data = await api.scanGrandstreamNetwork(network)
-    if (data.success) {
-      showNotification('Network scan completed', 'success')
-      refreshPhones()
-    }
-  } catch (error) {
-    showNotification('Network scan failed', 'error')
-  } finally {
-    loading.value = false
-  }
-}
-
 async function selectPhone(phone) {
   selectedPhone.value = phone
   await refreshPhoneStatus()
