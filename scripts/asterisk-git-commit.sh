@@ -223,16 +223,18 @@ revert_to() {
     
     cd "$ASTERISK_CONFIG_DIR" || return 1
     
-    print_warn "This will revert to commit: $commit_hash"
+    print_warn "This will revert changes from commit: $commit_hash"
     
-    # Create a revert commit (safer than reset)
-    if git revert --no-commit "$commit_hash".. 2>/dev/null; then
-        commit_changes "config-revert" "Reverted to commit $commit_hash"
+    # Revert a single commit (safer than reset)
+    # --no-commit stages the revert without committing, so we can add our own message
+    if git revert --no-commit "$commit_hash" 2>/dev/null; then
+        commit_changes "config-revert" "Reverted commit $commit_hash"
         print_success "Configuration reverted successfully"
         print_info "Reload Asterisk to apply changes: asterisk -rx 'core reload'"
     else
         git revert --abort 2>/dev/null || true
         print_error "Failed to revert. Manual intervention may be required."
+        print_info "The commit may have conflicts or the repository may be in an inconsistent state."
         return 1
     fi
 }

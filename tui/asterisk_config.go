@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -505,13 +506,16 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 
 	// Fallback: Inline git commit
 	// Change to asterisk directory
-	originalDir, _ := os.Getwd()
+	originalDir, err := os.Getwd()
+	if err != nil {
+		originalDir = "" // Mark as invalid
+	}
 	if err := os.Chdir(asteriskDir); err != nil {
 		return nil // Silently skip if we can't change dir
 	}
 	defer func() {
 		if originalDir != "" {
-			os.Chdir(originalDir)
+			_ = os.Chdir(originalDir) // Best effort restore
 		}
 	}()
 
@@ -557,10 +561,5 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 
 // getTimestamp returns current timestamp in standard format
 func getTimestamp() string {
-	cmd := exec.Command("date", "+%Y-%m-%d %H:%M:%S %Z")
-	output, err := cmd.Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(output))
+	return time.Now().Format("2006-01-02 15:04:05 MST")
 }

@@ -99,6 +99,11 @@ class AsteriskConfigGitService
     {
         $originalDir = getcwd();
         
+        // Check if we could get the current directory
+        if ($originalDir === false) {
+            $originalDir = null;
+        }
+        
         try {
             if (!chdir($this->asteriskDir)) {
                 return true; // Silently skip if we can't change dir
@@ -108,7 +113,9 @@ class AsteriskConfigGitService
             $status = shell_exec('git status --porcelain 2>&1');
             if (empty(trim($status ?? ''))) {
                 Log::debug('AsteriskConfigGitService: No changes to commit');
-                chdir($originalDir);
+                if ($originalDir !== null) {
+                    @chdir($originalDir);
+                }
                 return true;
             }
 
@@ -137,7 +144,9 @@ class AsteriskConfigGitService
 
             return true;
         } finally {
-            chdir($originalDir);
+            if ($originalDir !== null) {
+                @chdir($originalDir);
+            }
         }
     }
 
@@ -154,8 +163,14 @@ class AsteriskConfigGitService
         }
 
         $originalDir = getcwd();
+        if ($originalDir === false) {
+            $originalDir = null;
+        }
+        
         try {
-            chdir($this->asteriskDir);
+            if (!@chdir($this->asteriskDir)) {
+                return [];
+            }
             
             $output = shell_exec(sprintf(
                 'git log --oneline -n %d --format="%%H|%%ad|%%s" --date=short 2>&1',
@@ -181,7 +196,9 @@ class AsteriskConfigGitService
 
             return $commits;
         } finally {
-            chdir($originalDir);
+            if ($originalDir !== null) {
+                @chdir($originalDir);
+            }
         }
     }
 
@@ -204,8 +221,14 @@ class AsteriskConfigGitService
         }
 
         $originalDir = getcwd();
+        if ($originalDir === false) {
+            $originalDir = null;
+        }
+        
         try {
-            chdir($this->asteriskDir);
+            if (!@chdir($this->asteriskDir)) {
+                return $status;
+            }
 
             // Check for uncommitted changes
             $pendingChanges = shell_exec('git status --porcelain 2>&1');
@@ -230,7 +253,9 @@ class AsteriskConfigGitService
 
             return $status;
         } finally {
-            chdir($originalDir);
+            if ($originalDir !== null) {
+                @chdir($originalDir);
+            }
         }
     }
 }
