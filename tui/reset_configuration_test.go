@@ -69,12 +69,8 @@ type=endpoint
 		t.Fatalf("Failed to create test pjsip.conf: %v", err)
 	}
 
-	// Test clearing managed sections
-	rc := &ResetConfiguration{
-		verbose: true,
-	}
-
 	// For testing, we'll directly call the patterns removal logic
+	// (The test file is prepared above but we test the pattern matching directly)
 	content := pjsipContent
 
 	patterns := []string{
@@ -113,8 +109,6 @@ type=endpoint
 	if !strings.Contains(content, "type=transport") {
 		t.Error("Transport configuration was incorrectly removed")
 	}
-
-	_ = rc // silence unused variable
 }
 
 // TestClearExtensionsConfig tests that managed sections are properly cleared from extensions.conf

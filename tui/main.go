@@ -117,6 +117,9 @@ const (
 	DefaultDirectMedia        = "no"
 )
 
+// systemSettingsMenuResetIdx is the index of the "Reset All Configuration" option in system settings menu
+const systemSettingsMenuResetIdx = 5
+
 type screen int
 
 const (
@@ -1017,7 +1020,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == resetConfigurationScreen || m.currentScreen == resetConfirmScreen {
 					// Go back to system settings
 					m.currentScreen = systemSettingsScreen
-					m.cursor = 5 // Reset Configuration option
+					m.cursor = systemSettingsMenuResetIdx
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
@@ -4454,7 +4457,7 @@ func (m *model) handleResetConfigurationSelection() {
 		
 	case 2: // Back to System Settings
 		m.currentScreen = systemSettingsScreen
-		m.cursor = 5 // Reset Configuration option
+		m.cursor = systemSettingsMenuResetIdx
 	}
 }
 

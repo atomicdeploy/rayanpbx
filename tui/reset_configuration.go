@@ -94,11 +94,11 @@ func (rc *ResetConfiguration) clearDatabase(result *ResetResult) error {
 		return fmt.Errorf("database connection is nil")
 	}
 
-	// Count before deletion
+	// Count before deletion (ignore errors - counts will just be 0 if tables don't exist)
 	var extCount, trunkCount, phoneCount int
-	rc.db.QueryRow("SELECT COUNT(*) FROM extensions").Scan(&extCount)
-	rc.db.QueryRow("SELECT COUNT(*) FROM trunks").Scan(&trunkCount)
-	rc.db.QueryRow("SELECT COUNT(*) FROM voip_phones").Scan(&phoneCount)
+	_ = rc.db.QueryRow("SELECT COUNT(*) FROM extensions").Scan(&extCount)
+	_ = rc.db.QueryRow("SELECT COUNT(*) FROM trunks").Scan(&trunkCount)
+	_ = rc.db.QueryRow("SELECT COUNT(*) FROM voip_phones").Scan(&phoneCount)
 
 	// Delete all extensions
 	if _, err := rc.db.Exec("DELETE FROM extensions"); err != nil {
@@ -112,13 +112,13 @@ func (rc *ResetConfiguration) clearDatabase(result *ResetResult) error {
 	}
 	result.TrunksRemoved = trunkCount
 
-	// Delete all VoIP phones
-	if _, err := rc.db.Exec("DELETE FROM voip_phones"); err != nil {
-		// Table might not exist, ignore error
-		if !strings.Contains(err.Error(), "doesn't exist") {
+	// Delete all VoIP phones - check if table exists first
+	var tableExists int
+	err := rc.db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'voip_phones'").Scan(&tableExists)
+	if err == nil && tableExists > 0 {
+		if _, err := rc.db.Exec("DELETE FROM voip_phones"); err != nil {
 			return fmt.Errorf("failed to clear voip_phones table: %v", err)
 		}
-	} else {
 		result.VoIPPhonesRemoved = phoneCount
 	}
 

@@ -1431,10 +1431,25 @@ cmd_system_reset() {
     local db_user="${DB_USERNAME:-rayanpbx}"
     local db_pass="${DB_PASSWORD:-}"
     
+    # Create a temporary MySQL config file to avoid exposing password in process list
+    local mysql_conf=""
     if command -v mysql &> /dev/null && [ -n "$db_pass" ]; then
-        local ext_count=$(mysql -h "$db_host" -P "$db_port" -u "$db_user" -p"$db_pass" "$db_name" -N -e "SELECT COUNT(*) FROM extensions" 2>/dev/null || echo "?")
-        local trunk_count=$(mysql -h "$db_host" -P "$db_port" -u "$db_user" -p"$db_pass" "$db_name" -N -e "SELECT COUNT(*) FROM trunks" 2>/dev/null || echo "?")
-        local phone_count=$(mysql -h "$db_host" -P "$db_port" -u "$db_user" -p"$db_pass" "$db_name" -N -e "SELECT COUNT(*) FROM voip_phones" 2>/dev/null || echo "0")
+        mysql_conf=$(mktemp /tmp/mysql_conf.XXXXXX)
+        chmod 600 "$mysql_conf"
+        cat > "$mysql_conf" << EOF
+[client]
+host=$db_host
+port=$db_port
+user=$db_user
+password=$db_pass
+database=$db_name
+EOF
+        
+        local ext_count=$(mysql --defaults-file="$mysql_conf" -N -e "SELECT COUNT(*) FROM extensions" 2>/dev/null || echo "?")
+        local trunk_count=$(mysql --defaults-file="$mysql_conf" -N -e "SELECT COUNT(*) FROM trunks" 2>/dev/null || echo "?")
+        local phone_count=$(mysql --defaults-file="$mysql_conf" -N -e "SELECT COUNT(*) FROM voip_phones" 2>/dev/null || echo "0")
+        rm -f "$mysql_conf"
+        
         echo "   • $ext_count extension(s) will be deleted"
         echo "   • $trunk_count trunk(s) will be deleted"
         if [ "$phone_count" != "0" ]; then
@@ -1485,21 +1500,36 @@ cmd_system_reset() {
     if command -v mysql &> /dev/null && [ -n "$db_pass" ]; then
         print_info "Clearing database tables..."
         
-        if mysql -h "$db_host" -P "$db_port" -u "$db_user" -p"$db_pass" "$db_name" -e "DELETE FROM extensions" 2>/dev/null; then
+        # Create a temporary MySQL config file to avoid exposing password in process list
+        local mysql_conf
+        mysql_conf=$(mktemp /tmp/mysql_conf.XXXXXX)
+        chmod 600 "$mysql_conf"
+        cat > "$mysql_conf" << EOF
+[client]
+host=$db_host
+port=$db_port
+user=$db_user
+password=$db_pass
+database=$db_name
+EOF
+        
+        if mysql --defaults-file="$mysql_conf" -e "DELETE FROM extensions" 2>/dev/null; then
             print_success "Extensions table cleared"
         else
             print_warn "Failed to clear extensions table"
         fi
         
-        if mysql -h "$db_host" -P "$db_port" -u "$db_user" -p"$db_pass" "$db_name" -e "DELETE FROM trunks" 2>/dev/null; then
+        if mysql --defaults-file="$mysql_conf" -e "DELETE FROM trunks" 2>/dev/null; then
             print_success "Trunks table cleared"
         else
             print_warn "Failed to clear trunks table"
         fi
         
         # voip_phones may not exist
-        mysql -h "$db_host" -P "$db_port" -u "$db_user" -p"$db_pass" "$db_name" -e "DELETE FROM voip_phones" 2>/dev/null && \
+        mysql --defaults-file="$mysql_conf" -e "DELETE FROM voip_phones" 2>/dev/null && \
             print_success "VoIP phones table cleared"
+        
+        rm -f "$mysql_conf"
     else
         print_warn "Could not connect to database - please clear manually"
     fi
