@@ -472,9 +472,12 @@ get_system_context() {
 # Query Pollinations.AI for AI-powered solutions
 # Handles timeouts and error cases gracefully
 # Automatically includes dynamically detected system context in the prompt
+# Temporary file for storing full AI conversation
+readonly AI_RESPONSE_FILE="/tmp/rayanpbx-ai-response.txt"
+
 query_pollinations_ai() {
     local query="$1"
-    local max_chars="${2:-800}"
+    local max_lines="${2:-15}"
     
     # Build system context prompt dynamically (without sensitive info)
     # This helps AI provide more accurate solutions for our specific setup
@@ -502,8 +505,37 @@ query_pollinations_ai() {
         return 1
     fi
     
-    # Truncate response to max_chars
-    echo "$response" | head -c "$max_chars"
+    # Save the full query and response to temp file for later viewing
+    {
+        echo "════════════════════════════════════════════════════════════════════════"
+        echo "RayanPBX AI Consultation - $(date)"
+        echo "════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "📤 QUERY SENT:"
+        echo "────────────────────────────────────────────────────────────────────────"
+        echo "$full_query"
+        echo ""
+        echo "📥 AI RESPONSE:"
+        echo "────────────────────────────────────────────────────────────────────────"
+        echo "$response"
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════"
+    } > "$AI_RESPONSE_FILE"
+    
+    # Count total lines in response
+    local total_lines=$(echo "$response" | wc -l)
+    
+    # Truncate at complete lines instead of characters
+    if [ "$total_lines" -gt "$max_lines" ]; then
+        echo "$response" | head -n "$max_lines"
+        echo ""
+        echo "[... truncated - $(($total_lines - $max_lines)) more lines available ...]"
+        echo ""
+        echo "To view the full AI response, run: cat $AI_RESPONSE_FILE"
+    else
+        echo "$response"
+    fi
+    
     return 0
 }
 
@@ -517,8 +549,8 @@ handle_asterisk_error() {
     echo -e "${CYAN}🔍 Checking for solutions...${RESET}"
     echo ""
     
-    # Query Pollinations.AI for solution
-    local solution=$(query_pollinations_ai "$error_msg $context" 500)
+    # Query Pollinations.AI for solution (max 10 lines displayed)
+    local solution=$(query_pollinations_ai "$error_msg $context" 10)
     
     if [ -n "$solution" ]; then
         echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
@@ -740,8 +772,8 @@ perform_ami_diagnostic_checks() {
         echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
         echo ""
         
-        # Query Pollinations.AI using the helper function
-        local ai_solution=$(query_pollinations_ai "Asterisk AMI $error_summary How to fix?" 800)
+        # Query Pollinations.AI using the helper function (max 15 lines displayed)
+        local ai_solution=$(query_pollinations_ai "Asterisk AMI $error_summary How to fix?" 15)
         
         if [ -n "$ai_solution" ]; then
             echo -e "${GREEN}${BOLD}💡 AI-Suggested Solution:${RESET}"
@@ -2822,9 +2854,9 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
             error_summary="${error_summary}Recent errors: $(echo "$recent_errors" | head -3 | tr '\n' ' ')"
         fi
         
-        # Use Pollinations.AI to get solution using the helper function
+        # Use Pollinations.AI to get solution using the helper function (max 12 lines displayed)
         echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
-        local ai_solution=$(query_pollinations_ai "$error_summary How to fix?" 600)
+        local ai_solution=$(query_pollinations_ai "$error_summary How to fix?" 12)
         
         if [ -n "$ai_solution" ]; then
             echo ""
