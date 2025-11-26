@@ -10,6 +10,9 @@ This guide walks you through setting up and managing PJSIP extensions in RayanPB
 5. [Real-time Monitoring](#real-time-monitoring)
 6. [Presence and BLF Support](#presence-and-blf-support)
 7. [Troubleshooting](#troubleshooting)
+8. [Example: Complete Setup for 2 Extensions](#example-complete-setup-for-2-extensions)
+9. [Additional Resources](#additional-resources)
+10. [Support](#support)
 
 ## Overview
 
