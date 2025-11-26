@@ -194,12 +194,33 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/action-urls/update', [GrandStreamController::class, 'updateActionUrls']);
     Route::post('/grandstream/provision-complete', [GrandStreamController::class, 'provisionComplete']);
     
+    // GrandStream CTI/CSTA Operations
+    Route::post('/grandstream/cti/status', [GrandStreamController::class, 'getCTIStatus']);
+    Route::post('/grandstream/cti/line-status', [GrandStreamController::class, 'getLineStatus']);
+    Route::post('/grandstream/cti/operation', [GrandStreamController::class, 'executeCTIOperation']);
+    Route::post('/grandstream/cti/lcd-message', [GrandStreamController::class, 'displayLCDMessage']);
+    Route::post('/grandstream/cti/screenshot', [GrandStreamController::class, 'takeScreenshot']);
+    Route::post('/grandstream/cti/enable', [GrandStreamController::class, 'enableCTI']);
+    Route::post('/grandstream/cti/disable', [GrandStreamController::class, 'disableCTI']);
+    Route::post('/grandstream/cti/provision', [GrandStreamController::class, 'provisionCTIFeatures']);
+    Route::post('/grandstream/cti/test', [GrandStreamController::class, 'testCTIFeatures']);
+    Route::post('/grandstream/cti/trigger-provision', [GrandStreamController::class, 'triggerProvision']);
+    Route::post('/grandstream/cti/trigger-upgrade', [GrandStreamController::class, 'triggerUpgrade']);
+    
+    // GrandStream SNMP Operations
+    Route::post('/grandstream/snmp/enable', [GrandStreamController::class, 'enableSNMP']);
+    Route::post('/grandstream/snmp/disable', [GrandStreamController::class, 'disableSNMP']);
+    Route::post('/grandstream/snmp/status', [GrandStreamController::class, 'getSNMPStatus']);
+    
     // Unified Phone Management API
     Route::get('/phones', [PhoneController::class, 'index']);
+    Route::post('/phones', [PhoneController::class, 'store']); // Add new phone
     Route::get('/phones/lldp/neighbors', [PhoneController::class, 'lldpNeighbors']);
     Route::get('/phones/arp/neighbors', [PhoneController::class, 'arpNeighbors']);
     Route::get('/phones/discover', [PhoneController::class, 'discover']);
     Route::get('/phones/{identifier}', [PhoneController::class, 'show']);
+    Route::put('/phones/{id}', [PhoneController::class, 'update']); // Update phone
+    Route::delete('/phones/{id}', [PhoneController::class, 'destroy']); // Delete phone
     Route::post('/phones/control', [PhoneController::class, 'control']);
     Route::post('/phones/provision', [PhoneController::class, 'provision']);
     Route::post('/phones/tr069/manage', [PhoneController::class, 'tr069Manage']);

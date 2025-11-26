@@ -46,6 +46,10 @@ var (
 			Foreground(lipgloss.Color("#00FF00")).
 			Bold(true)
 
+	warningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFA500")).
+			Bold(true)
+
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF0000")).
 			Bold(true)
