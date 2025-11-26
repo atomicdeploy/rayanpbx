@@ -245,6 +245,8 @@ type model struct {
 	configItems         []EnvConfig  // Cached config items
 	configCursor        int          // Cursor position within config items
 	configSearchQuery   string       // Search/filter query
+	configInlineEdit    bool         // Whether inline editing mode is active
+	configInlineValue   string       // Current inline edit value
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
