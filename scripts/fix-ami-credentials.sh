@@ -249,7 +249,14 @@ EOF
     
     # Backup existing .env
     local backup
-    backup=$(backup_config "$env_file" 2>/dev/null || cp "$env_file" "${env_file}.backup.$(date +%Y%m%d_%H%M%S)" && echo "${env_file}.backup.$(date +%Y%m%d_%H%M%S)")
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    if backup=$(backup_config "$env_file" 2>/dev/null); then
+        : # backup_config succeeded
+    else
+        cp "$env_file" "${env_file}.backup.${timestamp}"
+        backup="${env_file}.backup.${timestamp}"
+    fi
     print_info "Backup created: $backup"
     
     # Update or add each AMI setting
@@ -268,9 +275,9 @@ update_env_var() {
     local key="$2"
     local value="$3"
     
-    # Escape special characters in value for sed
+    # Escape special characters in value for sed (backslash, forward slash, ampersand)
     local escaped_value
-    escaped_value=$(printf '%s\n' "$value" | sed 's:[\/&]:\\&:g')
+    escaped_value=$(printf '%s\n' "$value" | sed 's:[\\\/&]:\\&:g')
     
     # Check if key exists
     if grep -q "^${key}=" "$env_file" 2>/dev/null; then
@@ -312,9 +319,13 @@ test_ami_connection() {
     print_success "AMI port $port is listening"
     
     # Test authentication
+    # Use printf with here-doc style to avoid credentials in process list
     if command -v nc &> /dev/null; then
         local ami_response
-        ami_response=$(echo -e "Action: Login\r\nUsername: $username\r\nSecret: $secret\r\n\r\n" | timeout 5 nc "$host" "$port" 2>/dev/null | head -20)
+        local ami_request
+        # Build request in variable to avoid credential exposure in process args
+        ami_request="$(printf 'Action: Login\r\nUsername: %s\r\nSecret: %s\r\n\r\n' "$username" "$secret")"
+        ami_response=$(printf '%s' "$ami_request" | timeout 5 nc "$host" "$port" 2>/dev/null | head -20)
         
         if echo "$ami_response" | grep -qi "Success"; then
             print_success "AMI authentication successful!"
@@ -551,6 +562,12 @@ show_usage() {
 main() {
     local command="${1:-help}"
     local auto_reload="true"
+    
+    # Handle version flag as first argument
+    if [[ "$command" == "--version" ]] || [[ "$command" == "-v" ]]; then
+        echo -e "${CYAN}RayanPBX AMI Credential Fix${NC} ${GREEN}v${VERSION}${NC}"
+        exit 0
+    fi
     
     # Parse options
     shift || true
