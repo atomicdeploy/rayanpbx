@@ -310,7 +310,7 @@ func (h *HelloWorldSetup) restartAsterisk() error {
 		// Reload PJSIP and dialplan
 		if _, err := h.asteriskManager.ExecuteCLICommand("module reload res_pjsip.so"); err != nil {
 			// Try full core restart if module reload fails
-			if err := h.asteriskManager.RestartServiceQuiet(); err != nil {
+			if _, err := h.asteriskManager.RestartServiceQuiet(); err != nil {
 				return fmt.Errorf("failed to restart Asterisk: %v", err)
 			}
 		}
@@ -319,7 +319,7 @@ func (h *HelloWorldSetup) restartAsterisk() error {
 		}
 	} else {
 		// Start Asterisk
-		if err := h.asteriskManager.StartServiceQuiet(); err != nil {
+		if _, err := h.asteriskManager.StartServiceQuiet(); err != nil {
 			return fmt.Errorf("failed to start Asterisk: %v", err)
 		}
 	}

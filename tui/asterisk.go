@@ -427,55 +427,76 @@ func (am *AsteriskManager) GetServiceStatusOutput() string {
 }
 
 // StartServiceQuiet starts the Asterisk service without printing to stdout (for TUI use)
-func (am *AsteriskManager) StartServiceQuiet() error {
+// Returns any command output and an error if the operation failed
+func (am *AsteriskManager) StartServiceQuiet() (string, error) {
 	cmd := exec.Command("systemctl", "start", "asterisk")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to start service: %v", err)
+	output, err := cmd.CombinedOutput()
+	outputStr := strings.TrimSpace(string(output))
+	if err != nil {
+		if outputStr != "" {
+			return outputStr, fmt.Errorf("failed to start service: %v", err)
+		}
+		return "", fmt.Errorf("failed to start service: %v", err)
 	}
-	return nil
+	return outputStr, nil
 }
 
 // StopServiceQuiet stops the Asterisk service without printing to stdout (for TUI use)
-func (am *AsteriskManager) StopServiceQuiet() error {
+// Returns any command output and an error if the operation failed
+func (am *AsteriskManager) StopServiceQuiet() (string, error) {
 	cmd := exec.Command("systemctl", "stop", "asterisk")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to stop service: %v", err)
+	output, err := cmd.CombinedOutput()
+	outputStr := strings.TrimSpace(string(output))
+	if err != nil {
+		if outputStr != "" {
+			return outputStr, fmt.Errorf("failed to stop service: %v", err)
+		}
+		return "", fmt.Errorf("failed to stop service: %v", err)
 	}
-	return nil
+	return outputStr, nil
 }
 
 // RestartServiceQuiet restarts the Asterisk service without printing to stdout (for TUI use)
-func (am *AsteriskManager) RestartServiceQuiet() error {
+// Returns any command output and an error if the operation failed
+func (am *AsteriskManager) RestartServiceQuiet() (string, error) {
 	cmd := exec.Command("systemctl", "restart", "asterisk")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to restart service: %v", err)
+	output, err := cmd.CombinedOutput()
+	outputStr := strings.TrimSpace(string(output))
+	if err != nil {
+		if outputStr != "" {
+			return outputStr, fmt.Errorf("failed to restart service: %v", err)
+		}
+		return "", fmt.Errorf("failed to restart service: %v", err)
 	}
-	return nil
+	return outputStr, nil
 }
 
 // ReloadPJSIPQuiet reloads PJSIP configuration without printing to stdout (for TUI use)
-func (am *AsteriskManager) ReloadPJSIPQuiet() error {
-	_, err := am.ExecuteCLICommand("module reload res_pjsip.so")
+// Returns the reload output
+func (am *AsteriskManager) ReloadPJSIPQuiet() (string, error) {
+	output, err := am.ExecuteCLICommand("module reload res_pjsip.so")
 	if err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	return output, nil
 }
 
 // ReloadDialplanQuiet reloads dialplan configuration without printing to stdout (for TUI use)
-func (am *AsteriskManager) ReloadDialplanQuiet() error {
-	_, err := am.ExecuteCLICommand("dialplan reload")
+// Returns the reload output
+func (am *AsteriskManager) ReloadDialplanQuiet() (string, error) {
+	output, err := am.ExecuteCLICommand("dialplan reload")
 	if err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	return output, nil
 }
 
 // ReloadAllQuiet reloads all Asterisk modules without printing to stdout (for TUI use)
-func (am *AsteriskManager) ReloadAllQuiet() error {
-	_, err := am.ExecuteCLICommand("core reload")
+// Returns the reload output
+func (am *AsteriskManager) ReloadAllQuiet() (string, error) {
+	output, err := am.ExecuteCLICommand("core reload")
 	if err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	return output, nil
 }
