@@ -2810,13 +2810,22 @@ fi
 if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     print_info "Configuring Asterisk Manager Interface..."
 
-    # Source INI helper script
-    if [ ! -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
-        print_warning "INI helper script not found yet, will configure after repo clone"
-    else
+    # Source AMI tools script (preferred) or INI helper as fallback
+    ami_configured=false
+    
+    if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
+        source /opt/rayanpbx/scripts/ami-tools.sh
+        if configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"; then
+            print_success "AMI configured via ami-tools"
+            ami_configured=true
+        fi
+    elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
         source /opt/rayanpbx/scripts/ini-helper.sh
         modify_manager_conf "rayanpbx_ami_secret"
-        print_success "AMI configured"
+        print_success "AMI configured via ini-helper"
+        ami_configured=true
+    else
+        print_warning "Helper scripts not found yet, will configure after repo clone"
     fi
 
     # Ensure PJSIP transport configuration exists (port 5060 UDP and TCP)
@@ -2835,6 +2844,15 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     if check_asterisk_status "Asterisk startup" "true"; then
         print_success "Asterisk service is running"
         print_info "Active channels: $(asterisk -rx 'core show channels' 2>/dev/null | grep 'active channel' || echo '0 active channels')"
+        
+        # Verify AMI connection if configured
+        if [ "$ami_configured" = "true" ] && type test_ami_connection &> /dev/null; then
+            if test_ami_connection "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret"; then
+                print_success "AMI connection verified"
+            else
+                print_warning "AMI configured but connection test failed - will retry after full setup"
+            fi
+        fi
     else
         print_error "Failed to start Asterisk service"
         echo ""
@@ -2899,8 +2917,14 @@ if next_step "RayanPBX Source Code" "source"; then
 
     # Now configure AMI if we skipped earlier
     if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
-        source /opt/rayanpbx/scripts/ini-helper.sh
-        modify_manager_conf "rayanpbx_ami_secret"
+        # Use ami-tools.sh (preferred) or ini-helper.sh as fallback
+        if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
+            source /opt/rayanpbx/scripts/ami-tools.sh
+            configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"
+        elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
+            source /opt/rayanpbx/scripts/ini-helper.sh
+            modify_manager_conf "rayanpbx_ami_secret"
+        fi
         touch /etc/asterisk/manager.conf.rayanpbx-configured
         
         print_progress "Reloading Asterisk to apply AMI configuration..."
@@ -2931,6 +2955,15 @@ if next_step "RayanPBX Source Code" "source"; then
             fi
         else
             print_success "Asterisk configuration reloaded successfully"
+            
+            # Verify AMI connection
+            if type test_ami_connection &> /dev/null; then
+                if test_ami_connection "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret"; then
+                    print_success "AMI connection verified"
+                else
+                    print_warning "AMI connection test failed - may need manual configuration"
+                fi
+            fi
         fi
     fi
 fi

@@ -614,14 +614,14 @@ cmd_diag_check_ami() {
 
 # Fix AMI credentials - extract from manager.conf and update .env
 cmd_diag_fix_ami() {
-    local script_path="$SCRIPT_DIR/fix-ami-credentials.sh"
+    local script_path="$SCRIPT_DIR/ami-tools.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "AMI credential fix script not found at $script_path"
+        print_error "AMI tools script not found at $script_path"
         exit 1
     fi
     
-    # Pass through to the dedicated fix script
+    # Pass through to ami-tools fix command
     bash "$script_path" fix "$@"
 }
 
