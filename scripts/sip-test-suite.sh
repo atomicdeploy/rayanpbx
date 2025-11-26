@@ -444,7 +444,7 @@ create_test_extension() {
     # Add to pjsip.conf
     cat >> /etc/asterisk/pjsip.conf <<EOF
 
-; BEGIN TEST EXTENSION ${extension}
+; Test extension ${extension} - created by sip-test-suite
 [${extension}]
 type=endpoint
 context=from-internal
@@ -466,7 +466,7 @@ password=${password}
 type=aor
 max_contacts=1
 remove_existing=yes
-; END TEST EXTENSION ${extension}
+
 EOF
     
     # Reload Asterisk
@@ -489,8 +489,21 @@ cleanup_test_extension() {
     
     print_verbose "Cleaning up test extension: $extension"
     
-    # Remove from pjsip.conf
-    sed -i "/; BEGIN TEST EXTENSION ${extension}/,/; END TEST EXTENSION ${extension}/d" /etc/asterisk/pjsip.conf 2>/dev/null || true
+    # Remove test extension sections from pjsip.conf using ini-helper
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "${SCRIPT_DIR}/ini-helper.sh" ]; then
+        source "${SCRIPT_DIR}/ini-helper.sh"
+    fi
+    
+    # Use sed to remove the three sections (endpoint, auth, aor) for this extension
+    # Since each [extension] section is on its own, we need to find and remove them
+    local tmpfile=$(mktemp)
+    awk -v ext="${extension}" '
+        BEGIN { skip=0 }
+        /^\['"${extension}"'\]/ { skip=1; next }
+        /^\[/ && skip { skip=0 }
+        !skip { print }
+    ' /etc/asterisk/pjsip.conf > "$tmpfile" 2>/dev/null && mv "$tmpfile" /etc/asterisk/pjsip.conf
     
     # Reload
     asterisk -rx "pjsip reload" > /dev/null 2>&1

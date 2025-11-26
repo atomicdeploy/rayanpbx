@@ -267,23 +267,22 @@ class PjsipConfigController extends Controller
      */
     private function updateTransportSettings($config, $settings)
     {
-        // For simplicity, we'll update the managed transport section
-        $pattern = "/; BEGIN MANAGED - RayanPBX Transport.*?; END MANAGED - RayanPBX Transport\n/s";
+        // Parse the config
+        $parsedConfig = \App\Helpers\AsteriskConfig::parseContent($config, $this->pjsipConfigPath);
         
-        $transportConfig = "; BEGIN MANAGED - RayanPBX Transport\n";
-        $transportConfig .= "[transport-{$settings['protocol']}]\n";
-        $transportConfig .= "type=transport\n";
-        $transportConfig .= "protocol={$settings['protocol']}\n";
-        $transportConfig .= "bind={$settings['bind']}\n";
-        $transportConfig .= "; END MANAGED - RayanPBX Transport\n";
+        // Remove old transport with this protocol
+        $transportName = "transport-{$settings['protocol']}";
+        $parsedConfig->removeSectionsByName($transportName);
         
-        if (preg_match($pattern, $config)) {
-            $config = preg_replace($pattern, $transportConfig, $config);
-        } else {
-            // Add at the beginning
-            $config = $transportConfig . "\n" . $config;
-        }
+        // Create new transport section
+        $transport = new \App\Helpers\AsteriskSection($transportName, 'transport');
+        $transport->setProperty('type', 'transport');
+        $transport->setProperty('protocol', $settings['protocol']);
+        $transport->setProperty('bind', $settings['bind']);
         
-        return $config;
+        // Prepend transport section
+        array_unshift($parsedConfig->sections, $transport);
+        
+        return $parsedConfig->toString();
     }
 }
