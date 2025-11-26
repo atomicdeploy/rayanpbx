@@ -1770,6 +1770,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help)
             show_help
+            exit 0  # Safety exit in case show_help doesn't exit
             ;;
         -u|--upgrade)
             UPGRADE_MODE=true
@@ -3773,8 +3774,8 @@ if next_step "Installation Complete! 🎉" "complete"; then
     echo ""
 
     # Read dev credentials from .env file (with defaults)
-    local DEV_USERNAME=$(grep "^RAYANPBX_DEV_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
-    local DEV_PASSWORD=$(grep "^RAYANPBX_DEV_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+    DEV_USERNAME=$(grep "^RAYANPBX_DEV_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+    DEV_PASSWORD=$(grep "^RAYANPBX_DEV_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
     [ -z "$DEV_USERNAME" ] && DEV_USERNAME="admin"
     [ -z "$DEV_PASSWORD" ] && DEV_PASSWORD="admin"
 

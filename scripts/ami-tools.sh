@@ -696,7 +696,7 @@ cmd_configure() {
     fi
 }
 
-show_help() {
+ami_show_help() {
     cat << EOF
 ${AMI_CYAN}${AMI_BOLD}AMI Tools${AMI_NC} - Asterisk Manager Interface Configuration & Diagnostics
 Version: $AMI_TOOLS_VERSION
@@ -744,7 +744,7 @@ main() {
     case "$command" in
         --version|-v) echo "AMI Tools v$AMI_TOOLS_VERSION"; exit 0 ;;
         --verbose) AMI_VERBOSE=true; shift; command="${1:-}" ;;
-        --help|-h|"") show_help; exit 0 ;;
+        --help|-h|"") ami_show_help; exit 0 ;;
     esac
     
     shift || true
@@ -760,7 +760,7 @@ main() {
         test) cmd_test "$@" ;;
         diag|diagnostics) cmd_diag "$@" ;;
         configure) cmd_configure "$@" ;;
-        *) ami_error "Unknown command: $command"; show_help; exit 1 ;;
+        *) ami_error "Unknown command: $command"; ami_show_help; exit 1 ;;
     esac
 }
 
