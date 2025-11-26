@@ -358,8 +358,12 @@ class AuthController extends Controller
     {
         // For development/testing purposes
         if (app()->environment('local', 'testing', 'development')) {
-            // Allow 'admin' with password 'admin' in development
-            if ($username === 'admin' && $password === 'admin') {
+            // Get dev credentials from environment (with fallback defaults)
+            $devUsername = env('RAYANPBX_DEV_USERNAME', 'admin');
+            $devPassword = env('RAYANPBX_DEV_PASSWORD', 'admin');
+            
+            // Allow configured dev credentials in development mode
+            if ($username === $devUsername && $password === $devPassword) {
                 $this->systemLogService->authInfo("Development mode login: {$username}");
                 return true;
             }

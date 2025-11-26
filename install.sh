@@ -2970,6 +2970,49 @@ if next_step "Environment Configuration" "env-config"; then
     sed -i "s|APP_ENV=.*|APP_ENV=development|" .env
     print_verbose "Debug mode enabled for installation (can be changed to production after setup)"
 
+    # Configure development credentials (only prompt in interactive development mode, not CI)
+    # Check if dev credentials already exist
+    if grep -q "^RAYANPBX_DEV_USERNAME=" .env 2>/dev/null; then
+        DEV_USERNAME=$(grep "^RAYANPBX_DEV_USERNAME=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+        DEV_PASSWORD=$(grep "^RAYANPBX_DEV_PASSWORD=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+        print_verbose "Using existing dev credentials from .env"
+    else
+        DEV_USERNAME="admin"
+        DEV_PASSWORD="admin"
+        
+        # Only prompt for custom credentials if in interactive mode (not CI) and not production
+        if [ "$CI_MODE" != "true" ] && [ -t 0 ]; then
+            echo ""
+            echo -e "${BOLD}${CYAN}🔐 Development Login Credentials${RESET}"
+            echo -e "${DIM}These credentials are used for development/testing mode only.${RESET}"
+            echo -e "${DIM}In production, PAM authentication (Linux user accounts) is used.${RESET}"
+            echo ""
+            
+            read -p "$(echo -e "  ${YELLOW}Username${RESET} [${GREEN}$DEV_USERNAME${RESET}]: ")" CUSTOM_USERNAME
+            [ -n "$CUSTOM_USERNAME" ] && DEV_USERNAME="$CUSTOM_USERNAME"
+            
+            read -p "$(echo -e "  ${YELLOW}Password${RESET} [${GREEN}$DEV_PASSWORD${RESET}]: ")" CUSTOM_PASSWORD
+            [ -n "$CUSTOM_PASSWORD" ] && DEV_PASSWORD="$CUSTOM_PASSWORD"
+            echo ""
+        fi
+        
+        # Add or update dev credentials in .env
+        if grep -q "^RAYANPBX_DEV_USERNAME=" .env 2>/dev/null; then
+            sed -i "s|^RAYANPBX_DEV_USERNAME=.*|RAYANPBX_DEV_USERNAME=$DEV_USERNAME|" .env
+        else
+            echo "" >> .env
+            echo "# Development Mode Credentials (only used when APP_ENV=local/development/testing)" >> .env
+            echo "RAYANPBX_DEV_USERNAME=$DEV_USERNAME" >> .env
+        fi
+        
+        if grep -q "^RAYANPBX_DEV_PASSWORD=" .env 2>/dev/null; then
+            sed -i "s|^RAYANPBX_DEV_PASSWORD=.*|RAYANPBX_DEV_PASSWORD=$DEV_PASSWORD|" .env
+        else
+            echo "RAYANPBX_DEV_PASSWORD=$DEV_PASSWORD" >> .env
+        fi
+        print_verbose "Development credentials configured: $DEV_USERNAME"
+    fi
+
     print_success "Environment configured"
 
     # Copy .env to backend directory for Laravel
@@ -3614,9 +3657,15 @@ if next_step "Installation Complete! 🎉" "complete"; then
     fi
     echo ""
 
+    # Read dev credentials from .env file (with defaults)
+    local DEV_USERNAME=$(grep "^RAYANPBX_DEV_USERNAME=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+    local DEV_PASSWORD=$(grep "^RAYANPBX_DEV_PASSWORD=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "admin")
+    [ -z "$DEV_USERNAME" ] && DEV_USERNAME="admin"
+    [ -z "$DEV_PASSWORD" ] && DEV_PASSWORD="admin"
+
     echo -e "${BOLD}${CYAN}🔐 Default Login (Development):${RESET}"
-    echo -e "  ${YELLOW}Username:${RESET} admin"
-    echo -e "  ${YELLOW}Password:${RESET} admin"
+    echo -e "  ${YELLOW}Username:${RESET} $DEV_USERNAME"
+    echo -e "  ${YELLOW}Password:${RESET} $DEV_PASSWORD"
     echo ""
 
     echo -e "${BOLD}${CYAN}📁 File Locations:${RESET}"
@@ -3643,7 +3692,7 @@ if next_step "Installation Complete! 🎉" "complete"; then
     echo ""
     echo -e "  ${GREEN}2.${RESET} Access web UI: http://$(hostname -I | awk '{print $1}'):3000"
     echo ""
-    echo -e "  ${GREEN}3.${RESET} Login with admin/admin"
+    echo -e "  ${GREEN}3.${RESET} Login with ${YELLOW}$DEV_USERNAME${RESET}/${YELLOW}$DEV_PASSWORD${RESET}"
     echo ""
     echo -e "  ${GREEN}4.${RESET} Configure your first extension"
     echo ""
