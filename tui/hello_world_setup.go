@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 )
 
@@ -38,18 +37,18 @@ func (h *HelloWorldSetup) GetStatus() HelloWorldStatus {
 	status := HelloWorldStatus{}
 
 	// Check if extension 101 is configured in pjsip.conf
-	pjsipContent, err := os.ReadFile("/etc/asterisk/pjsip.conf")
+	pjsipConfig, err := ParseAsteriskConfig("/etc/asterisk/pjsip.conf")
 	if err == nil {
-		content := string(pjsipContent)
-		status.ExtensionConfigured = strings.Contains(content, "; BEGIN MANAGED - RayanPBX Hello World Extension")
-		status.TransportConfigured = strings.Contains(content, "[transport-udp]") && strings.Contains(content, "type=transport")
+		// Check if extension 101 endpoint exists
+		status.ExtensionConfigured = pjsipConfig.HasSectionWithType("101", "endpoint")
+		status.TransportConfigured = pjsipConfig.HasSectionWithType("transport-udp", "transport")
 	}
 
 	// Check if Hello World dialplan is configured in extensions.conf
-	extContent, err := os.ReadFile("/etc/asterisk/extensions.conf")
+	extConfig, err := ParseAsteriskConfig("/etc/asterisk/extensions.conf")
 	if err == nil {
-		content := string(extContent)
-		status.DialplanConfigured = strings.Contains(content, "; BEGIN MANAGED - RayanPBX Hello World Dialplan")
+		// Check if from-internal context exists with the hello-world dialplan
+		status.DialplanConfigured = extConfig.HasSection("from-internal")
 	}
 
 	// Check if Asterisk is running
@@ -75,69 +74,55 @@ func (h *HelloWorldSetup) GetStatus() HelloWorldStatus {
 	return status
 }
 
-// GenerateHelloWorldExtension generates the PJSIP config for extension 101
-func (h *HelloWorldSetup) GenerateHelloWorldExtension() string {
-	var config strings.Builder
-
-	config.WriteString("\n; BEGIN MANAGED - RayanPBX Hello World Extension\n")
-	config.WriteString("; Test extension for Hello World setup - can be removed after testing\n\n")
+// GenerateHelloWorldExtension generates the PJSIP sections for extension 101
+func (h *HelloWorldSetup) GenerateHelloWorldExtension() []*AsteriskSection {
+	sections := make([]*AsteriskSection, 0, 3)
 
 	// Extension 101 endpoint
-	config.WriteString("[101]\n")
-	config.WriteString("type=endpoint\n")
-	config.WriteString("context=from-internal\n")
-	config.WriteString("disallow=all\n")
-	config.WriteString("allow=ulaw\n")
-	config.WriteString("auth=101\n")
-	config.WriteString("aors=101\n")
-	config.WriteString("\n")
+	endpoint := NewAsteriskSection("101", "endpoint")
+	endpoint.Comments = []string{"; Test extension for Hello World setup - can be removed after testing"}
+	endpoint.SetProperty("type", "endpoint")
+	endpoint.SetProperty("context", "from-internal")
+	endpoint.SetProperty("disallow", "all")
+	endpoint.SetProperty("allow", "ulaw")
+	endpoint.SetProperty("auth", "101")
+	endpoint.SetProperty("aors", "101")
+	sections = append(sections, endpoint)
 
 	// Auth section
-	config.WriteString("[101]\n")
-	config.WriteString("type=auth\n")
-	config.WriteString("auth_type=userpass\n")
-	config.WriteString("password=101pass\n")
-	config.WriteString("username=101\n")
-	config.WriteString("\n")
+	auth := NewAsteriskSection("101", "auth")
+	auth.SetProperty("type", "auth")
+	auth.SetProperty("auth_type", "userpass")
+	auth.SetProperty("password", "101pass")
+	auth.SetProperty("username", "101")
+	sections = append(sections, auth)
 
 	// AOR section
-	config.WriteString("[101]\n")
-	config.WriteString("type=aor\n")
-	config.WriteString("max_contacts=1\n")
+	aor := NewAsteriskSection("101", "aor")
+	aor.SetProperty("type", "aor")
+	aor.SetProperty("max_contacts", "1")
+	sections = append(sections, aor)
 
-	config.WriteString("\n; END MANAGED - RayanPBX Hello World Extension\n")
-
-	return config.String()
+	return sections
 }
 
 // GenerateHelloWorldDialplan generates the dialplan for Hello World
 func (h *HelloWorldSetup) GenerateHelloWorldDialplan() string {
 	var config strings.Builder
 
-	config.WriteString("\n; BEGIN MANAGED - RayanPBX Hello World Dialplan\n")
 	config.WriteString("; Test dialplan for Hello World setup - can be removed after testing\n")
 	config.WriteString("[from-internal]\n")
 	config.WriteString("exten = 100,1,Answer()\n")
 	config.WriteString("same = n,Wait(1)\n")
 	config.WriteString("same = n,Playback(hello-world)\n")
 	config.WriteString("same = n,Hangup()\n")
-	config.WriteString("; END MANAGED - RayanPBX Hello World Dialplan\n")
 
 	return config.String()
 }
 
-// GenerateTransportConfig generates the PJSIP transport configuration
-func (h *HelloWorldSetup) GenerateTransportConfig() string {
-	var config strings.Builder
-
-	config.WriteString("\n; BEGIN MANAGED - RayanPBX Transport\n")
-	config.WriteString("[transport-udp]\n")
-	config.WriteString("type=transport\n")
-	config.WriteString("protocol=udp\n")
-	config.WriteString("bind=0.0.0.0\n")
-	config.WriteString("; END MANAGED - RayanPBX Transport\n")
-
-	return config.String()
+// GenerateTransportConfig generates the PJSIP transport sections
+func (h *HelloWorldSetup) GenerateTransportConfig() []*AsteriskSection {
+	return CreateTransportSections()
 }
 
 // SetupAll performs the complete Hello World setup
@@ -169,136 +154,112 @@ func (h *HelloWorldSetup) SetupAll() error {
 func (h *HelloWorldSetup) ensureTransport() error {
 	pjsipPath := "/etc/asterisk/pjsip.conf"
 
-	// Read existing config
-	existingContent, err := os.ReadFile(pjsipPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Create new file with transport config
-			header := "; RayanPBX PJSIP Configuration\n; Generated by RayanPBX Hello World Setup\n"
-			transportConfig := h.GenerateTransportConfig()
-			return os.WriteFile(pjsipPath, []byte(header+transportConfig), 0644)
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(pjsipPath); os.IsNotExist(statErr) {
+		// Create new config with header and transport
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX PJSIP Configuration", "; Generated by RayanPBX Hello World Setup", ""},
+			Sections:    h.GenerateTransportConfig(),
+			FilePath:    pjsipPath,
 		}
+		return config.Save()
+	}
+
+	config, err = ParseAsteriskConfig(pjsipPath)
+	if err != nil {
 		return fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	content := string(existingContent)
-
 	// Check if transport already exists
-	if strings.Contains(content, "[transport-udp]") && strings.Contains(content, "type=transport") {
+	if config.HasSectionWithType("transport-udp", "transport") {
 		return nil // Already configured
 	}
 
-	// Check if RayanPBX managed transport exists, remove it first
-	if strings.Contains(content, "; BEGIN MANAGED - RayanPBX Transport") {
-		re := regexp.MustCompile(`(?s); BEGIN MANAGED - RayanPBX Transport.*?; END MANAGED - RayanPBX Transport\n`)
-		content = re.ReplaceAllString(content, "")
-	}
+	// Remove old transport sections and add new ones
+	config.RemoveSectionsByName("transport-udp")
+	config.RemoveSectionsByName("transport-tcp")
 
-	// Add transport config at the beginning (after any header comments)
-	transportConfig := h.GenerateTransportConfig()
+	// Prepend transport sections
+	transportSections := h.GenerateTransportConfig()
+	newSections := make([]*AsteriskSection, 0, len(transportSections)+len(config.Sections))
+	newSections = append(newSections, transportSections...)
+	newSections = append(newSections, config.Sections...)
+	config.Sections = newSections
 
-	// Find insertion point after initial comments
-	lines := strings.Split(content, "\n")
-	insertIdx := 0
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, ";") && trimmed != "" {
-			insertIdx = i
-			break
-		}
-		insertIdx = i + 1
-	}
-
-	// Insert transport config
-	beforeInsert := strings.Join(lines[:insertIdx], "\n")
-	if insertIdx > 0 && !strings.HasSuffix(beforeInsert, "\n\n") {
-		beforeInsert += "\n"
-	}
-	afterInsert := strings.Join(lines[insertIdx:], "\n")
-	content = beforeInsert + transportConfig + afterInsert
-
-	return os.WriteFile(pjsipPath, []byte(content), 0644)
+	return config.Save()
 }
 
 // configureExtension adds the Hello World extension to pjsip.conf
 func (h *HelloWorldSetup) configureExtension() error {
 	pjsipPath := "/etc/asterisk/pjsip.conf"
 
-	existingContent, err := os.ReadFile(pjsipPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			header := "; RayanPBX PJSIP Configuration\n; Generated by RayanPBX Hello World Setup\n"
-			existingContent = []byte(header)
-		} else {
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(pjsipPath); os.IsNotExist(statErr) {
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX PJSIP Configuration", "; Generated by RayanPBX Hello World Setup", ""},
+			Sections:    []*AsteriskSection{},
+			FilePath:    pjsipPath,
+		}
+	} else {
+		config, err = ParseAsteriskConfig(pjsipPath)
+		if err != nil {
 			return fmt.Errorf("failed to read config file: %v", err)
 		}
 	}
 
-	content := string(existingContent)
+	// Remove old extension 101 sections if they exist
+	config.RemoveSectionsByName("101")
 
-	// Remove old Hello World extension if exists
-	if strings.Contains(content, "; BEGIN MANAGED - RayanPBX Hello World Extension") {
-		// Use simple string replacement for the managed section
-		startMarker := "; BEGIN MANAGED - RayanPBX Hello World Extension"
-		endMarker := "; END MANAGED - RayanPBX Hello World Extension\n"
-		
-		startIdx := strings.Index(content, startMarker)
-		endIdx := strings.Index(content, endMarker)
-		if startIdx != -1 && endIdx != -1 {
-			// Find the newline before the start marker
-			prevNewline := strings.LastIndex(content[:startIdx], "\n")
-			if prevNewline == -1 {
-				prevNewline = 0
-			}
-			content = content[:prevNewline] + content[endIdx+len(endMarker):]
-		}
+	// Add new extension sections
+	extensionSections := h.GenerateHelloWorldExtension()
+	for _, section := range extensionSections {
+		config.AddSection(section)
 	}
 
-	// Append new config
-	extensionConfig := h.GenerateHelloWorldExtension()
-	content += extensionConfig
-
-	return os.WriteFile(pjsipPath, []byte(content), 0644)
+	return config.Save()
 }
 
 // configureDialplan adds the Hello World dialplan to extensions.conf
 func (h *HelloWorldSetup) configureDialplan() error {
 	extPath := "/etc/asterisk/extensions.conf"
 
-	existingContent, err := os.ReadFile(extPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			header := "; RayanPBX Dialplan Configuration\n; Generated by RayanPBX Hello World Setup\n\n"
-			existingContent = []byte(header)
-		} else {
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(extPath); os.IsNotExist(statErr) {
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX Dialplan Configuration", "; Generated by RayanPBX Hello World Setup", ""},
+			Sections:    []*AsteriskSection{},
+			FilePath:    extPath,
+		}
+	} else {
+		config, err = ParseAsteriskConfig(extPath)
+		if err != nil {
 			return fmt.Errorf("failed to read dialplan file: %v", err)
 		}
 	}
 
-	content := string(existingContent)
-
-	// Remove old Hello World dialplan if exists
-	if strings.Contains(content, "; BEGIN MANAGED - RayanPBX Hello World Dialplan") {
-		startMarker := "; BEGIN MANAGED - RayanPBX Hello World Dialplan"
-		endMarker := "; END MANAGED - RayanPBX Hello World Dialplan\n"
-		
-		startIdx := strings.Index(content, startMarker)
-		endIdx := strings.Index(content, endMarker)
-		if startIdx != -1 && endIdx != -1 {
-			// Find the newline before the start marker
-			prevNewline := strings.LastIndex(content[:startIdx], "\n")
-			if prevNewline == -1 {
-				prevNewline = 0
-			}
-			content = content[:prevNewline] + content[endIdx+len(endMarker):]
+	// Check if from-internal context already exists
+	if !config.HasSection("from-internal") {
+		// Parse and add the new dialplan content
+		dialplanContent := h.GenerateHelloWorldDialplan()
+		newConfig, err := ParseAsteriskConfigContent(dialplanContent, "")
+		if err != nil {
+			return fmt.Errorf("failed to parse dialplan content: %v", err)
+		}
+		for _, section := range newConfig.Sections {
+			config.AddSection(section)
 		}
 	}
 
-	// Append new dialplan
-	dialplanConfig := h.GenerateHelloWorldDialplan()
-	content += dialplanConfig
-
-	return os.WriteFile(extPath, []byte(content), 0644)
+	return config.Save()
 }
 
 // restartAsterisk starts or restarts Asterisk and reloads configuration
@@ -353,7 +314,7 @@ func (h *HelloWorldSetup) RemoveSetup() error {
 func (h *HelloWorldSetup) removeExtension() error {
 	pjsipPath := "/etc/asterisk/pjsip.conf"
 
-	existingContent, err := os.ReadFile(pjsipPath)
+	config, err := ParseAsteriskConfig(pjsipPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // Nothing to remove
@@ -361,33 +322,17 @@ func (h *HelloWorldSetup) removeExtension() error {
 		return fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	content := string(existingContent)
+	// Remove all sections with name "101" (endpoint, auth, aor)
+	config.RemoveSectionsByName("101")
 
-	// Remove Hello World extension section
-	if strings.Contains(content, "; BEGIN MANAGED - RayanPBX Hello World Extension") {
-		startMarker := "; BEGIN MANAGED - RayanPBX Hello World Extension"
-		endMarker := "; END MANAGED - RayanPBX Hello World Extension\n"
-		
-		startIdx := strings.Index(content, startMarker)
-		endIdx := strings.Index(content, endMarker)
-		if startIdx != -1 && endIdx != -1 {
-			// Find the newline before the start marker
-			prevNewline := strings.LastIndex(content[:startIdx], "\n")
-			if prevNewline == -1 {
-				prevNewline = 0
-			}
-			content = content[:prevNewline] + content[endIdx+len(endMarker):]
-		}
-	}
-
-	return os.WriteFile(pjsipPath, []byte(content), 0644)
+	return config.Save()
 }
 
 // removeDialplan removes the Hello World dialplan from extensions.conf
 func (h *HelloWorldSetup) removeDialplan() error {
 	extPath := "/etc/asterisk/extensions.conf"
 
-	existingContent, err := os.ReadFile(extPath)
+	config, err := ParseAsteriskConfig(extPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // Nothing to remove
@@ -395,26 +340,10 @@ func (h *HelloWorldSetup) removeDialplan() error {
 		return fmt.Errorf("failed to read dialplan file: %v", err)
 	}
 
-	content := string(existingContent)
+	// Remove from-internal section
+	config.RemoveSectionsByName("from-internal")
 
-	// Remove Hello World dialplan section
-	if strings.Contains(content, "; BEGIN MANAGED - RayanPBX Hello World Dialplan") {
-		startMarker := "; BEGIN MANAGED - RayanPBX Hello World Dialplan"
-		endMarker := "; END MANAGED - RayanPBX Hello World Dialplan\n"
-		
-		startIdx := strings.Index(content, startMarker)
-		endIdx := strings.Index(content, endMarker)
-		if startIdx != -1 && endIdx != -1 {
-			// Find the newline before the start marker
-			prevNewline := strings.LastIndex(content[:startIdx], "\n")
-			if prevNewline == -1 {
-				prevNewline = 0
-			}
-			content = content[:prevNewline] + content[endIdx+len(endMarker):]
-		}
-	}
-
-	return os.WriteFile(extPath, []byte(content), 0644)
+	return config.Save()
 }
 
 // CheckSoundFile checks if the hello-world sound file exists

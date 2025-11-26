@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 )
 
@@ -126,7 +125,7 @@ func (rc *ResetConfiguration) clearDatabase(result *ResetResult) error {
 	return nil
 }
 
-// clearPjsipConfig removes all managed sections from pjsip.conf and resets to clean state
+// clearPjsipConfig resets pjsip.conf to a clean state with only transport configuration
 func (rc *ResetConfiguration) clearPjsipConfig() error {
 	pjsipPath := "/etc/asterisk/pjsip.conf"
 
@@ -136,58 +135,21 @@ func (rc *ResetConfiguration) clearPjsipConfig() error {
 		return nil
 	}
 
-	existingContent, err := os.ReadFile(pjsipPath)
-	if err != nil {
-		return fmt.Errorf("failed to read pjsip.conf: %v", err)
-	}
-
-	content := string(existingContent)
-
-	// Remove all RayanPBX managed sections using regex
-	patterns := []string{
-		// Extension sections
-		`(?s); BEGIN MANAGED - Extension \d+.*?; END MANAGED - Extension \d+\n`,
-		// Hello World extension
-		`(?s); BEGIN MANAGED - RayanPBX Hello World Extension.*?; END MANAGED - RayanPBX Hello World Extension\n`,
-		// Transports
-		`(?s); BEGIN MANAGED - RayanPBX Transports.*?; END MANAGED - RayanPBX Transports\n`,
-		`(?s); BEGIN MANAGED - RayanPBX Transport.*?; END MANAGED - RayanPBX Transport\n`,
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		content = re.ReplaceAllString(content, "")
-	}
-
 	// Create a clean pjsip.conf with just header and basic transport
-	cleanConfig := `; RayanPBX PJSIP Configuration
-; Reset to clean state by RayanPBX Reset Configuration
-
-; UDP Transport (default)
-[transport-udp]
-type=transport
-protocol=udp
-bind=0.0.0.0:5060
-allow_reload=yes
-
-; TCP Transport
-[transport-tcp]
-type=transport
-protocol=tcp
-bind=0.0.0.0:5060
-allow_reload=yes
-
-`
-
-	err = os.WriteFile(pjsipPath, []byte(cleanConfig), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write clean pjsip.conf: %v", err)
+	config := &AsteriskConfig{
+		HeaderLines: []string{
+			"; RayanPBX PJSIP Configuration",
+			"; Reset to clean state by RayanPBX Reset Configuration",
+			"",
+		},
+		Sections: CreateTransportSections(),
+		FilePath: pjsipPath,
 	}
 
-	return nil
+	return config.Save()
 }
 
-// clearExtensionsConfig removes all managed sections from extensions.conf and resets to clean state
+// clearExtensionsConfig resets extensions.conf to a clean state
 func (rc *ResetConfiguration) clearExtensionsConfig() error {
 	extPath := "/etc/asterisk/extensions.conf"
 
@@ -197,47 +159,27 @@ func (rc *ResetConfiguration) clearExtensionsConfig() error {
 		return nil
 	}
 
-	existingContent, err := os.ReadFile(extPath)
-	if err != nil {
-		return fmt.Errorf("failed to read extensions.conf: %v", err)
+	// Create a clean extensions.conf with basic structure
+	general := NewAsteriskSection("general", "")
+	general.SetProperty("static", "yes")
+	general.SetProperty("writeprotect", "no")
+
+	globals := NewAsteriskSection("globals", "")
+
+	fromInternal := NewAsteriskSection("from-internal", "")
+	fromInternal.Comments = []string{"; Add your extension dialplan rules here"}
+
+	config := &AsteriskConfig{
+		HeaderLines: []string{
+			"; RayanPBX Dialplan Configuration",
+			"; Reset to clean state by RayanPBX Reset Configuration",
+			"",
+		},
+		Sections: []*AsteriskSection{general, globals, fromInternal},
+		FilePath: extPath,
 	}
 
-	content := string(existingContent)
-
-	// Remove all RayanPBX managed sections using regex
-	patterns := []string{
-		// Internal extensions
-		`(?s); BEGIN MANAGED - RayanPBX Internal Extensions.*?; END MANAGED - RayanPBX Internal Extensions\n`,
-		// Hello World dialplan
-		`(?s); BEGIN MANAGED - RayanPBX Hello World Dialplan.*?; END MANAGED - RayanPBX Hello World Dialplan\n`,
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		content = re.ReplaceAllString(content, "")
-	}
-
-	// Create a clean extensions.conf with just header
-	cleanConfig := `; RayanPBX Dialplan Configuration
-; Reset to clean state by RayanPBX Reset Configuration
-
-[general]
-static=yes
-writeprotect=no
-
-[globals]
-
-[from-internal]
-; Add your extension dialplan rules here
-
-`
-
-	err = os.WriteFile(extPath, []byte(cleanConfig), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write clean extensions.conf: %v", err)
-	}
-
-	return nil
+	return config.Save()
 }
 
 // reloadAsterisk reloads Asterisk to apply the clean configuration
