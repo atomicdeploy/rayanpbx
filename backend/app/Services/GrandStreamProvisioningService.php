@@ -16,10 +16,17 @@ use Illuminate\Support\Facades\Storage;
  */
 class GrandStreamProvisioningService
 {
+    
     /**
      * Unified HTTP client for phone communication
      */
     protected HttpClientService $httpClient;
+  
+    /**
+     * Regex pattern to match GrandStream phone models
+     * GrandStream models start with: GXP, GRP, GXV, DP, WP, GAC, or HT
+     */
+    protected const GRANDSTREAM_MODEL_PATTERN = '/\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*/i';
 
     protected $supportedModels = [
         'GXP1625' => [
@@ -260,7 +267,15 @@ class GrandStreamProvisioningService
         } catch (\Exception $e) {
             Log::warning('LLDP discovery failed: '.$e->getMessage());
         }
-
+        
+        // Try ARP table discovery
+        try {
+            $arpDevices = $this->discoverViaARP();
+            $devices = array_merge($devices, $arpDevices);
+        } catch (\Exception $e) {
+            Log::warning("ARP discovery failed: " . $e->getMessage());
+        }
+        
         // Fallback to nmap scanning
         try {
             $nmapDevices = $this->discoverViaNmap($network);
@@ -286,16 +301,223 @@ class GrandStreamProvisioningService
 
     /**
      * Discover phones via LLDP protocol
+     * Runs all available lldpctl formats and merges results for maximum data
      */
     protected function discoverViaLLDP()
     {
+        $allDevices = [];
+        
+        // Try json0 format first (most structured and verbose, easiest to parse)
         $devices = [];
 
         // Try lldpctl command (requires lldpd package)
         $output = [];
         $returnCode = 0;
+        exec('lldpctl -f json0 2>&1', $output, $returnCode);
+        
+        if ($returnCode === 0) {
+            $parsedDevices = $this->parseLLDPCtlJson0(implode("\n", $output));
+            if (!empty($parsedDevices)) {
+                $allDevices = array_merge($allDevices, $parsedDevices);
+            }
+        }
+        
+        // Try plain format (default, human-readable with good data)
+        $output = [];
+        exec('lldpctl -f plain 2>&1', $output, $returnCode);
+        
+        if ($returnCode === 0) {
+            $parsedDevices = $this->parseLLDPCtlPlain(implode("\n", $output));
+            if (!empty($parsedDevices)) {
+                $allDevices = array_merge($allDevices, $parsedDevices);
+            }
+        }
+        
+        // Try json format as fallback
+        $output = [];
+        exec('lldpctl -f json 2>&1', $output, $returnCode);
+        
+        if ($returnCode === 0) {
+            $parsedDevices = $this->parseLLDPCtlJson(implode("\n", $output));
+            if (!empty($parsedDevices)) {
+                $allDevices = array_merge($allDevices, $parsedDevices);
+            }
+        }
+        
+        // NOTE: lldpcli show neighbors is disabled by default
+        // It provides similar data to plain format but with different parsing
+        // Uncomment below if needed:
+        // $output = [];
+        // exec('lldpcli show neighbors 2>&1', $output, $returnCode);
+        // if ($returnCode === 0) {
+        //     $parsedDevices = $this->parseLLDPCliShowNeighbors(implode("\n", $output));
+        //     if (!empty($parsedDevices)) {
+        //         $allDevices = array_merge($allDevices, $parsedDevices);
+        //     }
+        // }
+        
+        // Fallback to keyvalue format
+        $output = [];
         exec('lldpctl -f keyvalue 2>&1', $output, $returnCode);
-
+        
+        if ($returnCode === 0) {
+            $parsedDevices = $this->parseLLDPCtlOutput(implode("\n", $output));
+            if (!empty($parsedDevices)) {
+                $allDevices = array_merge($allDevices, $parsedDevices);
+            }
+        }
+        
+        if (empty($allDevices)) {
+            throw new \Exception("LLDP discovery requires lldpd to be installed");
+        }
+        
+        // Deduplicate and merge device data by MAC address
+        return $this->mergeDevicesByMAC($allDevices);
+    }
+    
+    /**
+     * Parse lldpctl -f json0 output (most verbose JSON format)
+     * This format has consistent array structure regardless of neighbor count
+     */
+    protected function parseLLDPCtlJson0($output)
+    {
+        $devices = [];
+        
+        $data = json_decode($output, true);
+        if (!$data || !isset($data['lldp'])) {
+            return $devices;
+        }
+        
+        // json0 wraps lldp in an array
+        $lldpArray = is_array($data['lldp']) ? $data['lldp'] : [$data['lldp']];
+        
+        foreach ($lldpArray as $lldp) {
+            if (!isset($lldp['interface'])) {
+                continue;
+            }
+            
+            foreach ($lldp['interface'] as $interface) {
+                $device = [
+                    'discovery_type' => 'lldp',
+                    'last_seen' => now()->toISOString(),
+                    'capabilities' => [],
+                ];
+                
+                // Extract interface name
+                $interfaceName = $interface['name'] ?? '';
+                
+                // Parse chassis info
+                if (isset($interface['chassis']) && is_array($interface['chassis'])) {
+                    foreach ($interface['chassis'] as $chassis) {
+                        // ChassisID
+                        if (isset($chassis['id']) && is_array($chassis['id'])) {
+                            foreach ($chassis['id'] as $id) {
+                                $type = $id['type'] ?? '';
+                                $value = $id['value'] ?? '';
+                                if ($type === 'ip') {
+                                    $device['ip'] = $value;
+                                } elseif ($type === 'mac') {
+                                    $device['mac'] = $value;
+                                }
+                            }
+                        }
+                        
+                        // System name
+                        if (isset($chassis['name']) && is_array($chassis['name'])) {
+                            foreach ($chassis['name'] as $name) {
+                                $device['hostname'] = $name['value'] ?? '';
+                            }
+                        }
+                        
+                        // System description
+                        if (isset($chassis['descr']) && is_array($chassis['descr'])) {
+                            foreach ($chassis['descr'] as $descr) {
+                                $vendorModel = $this->parseSystemDescription($descr['value'] ?? '');
+                                if (!empty($vendorModel['vendor'])) {
+                                    $device['vendor'] = $vendorModel['vendor'];
+                                }
+                                if (!empty($vendorModel['model'])) {
+                                    $device['model'] = $vendorModel['model'];
+                                }
+                            }
+                        }
+                        
+                        // Capabilities
+                        if (isset($chassis['capability']) && is_array($chassis['capability'])) {
+                            foreach ($chassis['capability'] as $cap) {
+                                if (!empty($cap['type']) && ($cap['enabled'] ?? false)) {
+                                    $device['capabilities'][] = $cap['type'];
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Parse port info
+                if (isset($interface['port']) && is_array($interface['port'])) {
+                    foreach ($interface['port'] as $port) {
+                        if (isset($port['id']) && is_array($port['id'])) {
+                            foreach ($port['id'] as $id) {
+                                if (($id['type'] ?? '') === 'mac' && empty($device['mac'])) {
+                                    $device['mac'] = $id['value'] ?? '';
+                                }
+                            }
+                        }
+                        if (isset($port['descr']) && is_array($port['descr'])) {
+                            foreach ($port['descr'] as $descr) {
+                                $device['port_id'] = $descr['value'] ?? '';
+                            }
+                        }
+                    }
+                }
+                
+                // Parse LLDP-MED inventory for manufacturer/model info
+                if (isset($interface['lldp-med']) && is_array($interface['lldp-med'])) {
+                    foreach ($interface['lldp-med'] as $med) {
+                        if (isset($med['inventory']) && is_array($med['inventory'])) {
+                            foreach ($med['inventory'] as $inv) {
+                                if (isset($inv['manufacturer']) && is_array($inv['manufacturer'])) {
+                                    foreach ($inv['manufacturer'] as $mfg) {
+                                        $device['vendor'] = $mfg['value'] ?? '';
+                                    }
+                                }
+                                if (isset($inv['model']) && is_array($inv['model'])) {
+                                    foreach ($inv['model'] as $mdl) {
+                                        $device['model'] = $mdl['value'] ?? '';
+                                    }
+                                }
+                                if (isset($inv['serial']) && is_array($inv['serial'])) {
+                                    foreach ($inv['serial'] as $srl) {
+                                        $device['serial'] = $srl['value'] ?? '';
+                                    }
+                                }
+                                if (isset($inv['software']) && is_array($inv['software'])) {
+                                    foreach ($inv['software'] as $sw) {
+                                        $device['software_version'] = $sw['value'] ?? '';
+                                    }
+                                }
+                                if (isset($inv['firmware']) && is_array($inv['firmware'])) {
+                                    foreach ($inv['firmware'] as $fw) {
+                                        $device['firmware_version'] = $fw['value'] ?? '';
+                                    }
+                                }
+                                if (isset($inv['hardware']) && is_array($inv['hardware'])) {
+                                    foreach ($inv['hardware'] as $hw) {
+                                        $device['hardware_version'] = $hw['value'] ?? '';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Only add if we have useful info and it's a VoIP phone
+                if ($this->isVoIPPhone($device) && (!empty($device['mac']) || !empty($device['ip']))) {
+                    $devices[] = $device;
+                }
+            }
+        }
+        
         if ($returnCode !== 0) {
             throw new \Exception('LLDP discovery requires lldpd to be installed');
         }
@@ -305,6 +527,155 @@ class GrandStreamProvisioningService
         return $devices;
     }
 
+    /**
+     * Parse lldpctl -f json output
+     */
+    protected function parseLLDPCtlJson($output)
+    {
+        $devices = [];
+        
+        $data = json_decode($output, true);
+        if (!$data || !isset($data['lldp']['interface'])) {
+            return $devices;
+        }
+        
+        foreach ($data['lldp']['interface'] as $interfaceData) {
+            foreach ($interfaceData as $interfaceName => $interface) {
+                $device = [
+                    'discovery_type' => 'lldp',
+                    'last_seen' => now()->toISOString(),
+                    'capabilities' => [],
+                ];
+                
+                // Parse chassis info (can be keyed by hostname)
+                if (isset($interface['chassis'])) {
+                    foreach ($interface['chassis'] as $chassisName => $chassis) {
+                        // ChassisID
+                        if (isset($chassis['id'])) {
+                            $type = $chassis['id']['type'] ?? '';
+                            $value = $chassis['id']['value'] ?? '';
+                            if ($type === 'ip') {
+                                $device['ip'] = $value;
+                            } elseif ($type === 'mac') {
+                                $device['mac'] = $value;
+                            }
+                        }
+                        
+                        // In json format, the chassis key might be the hostname
+                        if (is_string($chassisName) && !is_numeric($chassisName)) {
+                            $device['hostname'] = $chassisName;
+                        }
+                        
+                        // System description
+                        if (isset($chassis['descr'])) {
+                            $vendorModel = $this->parseSystemDescription($chassis['descr']);
+                            if (!empty($vendorModel['vendor'])) {
+                                $device['vendor'] = $vendorModel['vendor'];
+                            }
+                            if (!empty($vendorModel['model'])) {
+                                $device['model'] = $vendorModel['model'];
+                            }
+                        }
+                        
+                        // Capabilities
+                        if (isset($chassis['capability']) && is_array($chassis['capability'])) {
+                            foreach ($chassis['capability'] as $cap) {
+                                if (!empty($cap['type']) && ($cap['enabled'] ?? false)) {
+                                    $device['capabilities'][] = $cap['type'];
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Parse port info
+                if (isset($interface['port'])) {
+                    if (isset($interface['port']['id'])) {
+                        if (($interface['port']['id']['type'] ?? '') === 'mac' && empty($device['mac'])) {
+                            $device['mac'] = $interface['port']['id']['value'] ?? '';
+                        }
+                    }
+                    if (isset($interface['port']['descr'])) {
+                        $device['port_id'] = $interface['port']['descr'];
+                    }
+                }
+                
+                // Parse LLDP-MED inventory
+                if (isset($interface['lldp-med']['inventory'])) {
+                    $inv = $interface['lldp-med']['inventory'];
+                    if (isset($inv['manufacturer'])) {
+                        $device['vendor'] = $inv['manufacturer'];
+                    }
+                    if (isset($inv['model'])) {
+                        $device['model'] = $inv['model'];
+                    }
+                    if (isset($inv['serial'])) {
+                        $device['serial'] = $inv['serial'];
+                    }
+                    if (isset($inv['software'])) {
+                        $device['software_version'] = $inv['software'];
+                    }
+                    if (isset($inv['firmware'])) {
+                        $device['firmware_version'] = $inv['firmware'];
+                    }
+                    if (isset($inv['hardware'])) {
+                        $device['hardware_version'] = $inv['hardware'];
+                    }
+                }
+                
+                // Only add if we have useful info and it's a VoIP phone
+                if ($this->isVoIPPhone($device) && (!empty($device['mac']) || !empty($device['ip']))) {
+                    $devices[] = $device;
+                }
+            }
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Parse lldpctl -f plain output (human-readable format, same as default)
+     * This is similar to parseLLDPCliShowNeighbors but may have slight formatting differences
+     */
+    protected function parseLLDPCtlPlain($output)
+    {
+        // Plain format is very similar to lldpcli show neighbors
+        return $this->parseLLDPCliShowNeighbors($output);
+    }
+    
+    /**
+     * Merge devices by MAC address, combining data from multiple sources
+     */
+    protected function mergeDevicesByMAC($devices)
+    {
+        $merged = [];
+        
+        foreach ($devices as $device) {
+            $key = $device['mac'] ?? $device['ip'] ?? uniqid();
+            
+            if (!isset($merged[$key])) {
+                $merged[$key] = $device;
+            } else {
+                // Merge data, preferring non-empty values
+                foreach ($device as $field => $value) {
+                    if (!empty($value) && (empty($merged[$key][$field]) || $field === 'capabilities')) {
+                        if ($field === 'capabilities') {
+                            // Merge capabilities arrays
+                            $merged[$key][$field] = array_unique(array_merge(
+                                $merged[$key][$field] ?? [],
+                                is_array($value) ? $value : [$value]
+                            ));
+                        } else {
+                            $merged[$key][$field] = $value;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return array_values($merged);
+    }
+    
     /**
      * Parse lldpctl keyvalue output
      */
@@ -378,6 +749,266 @@ class GrandStreamProvisioningService
         return $devices;
     }
 
+    /**
+     * Parse lldpcli show neighbors human-readable output
+     * 
+     * Example format:
+     * -------------------------------------------------------------------------------
+     * LLDP neighbors:
+     * -------------------------------------------------------------------------------
+     * Interface:    eno1, via: LLDP, RID: 1, Time: 0 day, 21:21:23
+     *   Chassis:
+     *     ChassisID:    ip 172.20.6.150
+     *     SysName:      GXP1630_ec:74:d7:2f:7e:a2
+     *     SysDescr:     GXP1630 1.0.7.64
+     *     Capability:   Bridge, on
+     *     Capability:   Tel, on
+     *   Port:
+     *     PortID:       mac ec:74:d7:2f:7e:a2
+     *     PortDescr:    eth0
+     *     TTL:          120
+     */
+    protected function parseLLDPCliShowNeighbors($output)
+    {
+        $devices = [];
+        $currentPhone = null;
+        
+        $lines = explode("\n", $output);
+        
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            
+            // Skip empty lines and separators
+            if (empty($trimmed) || strpos($trimmed, '---') === 0 || $trimmed === 'LLDP neighbors:') {
+                continue;
+            }
+            
+            // New interface/neighbor block
+            if (strpos($trimmed, 'Interface:') === 0) {
+                // Save previous phone if it exists and is a VoIP phone
+                if ($currentPhone !== null && $this->isVoIPPhone($currentPhone)) {
+                    $devices[] = $currentPhone;
+                }
+                
+                $currentPhone = [
+                    'discovery_type' => 'lldp',
+                    'last_seen' => now()->toISOString(),
+                    'capabilities' => [],
+                ];
+                continue;
+            }
+            
+            if ($currentPhone === null) {
+                continue;
+            }
+            
+            // Parse ChassisID - can be "ip X.X.X.X" or "mac XX:XX:XX:XX:XX:XX"
+            if (strpos($trimmed, 'ChassisID:') === 0) {
+                $value = trim(substr($trimmed, strlen('ChassisID:')));
+                
+                if (strpos($value, 'ip ') === 0) {
+                    $currentPhone['ip'] = trim(substr($value, 3));
+                } elseif (strpos($value, 'mac ') === 0) {
+                    $currentPhone['mac'] = trim(substr($value, 4));
+                }
+                continue;
+            }
+            
+            // Parse SysName - e.g., "GXP1630_ec:74:d7:2f:7e:a2"
+            if (strpos($trimmed, 'SysName:') === 0) {
+                $value = trim(substr($trimmed, strlen('SysName:')));
+                $currentPhone['hostname'] = $value;
+                
+                // Try to extract vendor/model from SysName
+                if (empty($currentPhone['vendor']) || empty($currentPhone['model'])) {
+                    $vendorModel = $this->parseSystemDescription($value);
+                    if (!empty($vendorModel['vendor'])) {
+                        $currentPhone['vendor'] = $vendorModel['vendor'];
+                    }
+                    if (!empty($vendorModel['model'])) {
+                        $currentPhone['model'] = $vendorModel['model'];
+                    }
+                }
+                continue;
+            }
+            
+            // Parse SysDescr - e.g., "GXP1630 1.0.7.64"
+            if (strpos($trimmed, 'SysDescr:') === 0) {
+                $value = trim(substr($trimmed, strlen('SysDescr:')));
+                $vendorModel = $this->parseSystemDescription($value);
+                if (!empty($vendorModel['vendor'])) {
+                    $currentPhone['vendor'] = $vendorModel['vendor'];
+                }
+                if (!empty($vendorModel['model'])) {
+                    $currentPhone['model'] = $vendorModel['model'];
+                }
+                continue;
+            }
+            
+            // Parse Capability - e.g., "Bridge, on" or "Tel, on"
+            if (strpos($trimmed, 'Capability:') === 0) {
+                $value = trim(substr($trimmed, strlen('Capability:')));
+                $parts = explode(',', $value);
+                if (count($parts) >= 2 && trim($parts[1]) === 'on') {
+                    $currentPhone['capabilities'][] = trim($parts[0]);
+                }
+                continue;
+            }
+            
+            // Parse PortID - e.g., "mac ec:74:d7:2f:7e:a2"
+            if (strpos($trimmed, 'PortID:') === 0) {
+                $value = trim(substr($trimmed, strlen('PortID:')));
+                if (strpos($value, 'mac ') === 0 && empty($currentPhone['mac'])) {
+                    $currentPhone['mac'] = trim(substr($value, 4));
+                }
+                $currentPhone['port_id'] = $value;
+                continue;
+            }
+            
+            // Parse PortDescr - e.g., "eth0"
+            if (strpos($trimmed, 'PortDescr:') === 0) {
+                if (empty($currentPhone['port_id'])) {
+                    $currentPhone['port_id'] = trim(substr($trimmed, strlen('PortDescr:')));
+                }
+                continue;
+            }
+        }
+        
+        // Don't forget the last phone
+        if ($currentPhone !== null && $this->isVoIPPhone($currentPhone)) {
+            $devices[] = $currentPhone;
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Discover devices from ARP table
+     * ARP table contains IP to MAC mappings for recently communicated hosts
+     */
+    protected function discoverViaARP()
+    {
+        $devices = [];
+        
+        $output = [];
+        $returnCode = 0;
+        exec('arp -a 2>&1', $output, $returnCode);
+        
+        if ($returnCode !== 0) {
+            throw new \Exception("ARP command failed");
+        }
+        
+        return $this->parseARPOutput(implode("\n", $output));
+    }
+    
+    /**
+     * Parse arp -a output
+     * 
+     * Example format:
+     * ? (172.20.4.126) at b0:6e:bf:c0:08:1d [ether] on eno1
+     * _gateway (172.20.0.10) at 08:55:31:32:d1:ec [ether] on eno1
+     */
+    protected function parseARPOutput($output)
+    {
+        $devices = [];
+        
+        $lines = explode("\n", $output);
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) {
+                continue;
+            }
+            
+            // Parse ARP entry: hostname (IP) at MAC [type] on interface
+            // or: ? (IP) at MAC [type] on interface (when hostname unknown)
+            
+            // Extract IP address from parentheses
+            if (!preg_match('/\(([0-9.]+)\)/', $line, $ipMatches)) {
+                continue;
+            }
+            $ip = $ipMatches[1];
+            
+            // Validate IP address
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                continue;
+            }
+            
+            // Extract MAC address after "at "
+            if (!preg_match('/at\s+([0-9a-fA-F:.-]+)/', $line, $macMatches)) {
+                continue;
+            }
+            $mac = $macMatches[1];
+            
+            // Skip incomplete entries (shown as <incomplete>)
+            if (strpos($mac, '<') !== false || strpos($mac, '>') !== false) {
+                continue;
+            }
+            
+            // Normalize MAC to lowercase with colons
+            $mac = strtolower(str_replace('-', ':', $mac));
+            
+            // Extract hostname (text before the parenthesis)
+            $hostname = '';
+            $parenPos = strpos($line, '(');
+            if ($parenPos > 0) {
+                $hostname = trim(substr($line, 0, $parenPos));
+                if ($hostname === '?') {
+                    $hostname = '';
+                }
+            }
+            
+            // Try to detect vendor from MAC address OUI
+            $vendor = $this->detectVendorFromMAC($mac);
+            
+            $devices[] = [
+                'ip' => $ip,
+                'mac' => $mac,
+                'hostname' => $hostname,
+                'vendor' => $vendor,
+                'discovery_type' => 'arp',
+                'last_seen' => now()->toISOString(),
+            ];
+        }
+        
+        return $devices;
+    }
+    
+    /**
+     * Detect vendor from MAC address OUI (Organizationally Unique Identifier)
+     */
+    protected function detectVendorFromMAC($mac)
+    {
+        // Common VoIP phone vendor OUI prefixes
+        $ouiPrefixes = [
+            '00:0b:82' => 'GrandStream',
+            '00:19:15' => 'GrandStream',
+            'c0:74:ad' => 'GrandStream',
+            'ec:74:d7' => 'GrandStream',
+            '00:15:65' => 'Yealink',
+            '80:5e:c0' => 'Yealink',
+            '00:04:f2' => 'Polycom',
+            '64:16:7f' => 'Polycom',
+            '00:1e:c2' => 'Cisco',
+            '00:50:c2' => 'Cisco',
+            '00:04:13' => 'Snom',
+            '00:1b:63' => 'Panasonic',
+            '0c:38:3e' => 'Fanvil',
+        ];
+        
+        // Normalize MAC and get first 3 octets
+        $mac = strtolower(str_replace('-', ':', $mac));
+        $parts = explode(':', $mac);
+        if (count($parts) >= 3) {
+            $oui = implode(':', array_slice($parts, 0, 3));
+            if (isset($ouiPrefixes[$oui])) {
+                return $ouiPrefixes[$oui];
+            }
+        }
+        
+        return '';
+    }
+    
     /**
      * Discover phones via nmap network scanning
      */
@@ -494,39 +1125,66 @@ class GrandStreamProvisioningService
      */
     protected function parseSystemDescription($description)
     {
-        $description = strtolower($description);
+        $descriptionLower = strtolower($description);
         $vendor = '';
         $model = '';
-
-        // Check for GrandStream
-        if (strpos($description, 'grandstream') !== false) {
+        
+        // Check for GrandStream model prefixes first (e.g., "GXP1630 1.0.7.64")
+        // GrandStream models start with GXP, GRP, GXV, DP, WP, GAC, or HT
+        if (preg_match(self::GRANDSTREAM_MODEL_PATTERN, $description, $matches) || strpos($description, 'grandstream') !== false) {
             $vendor = 'GrandStream';
-            if (preg_match('/gxp\d+[a-z]*/i', $description, $matches)) {
+            $model = strtoupper($matches[0]);
+        }
+        // Check for explicit GrandStream mention
+        elseif (strpos($descriptionLower, 'grandstream') !== false) {
+            $vendor = 'GrandStream';
+            if (preg_match(self::GRANDSTREAM_MODEL_PATTERN, $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
         // Check for Yealink
-        elseif (strpos($description, 'yealink') !== false) {
+        elseif (strpos($descriptionLower, 'yealink') !== false) {
             $vendor = 'Yealink';
             if (preg_match('/sip-t\d+[a-z]*/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
         // Check for Polycom
-        elseif (strpos($description, 'polycom') !== false) {
+        elseif (strpos($descriptionLower, 'polycom') !== false) {
             $vendor = 'Polycom';
             if (preg_match('/(soundpoint|vvx\d+[a-z]*)/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
         // Check for Cisco
-        elseif (strpos($description, 'cisco') !== false) {
+        elseif (strpos($descriptionLower, 'cisco') !== false) {
             $vendor = 'Cisco';
             if (preg_match('/(cp-\d+[a-z]*|spa\d+[a-z]*)/i', $description, $matches)) {
                 $model = strtoupper($matches[0]);
             }
         }
-
+        // Check for Snom
+        elseif (strpos($descriptionLower, 'snom') !== false) {
+            $vendor = 'Snom';
+            if (preg_match('/snom\d+[a-z]*/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Panasonic
+        elseif (strpos($descriptionLower, 'panasonic') !== false) {
+            $vendor = 'Panasonic';
+            if (preg_match('/kx-[\w]+/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        // Check for Fanvil
+        elseif (strpos($descriptionLower, 'fanvil') !== false) {
+            $vendor = 'Fanvil';
+            if (preg_match('/x\d+[a-z]*/i', $description, $matches)) {
+                $model = strtoupper($matches[0]);
+            }
+        }
+        
         return ['vendor' => $vendor, 'model' => $model];
     }
 

@@ -9,9 +9,85 @@
         <button @click="refreshPhones" class="btn btn-primary">
           🔄 Refresh
         </button>
-        <button @click="scanNetwork" class="btn btn-secondary">
-          🔍 Scan Network
+        <button @click="discoverAllPhones" class="btn btn-success">
+          🔍 Discover All
         </button>
+        <button @click="discoverLldpNeighbors" class="btn btn-info">
+          📡 LLDP Discovery
+        </button>
+        <button @click="discoverArpNeighbors" class="btn btn-secondary">
+          🌐 ARP Discovery
+        </button>
+      </div>
+    </div>
+
+    <!-- Discovery Panel (shows discovered devices from all sources) -->
+    <div v-if="showDiscoveryPanel && !selectedPhone" class="discovery-panel">
+      <div class="panel-header">
+        <h3>🔍 Discovered Devices</h3>
+        <div class="panel-tabs">
+          <button 
+            :class="['tab-btn', discoveryTab === 'all' ? 'active' : '']"
+            @click="discoveryTab = 'all'"
+          >
+            All ({{ discoveredDevices.length }})
+          </button>
+          <button 
+            :class="['tab-btn', discoveryTab === 'lldp' ? 'active' : '']"
+            @click="discoveryTab = 'lldp'"
+          >
+            📡 LLDP ({{ lldpNeighbors.length }})
+          </button>
+          <button 
+            :class="['tab-btn', discoveryTab === 'arp' ? 'active' : '']"
+            @click="discoveryTab = 'arp'"
+          >
+            🌐 ARP ({{ arpNeighbors.length }})
+          </button>
+        </div>
+        <button @click="showDiscoveryPanel = false" class="btn btn-close">✕</button>
+      </div>
+      
+      <div v-if="discoveryLoading" class="loading">
+        Discovering devices...
+      </div>
+      
+      <div v-else-if="currentDiscoveryList.length === 0" class="empty-state">
+        <p>📭 No devices found</p>
+        <p class="help-text">Try running discovery again or ensure devices are connected</p>
+      </div>
+      
+      <div v-else class="neighbor-cards">
+        <div
+          v-for="device in currentDiscoveryList"
+          :key="device.mac || device.ip"
+          class="neighbor-card"
+        >
+          <div class="neighbor-icon">
+            {{ device.vendor === 'GrandStream' ? '📞' : (device.discovery_type === 'lldp' ? '📡' : '🌐') }}
+          </div>
+          <div class="neighbor-info">
+            <h4>{{ device.model || device.hostname || 'Unknown Device' }}</h4>
+            <p class="neighbor-ip">IP: {{ device.ip || 'N/A' }}</p>
+            <p class="neighbor-mac">MAC: {{ device.mac || 'N/A' }}</p>
+            <p class="neighbor-vendor">Vendor: {{ device.vendor || 'Unknown' }}</p>
+            <span class="discovery-type-badge">{{ device.discovery_type?.toUpperCase() || 'UNKNOWN' }}</span>
+            <div v-if="device.capabilities && device.capabilities.length > 0" class="neighbor-capabilities">
+              <span v-for="cap in device.capabilities" :key="cap" class="capability-badge">
+                {{ cap }}
+              </span>
+            </div>
+          </div>
+          <div class="neighbor-actions">
+            <button 
+              v-if="device.ip" 
+              @click="addDiscoveredDeviceToPhones(device)" 
+              class="btn btn-success btn-sm"
+            >
+              ➕ Add to Phones
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -23,7 +99,7 @@
 
       <div v-else-if="phones.length === 0" class="empty-state">
         <p>📭 No phones detected</p>
-        <p class="help-text">Phones are automatically detected from SIP registrations</p>
+        <p class="help-text">Click "Discover All" to find VoIP phones on your network, or phones are automatically detected from SIP registrations</p>
       </div>
 
       <div v-else class="phone-cards">
@@ -250,7 +326,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 definePageMeta({
   middleware: 'auth'
@@ -276,6 +352,26 @@ const notification = ref(null)
 const actionUrlStatus = ref(null)
 const actionUrlConflicts = ref(null)
 
+// Discovery state
+const showDiscoveryPanel = ref(false)
+const discoveryTab = ref('all')
+const discoveryLoading = ref(false)
+const lldpNeighbors = ref([])
+const arpNeighbors = ref([])
+const discoveredDevices = ref([])
+
+// Computed property for current discovery list based on tab
+const currentDiscoveryList = computed(() => {
+  switch (discoveryTab.value) {
+    case 'lldp':
+      return lldpNeighbors.value
+    case 'arp':
+      return arpNeighbors.value
+    default:
+      return discoveredDevices.value
+  }
+})
+
 // Store provision context for re-provisioning with force flag
 const provisionContext = ref(null)
 
@@ -294,6 +390,121 @@ onMounted(async () => {
   loadExtensions()
 })
 
+async function discoverAllPhones() {
+  showDiscoveryPanel.value = true
+  discoveryLoading.value = true
+  discoveryTab.value = 'all'
+  
+  try {
+    const data = await api.discoverPhones()
+    if (data.success) {
+      discoveredDevices.value = data.devices || []
+      // Also separate by type
+      lldpNeighbors.value = data.devices?.filter(d => d.discovery_type === 'lldp') || []
+      arpNeighbors.value = data.devices?.filter(d => d.discovery_type === 'arp') || []
+      
+      if (data.devices && data.devices.length > 0) {
+        showNotification(`Found ${data.devices.length} device(s)`, 'success')
+      } else {
+        showNotification(data.message || 'No devices found', 'info')
+      }
+    } else {
+      showNotification(data.error || 'Discovery failed', 'error')
+    }
+  } catch (error) {
+    showNotification('Discovery failed', 'error')
+  } finally {
+    discoveryLoading.value = false
+  }
+}
+
+async function discoverLldpNeighbors() {
+  showDiscoveryPanel.value = true
+  discoveryLoading.value = true
+  discoveryTab.value = 'lldp'
+  
+  try {
+    const data = await api.getLldpNeighbors()
+    if (data.success) {
+      lldpNeighbors.value = data.neighbors || []
+      if (data.neighbors && data.neighbors.length > 0) {
+        showNotification(`Found ${data.neighbors.length} LLDP neighbor(s)`, 'success')
+      } else {
+        showNotification(data.message || 'No LLDP neighbors found', 'info')
+      }
+    } else {
+      showNotification(data.error || 'LLDP discovery failed', 'error')
+    }
+  } catch (error) {
+    showNotification('LLDP discovery failed', 'error')
+  } finally {
+    discoveryLoading.value = false
+  }
+}
+
+async function discoverArpNeighbors() {
+  showDiscoveryPanel.value = true
+  discoveryLoading.value = true
+  discoveryTab.value = 'arp'
+  
+  try {
+    const data = await api.getArpNeighbors()
+    if (data.success) {
+      arpNeighbors.value = data.neighbors || []
+      if (data.neighbors && data.neighbors.length > 0) {
+        showNotification(`Found ${data.neighbors.length} ARP neighbor(s)`, 'success')
+      } else {
+        showNotification(data.message || 'No ARP neighbors found', 'info')
+      }
+    } else {
+      showNotification(data.error || 'ARP discovery failed', 'error')
+    }
+  } catch (error) {
+    showNotification('ARP discovery failed', 'error')
+  } finally {
+    discoveryLoading.value = false
+  }
+}
+
+function addDiscoveredDeviceToPhones(device) {
+  // Generate a unique identifier for the phone
+  let extension = device.hostname
+  if (!extension) {
+    const macSuffix = device.mac?.replace(/:/g, '').slice(-6) || ''
+    const timestamp = Date.now().toString(36).slice(-4)
+    const prefix = device.discovery_type?.toUpperCase() || 'DISC'
+    extension = macSuffix ? `${prefix}-${macSuffix}-${timestamp}` : `${prefix}-${timestamp}`
+  }
+  
+  // Add discovered device to phones list
+  const newPhone = {
+    extension: extension,
+    ip: device.ip,
+    status: 'discovered',
+    user_agent: `${device.vendor || 'Unknown'} ${device.model || ''}`.trim(),
+    mac: device.mac,
+    discovery_type: device.discovery_type,
+  }
+  
+  // Check if already in list by IP or MAC
+  const exists = phones.value.some(p => 
+    (device.ip && p.ip === device.ip) || 
+    (device.mac && p.mac === device.mac)
+  )
+  
+  if (!exists) {
+    phones.value.push(newPhone)
+    showNotification(`Added ${device.model || device.ip} to phones list`, 'success')
+  } else {
+    showNotification('Phone already in list', 'info')
+  }
+}
+
+// Keep addLldpNeighborToPhones for backward compatibility
+function addLldpNeighborToPhones(neighbor) {
+  addDiscoveredDeviceToPhones(neighbor)
+}
+
 async function refreshPhones() {
   loading.value = true
   try {
@@ -303,25 +514,6 @@ async function refreshPhones() {
     }
   } catch (error) {
     showNotification('Failed to load phones', 'error')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function scanNetwork() {
-  loading.value = true
-  
-  // Get network from config or use default
-  const network = localStorage.getItem('network_range') || '192.168.1.0/24'
-  
-  try {
-    const data = await api.scanGrandstreamNetwork(network)
-    if (data.success) {
-      showNotification('Network scan completed', 'success')
-      refreshPhones()
-    }
-  } catch (error) {
-    showNotification('Network scan failed', 'error')
   } finally {
     loading.value = false
   }
@@ -959,5 +1151,143 @@ function showNotification(message, type = 'info') {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* LLDP Panel Styles */
+.lldp-panel,
+.discovery-panel {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eee;
+  gap: 15px;
+}
+
+.panel-tabs {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.tab-btn {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  background: #e0e0e0;
+}
+
+.tab-btn.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.discovery-type-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  background: #e0e7ff;
+  color: #3730a3;
+  margin-top: 4px;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.btn-close {
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.btn-close:hover {
+  background: #f0f0f0;
+}
+
+.neighbor-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 15px;
+}
+
+.neighbor-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 15px;
+  display: flex;
+  gap: 15px;
+  background: #fafafa;
+}
+
+.neighbor-icon {
+  font-size: 28px;
+}
+
+.neighbor-info {
+  flex: 1;
+}
+
+.neighbor-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.neighbor-ip,
+.neighbor-mac,
+.neighbor-vendor {
+  margin: 4px 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.neighbor-capabilities {
+  margin-top: 8px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.capability-badge {
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.neighbor-actions {
+  display: flex;
+  align-items: center;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
 }
 </style>

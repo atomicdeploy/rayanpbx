@@ -228,6 +228,103 @@ class PhoneController extends Controller
     }
 
     /**
+     * Get LLDP neighbors (discovered VoIP phones via LLDP protocol)
+     */
+    public function lldpNeighbors(Request $request)
+    {
+        try {
+            $phones = $this->grandstreamService->discoverPhones();
+            
+            // Filter for LLDP-discovered devices only
+            $lldpDevices = array_filter($phones['devices'] ?? [], function ($device) {
+                return ($device['discovery_type'] ?? '') === 'lldp';
+            });
+            
+            return response()->json([
+                'success' => true,
+                'neighbors' => array_values($lldpDevices),
+                'total' => count($lldpDevices),
+                'message' => count($lldpDevices) > 0 
+                    ? 'LLDP neighbors discovered successfully' 
+                    : 'No LLDP neighbors found. Ensure lldpd is running.',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('LLDP discovery failed', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'neighbors' => [],
+                'total' => 0,
+                'error' => $e->getMessage(),
+                'message' => 'LLDP discovery failed. Ensure lldpd is installed and running.',
+            ]);
+        }
+    }
+
+    /**
+     * Get ARP table entries (discovered devices from ARP cache)
+     */
+    public function arpNeighbors(Request $request)
+    {
+        try {
+            $phones = $this->grandstreamService->discoverPhones();
+            
+            // Filter for ARP-discovered devices only
+            $arpDevices = array_filter($phones['devices'] ?? [], function ($device) {
+                return ($device['discovery_type'] ?? '') === 'arp';
+            });
+            
+            return response()->json([
+                'success' => true,
+                'neighbors' => array_values($arpDevices),
+                'total' => count($arpDevices),
+                'message' => count($arpDevices) > 0 
+                    ? 'ARP neighbors discovered successfully' 
+                    : 'No ARP entries found.',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('ARP discovery failed', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'neighbors' => [],
+                'total' => 0,
+                'error' => $e->getMessage(),
+                'message' => 'ARP discovery failed.',
+            ]);
+        }
+    }
+
+    /**
+     * Discover all phones (returns LLDP + ARP + nmap discovered devices)
+     */
+    public function discover(Request $request)
+    {
+        try {
+            $result = $this->grandstreamService->discoverPhones();
+            
+            return response()->json([
+                'success' => true,
+                'devices' => $result['devices'] ?? [],
+                'phones' => $result['phones'] ?? [],
+                'total' => count($result['devices'] ?? []),
+                'message' => 'Discovery completed successfully',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('Phone discovery failed', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'devices' => [],
+                'phones' => [],
+                'total' => 0,
+                'error' => $e->getMessage(),
+                'message' => 'Discovery failed.',
+            ]);
+        }
+    }
+
+    /**
      * Resolve phone IP from identifier (IP, MAC, or extension)
      */
     protected function resolvePhoneIP($identifier)
