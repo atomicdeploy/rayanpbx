@@ -15,13 +15,15 @@ class AsteriskStatusService
     private string $amiUsername;
     private string $amiSecret;
     private $amiSocket = null;
+    private SystemLogService $systemLog;
 
-    public function __construct()
+    public function __construct(?SystemLogService $systemLog = null)
     {
         $this->amiHost = config('rayanpbx.asterisk.ami_host', '127.0.0.1');
         $this->amiPort = config('rayanpbx.asterisk.ami_port', 5038);
         $this->amiUsername = config('rayanpbx.asterisk.ami_username', 'admin');
         $this->amiSecret = config('rayanpbx.asterisk.ami_secret', '');
+        $this->systemLog = $systemLog ?? new SystemLogService();
     }
 
     /**
@@ -60,10 +62,13 @@ class AsteriskStatusService
                 throw new Exception("AMI login failed");
             }
             
+            $this->systemLog->asteriskInfo("AMI connection established to {$this->amiHost}:{$this->amiPort}");
+            
             return $this->amiSocket;
             
         } catch (Exception $e) {
             Log::error("AMI Connection Error: " . $e->getMessage());
+            $this->systemLog->asteriskError("AMI connection failed: " . $e->getMessage());
             $this->amiSocket = null;
             return null;
         }

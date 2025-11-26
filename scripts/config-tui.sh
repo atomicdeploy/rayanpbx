@@ -301,6 +301,20 @@ configure_rayanpbx() {
     echo
 }
 
+# Section: Development Credentials
+configure_dev_credentials() {
+    print_banner
+    echo -e "${BLUE}${BOLD}🔐 Development Login Credentials${RESET}\n"
+    
+    echo -e "${DIM}These credentials are used for development/testing mode only.${RESET}"
+    echo -e "${DIM}In production (APP_ENV=production), PAM authentication (Linux user accounts) is used.${RESET}\n"
+    
+    input_with_default "Development Username" "RAYANPBX_DEV_USERNAME" "admin"
+    input_with_default "Development Password" "RAYANPBX_DEV_PASSWORD" "admin" "yes"
+    
+    echo
+}
+
 # Section: Security
 configure_security() {
     print_banner
@@ -345,7 +359,7 @@ configure_cli_styling() {
 # Enhanced menu selection with arrow key support
 # Reads input with validation and displays it with reversed background
 read_menu_option() {
-    local valid_options=("1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12" "Q" "S" "X")
+    local valid_options=("1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12" "13" "Q" "S" "X")
     local input=""
     local cursor_pos=0
     local empty_display="  "  # Two spaces for empty input placeholder
@@ -486,9 +500,10 @@ main_menu() {
         echo "  7. 📞 Asterisk Configuration"
         echo "  8. ☎️  SIP Configuration"
         echo "  9. ⚙️  RayanPBX Settings"
-        echo " 10. 🛡️  Security Settings"
-        echo " 11. 🤖 Pollination.ai Integration"
-        echo " 12. 🎨 CLI/TUI Styling"
+        echo " 10. 🔑 Dev Login Credentials"
+        echo " 11. 🛡️  Security Settings"
+        echo " 12. 🤖 Pollination.ai Integration"
+        echo " 13. 🎨 CLI/TUI Styling"
         echo
         echo "  Q. Quick Setup (All Sections)"
         echo "  S. 💾 Save and Exit"
@@ -515,9 +530,10 @@ main_menu() {
             7) configure_asterisk ;;
             8) configure_sip ;;
             9) configure_rayanpbx ;;
-            10) configure_security ;;
-            11) configure_pollination ;;
-            12) configure_cli_styling ;;
+            10) configure_dev_credentials ;;
+            11) configure_security ;;
+            12) configure_pollination ;;
+            13) configure_cli_styling ;;
             [Qq])
                 configure_application
                 configure_api
@@ -528,6 +544,7 @@ main_menu() {
                 configure_asterisk
                 configure_sip
                 configure_rayanpbx
+                configure_dev_credentials
                 configure_security
                 configure_pollination
                 configure_cli_styling

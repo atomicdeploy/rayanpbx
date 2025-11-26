@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\ExtensionSyncController;
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/refresh', [AuthController::class, 'refresh']);
+Route::get('/auth/pam-status', [AuthController::class, 'pamStatus']);
 
 // GrandStream Action URL Webhooks (restricted to registered VoIP phone IPs)
 Route::prefix('grandstream/webhook')->middleware(['voip.whitelist', 'throttle:100,1'])->group(function () {

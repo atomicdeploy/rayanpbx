@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\SessionToken;
 use App\Services\JWTService;
+use App\Services\PamAuthService;
+use App\Services\SystemLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
@@ -12,10 +14,14 @@ use Illuminate\Validation\ValidationException;
 class AuthController extends Controller
 {
     private JWTService $jwtService;
+    private PamAuthService $pamAuthService;
+    private SystemLogService $systemLogService;
 
-    public function __construct(JWTService $jwtService)
+    public function __construct(JWTService $jwtService, PamAuthService $pamAuthService, SystemLogService $systemLogService)
     {
         $this->jwtService = $jwtService;
+        $this->pamAuthService = $pamAuthService;
+        $this->systemLogService = $systemLogService;
     }
 
     /**
@@ -352,51 +358,42 @@ class AuthController extends Controller
     {
         // For development/testing purposes
         if (app()->environment('local', 'testing', 'development')) {
-            // Allow 'admin' with password 'admin' in development
-            return $username === 'admin' && $password === 'admin';
-        }
-
-        if (! env('RAYANPBX_PAM_ENABLED', true)) {
+            // Get dev credentials from environment (with fallback defaults)
+            $devUsername = env('RAYANPBX_DEV_USERNAME', 'admin');
+            $devPassword = env('RAYANPBX_DEV_PASSWORD', 'admin');
+            
+            // Allow configured dev credentials in development mode
+            if ($username === $devUsername && $password === $devPassword) {
+                $this->systemLogService->authInfo("Development mode login: {$username}");
+                return true;
+            }
+            // In development, also try PAM authentication for testing
+            $result = $this->pamAuthService->authenticate($username, $password);
+            if ($result) {
+                $this->systemLogService->authInfo("PAM authentication successful in dev mode: {$username}");
+                return true;
+            }
+            $this->systemLogService->authWarning("Authentication failed in dev mode: {$username}");
             return false;
         }
 
-        // In production, use PAM authentication
-        // Option 1: Using pam_auth if pecl-pam is installed
-        if (function_exists('pam_auth')) {
-            return pam_auth($username, $password, $error, false);
+        if (! env('RAYANPBX_PAM_ENABLED', true)) {
+            $this->systemLogService->authWarning("PAM authentication is disabled, rejecting login attempt for: {$username}");
+            return false;
         }
 
-        // Option 2: Using exec with pamtester
-        $command = sprintf(
-            'pamtester -v rayanpbx %s authenticate 2>&1',
-            escapeshellarg($username)
-        );
+        // In production, use PAM authentication service
+        return $this->pamAuthService->authenticate($username, $password);
+    }
 
-        $process = proc_open(
-            $command,
-            [
-                0 => ['pipe', 'r'],  // stdin
-                1 => ['pipe', 'w'],  // stdout
-                2 => ['pipe', 'w'],  // stderr
-            ],
-            $pipes
-        );
+    /**
+     * Check PAM authentication status
+     */
+    public function pamStatus()
+    {
+        $status = $this->pamAuthService->isAvailable();
+        $status['log_status'] = $this->systemLogService->getStatus();
 
-        if (is_resource($process)) {
-            fwrite($pipes[0], $password);
-            fclose($pipes[0]);
-
-            stream_get_contents($pipes[1]);
-            fclose($pipes[1]);
-
-            stream_get_contents($pipes[2]);
-            fclose($pipes[2]);
-
-            $returnCode = proc_close($process);
-
-            return $returnCode === 0;
-        }
-
-        return false;
+        return response()->json($status);
     }
 }
