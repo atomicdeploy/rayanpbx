@@ -273,7 +273,7 @@ func (m *model) loadRegisteredPhones() {
 			for _, dbp := range dbPhones {
 				if existing, ok := phoneMap[dbp.IP]; ok {
 					// Update existing phone with DB info
-					if dbp.Name != "" && existing.Extension == "" {
+					if dbp.Extension != "" && existing.Extension == "" {
 						existing.Extension = dbp.Extension
 					}
 					if dbp.UserAgent != "" {
@@ -715,15 +715,17 @@ func (m *model) executeVoIPControlAction() {
 		}
 		
 	case 17: // Dial Number
-		// TODO: Add input mode for phone number
+		// Dial functionality requires interactive input which is complex in TUI
+		// Users should use the Web API or Web UI for dialing
 		m.voipPhoneOutput = "Dial Number:\n\n"
 		m.voipPhoneOutput += "To dial a number programmatically, use the Web API:\n"
-		m.voipPhoneOutput += "POST /api/phones/control\n"
+		m.voipPhoneOutput += "POST /api/grandstream/cti/operation\n"
 		m.voipPhoneOutput += "{\n"
 		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
-		m.voipPhoneOutput += "  \"action\": \"dial\",\n"
+		m.voipPhoneOutput += "  \"operation\": \"dial\",\n"
 		m.voipPhoneOutput += "  \"number\": \"<destination>\"\n"
-		m.voipPhoneOutput += "}"
+		m.voipPhoneOutput += "}\n\n"
+		m.voipPhoneOutput += "Or use the Web UI for interactive dialing."
 		
 	case 18: // Send DTMF
 		m.voipPhoneOutput = "Send DTMF:\n\n"

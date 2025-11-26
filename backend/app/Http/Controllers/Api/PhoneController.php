@@ -92,8 +92,17 @@ class PhoneController extends Controller
             'vendor' => 'nullable|string|max:50',
             'model' => 'nullable|string|max:50',
             'credentials' => 'nullable|array',
+            'credentials.username' => 'nullable|string|max:50',
+            'credentials.password' => 'nullable|string|max:128',
             'discovery_type' => 'nullable|string|max:20',
         ]);
+
+        // Only allow expected credential fields
+        $credentials = null;
+        if ($request->has('credentials')) {
+            $creds = $request->input('credentials');
+            $credentials = array_intersect_key($creds, ['username' => true, 'password' => true]);
+        }
 
         $phone = VoipPhone::create([
             'ip' => $request->input('ip'),
@@ -102,7 +111,7 @@ class PhoneController extends Controller
             'name' => $request->input('name'),
             'vendor' => $request->input('vendor', 'grandstream'),
             'model' => $request->input('model'),
-            'credentials' => $request->input('credentials'),
+            'credentials' => $credentials,
             'discovery_type' => $request->input('discovery_type', 'manual'),
             'status' => 'discovered',
             'last_seen' => now(),
