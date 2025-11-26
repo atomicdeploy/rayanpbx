@@ -1833,6 +1833,90 @@ cmd_tui() {
     exec "$tui_path" "$@"
 }
 
+# Config history commands - wrapper for asterisk-git-commit.sh
+cmd_config_history_status() {
+    print_header "📜 Asterisk Configuration Version Control"
+    
+    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Git commit helper script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" status
+}
+
+cmd_config_history_list() {
+    local count="${1:-10}"
+    
+    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Git commit helper script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" history "$count"
+}
+
+cmd_config_history_show() {
+    local commit_hash="${1:-}"
+    
+    if [ -z "$commit_hash" ]; then
+        print_error "Commit hash required"
+        echo "Usage: rayanpbx-cli config-history show <commit_hash>"
+        exit 2
+    fi
+    
+    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Git commit helper script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" show "$commit_hash"
+}
+
+cmd_config_history_diff() {
+    local commit_hash="${1:-}"
+    
+    if [ -z "$commit_hash" ]; then
+        print_error "Commit hash required"
+        echo "Usage: rayanpbx-cli config-history diff <commit_hash>"
+        exit 2
+    fi
+    
+    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Git commit helper script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" diff "$commit_hash"
+}
+
+cmd_config_history_revert() {
+    local commit_hash="${1:-}"
+    
+    if [ -z "$commit_hash" ]; then
+        print_error "Commit hash required"
+        echo "Usage: rayanpbx-cli config-history revert <commit_hash>"
+        exit 2
+    fi
+    
+    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Git commit helper script not found"
+        exit 1
+    fi
+    
+    bash "$script_path" revert "$commit_hash"
+}
+
 # Main command dispatcher
 cmd_version() {
     echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
@@ -1889,6 +1973,14 @@ cmd_help() {
         echo -e "   ${GREEN}register${NC} <ext> <pass> [server]   Test SIP registration"
         echo -e "   ${GREEN}call${NC} <from> <fpass> <to> <tpass> [srv]  Test call between extensions"
         echo -e "   ${GREEN}full${NC} <ext1> <pass1> <ext2> <pass2> [srv] Run full test suite"
+        echo ""
+        
+        echo -e "${CYAN}📜 config-history${NC} ${DIM}- Asterisk configuration version control${NC}"
+        echo -e "   ${GREEN}status${NC}                            Show Git repository status"
+        echo -e "   ${GREEN}history${NC} [count]                   Show recent configuration changes"
+        echo -e "   ${GREEN}show${NC} <commit_hash>                Show details of a specific change"
+        echo -e "   ${GREEN}diff${NC} <commit_hash>                Show diff of a specific change"
+        echo -e "   ${GREEN}revert${NC} <commit_hash>              Revert to a previous configuration"
         echo ""
         
         echo -e "${CYAN}⚙️  config${NC} ${DIM}- Configuration management${NC}"
@@ -2102,6 +2194,16 @@ main() {
                 call) cmd_sip_test_call "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
                 full) cmd_sip_test_full "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
                 *) echo "Unknown sip-test command: ${2:-}"; exit 2 ;;
+            esac
+            ;;
+        config-history)
+            case "${2:-}" in
+                status) cmd_config_history_status ;;
+                history) cmd_config_history_list "${3:-10}" ;;
+                show) cmd_config_history_show "${3:-}" ;;
+                diff) cmd_config_history_diff "${3:-}" ;;
+                revert) cmd_config_history_revert "${3:-}" ;;
+                *) echo "Unknown config-history command: ${2:-}"; exit 2 ;;
             esac
             ;;
         config)

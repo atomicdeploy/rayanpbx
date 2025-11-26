@@ -2,6 +2,7 @@
 
 namespace App\Adapters;
 
+use App\Services\AsteriskConfigGitService;
 use Exception;
 
 class AsteriskAdapter
@@ -30,6 +31,8 @@ class AsteriskAdapter
 
     private $extensionsConfig;
 
+    private $gitService;
+
     public function __construct()
     {
         $this->amiHost = config('rayanpbx.asterisk.ami_host', '127.0.0.1');
@@ -39,6 +42,7 @@ class AsteriskAdapter
         $this->configPath = config('rayanpbx.asterisk.config_path', '/etc/asterisk');
         $this->pjsipConfig = config('rayanpbx.asterisk.pjsip_config', '/etc/asterisk/pjsip.conf');
         $this->extensionsConfig = config('rayanpbx.asterisk.extensions_config', '/etc/asterisk/extensions.conf');
+        $this->gitService = new AsteriskConfigGitService();
     }
 
     /**
@@ -219,7 +223,14 @@ class AsteriskAdapter
             // Prepend transport config
             $config = $transportConfig.$config;
 
-            return file_put_contents($this->pjsipConfig, $config) !== false;
+            $result = file_put_contents($this->pjsipConfig, $config) !== false;
+            
+            if ($result) {
+                // Commit changes to Git repository
+                $this->gitService->commitChange('transport-update', 'Updated PJSIP transport configuration');
+            }
+            
+            return $result;
         } catch (Exception $e) {
             report($e);
 
@@ -356,7 +367,14 @@ class AsteriskAdapter
             $newConfig = $existingConfig.$content;
 
             // Write to file (requires proper permissions)
-            return file_put_contents($this->pjsipConfig, $newConfig) !== false;
+            $result = file_put_contents($this->pjsipConfig, $newConfig) !== false;
+            
+            if ($result) {
+                // Commit changes to Git repository
+                $this->gitService->commitChange('pjsip-update', "Updated PJSIP config: {$identifier}");
+            }
+            
+            return $result;
         } catch (Exception $e) {
             report($e);
 
@@ -374,7 +392,14 @@ class AsteriskAdapter
             $pattern = "/; BEGIN MANAGED - {$identifier}.*?; END MANAGED - {$identifier}\n/s";
             $newConfig = preg_replace($pattern, '', $existingConfig);
 
-            return file_put_contents($this->pjsipConfig, $newConfig) !== false;
+            $result = file_put_contents($this->pjsipConfig, $newConfig) !== false;
+            
+            if ($result) {
+                // Commit changes to Git repository
+                $this->gitService->commitChange('pjsip-remove', "Removed PJSIP config: {$identifier}");
+            }
+            
+            return $result;
         } catch (Exception $e) {
             report($e);
 
@@ -448,7 +473,14 @@ class AsteriskAdapter
             $newConfig = $existingConfig.$content;
 
             // Write to file (requires proper permissions)
-            return file_put_contents($this->extensionsConfig, $newConfig) !== false;
+            $result = file_put_contents($this->extensionsConfig, $newConfig) !== false;
+            
+            if ($result) {
+                // Commit changes to Git repository
+                $this->gitService->commitChange('dialplan-update', "Updated dialplan: {$identifier}");
+            }
+            
+            return $result;
         } catch (Exception $e) {
             report($e);
 
