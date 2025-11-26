@@ -472,9 +472,18 @@ get_system_context() {
 # Query Pollinations.AI for AI-powered solutions
 # Handles timeouts and error cases gracefully
 # Automatically includes dynamically detected system context in the prompt
+# Temporary file for storing full AI conversation (created securely per session)
+AI_RESPONSE_FILE=""
+
 query_pollinations_ai() {
     local query="$1"
-    local max_chars="${2:-800}"
+    local max_lines="${2:-15}"
+    
+    # Create secure temporary file if not already created
+    if [ -z "$AI_RESPONSE_FILE" ] || [ ! -f "$AI_RESPONSE_FILE" ]; then
+        AI_RESPONSE_FILE=$(mktemp /tmp/rayanpbx-ai-response.XXXXXX)
+        chmod 600 "$AI_RESPONSE_FILE"
+    fi
     
     # Build system context prompt dynamically (without sensitive info)
     # This helps AI provide more accurate solutions for our specific setup
@@ -502,8 +511,41 @@ query_pollinations_ai() {
         return 1
     fi
     
-    # Truncate response to max_chars
-    echo "$response" | head -c "$max_chars"
+    # Save the full query and response to temp file for later viewing
+    {
+        echo "════════════════════════════════════════════════════════════════════════"
+        echo "RayanPBX AI Consultation - $(date)"
+        echo "════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "📤 QUERY SENT:"
+        echo "────────────────────────────────────────────────────────────────────────"
+        echo "$full_query"
+        echo ""
+        echo "📥 AI RESPONSE:"
+        echo "────────────────────────────────────────────────────────────────────────"
+        echo "$response"
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "This file can be viewed with: cat $AI_RESPONSE_FILE"
+    } > "$AI_RESPONSE_FILE"
+    chmod 600 "$AI_RESPONSE_FILE"
+    
+    # Count total lines in response (grep -c '.' handles files without trailing newline)
+    local total_lines=$(printf '%s\n' "$response" | grep -c '.')
+    
+    # Truncate at complete lines instead of characters
+    if [ "$total_lines" -gt "$max_lines" ]; then
+        printf '%s\n' "$response" | head -n "$max_lines" | sed -z 's/\n+$//'
+        echo ""
+        echo -e "${DIM}($(($total_lines - $max_lines)) more lines available...)${RESET}"
+        echo ""
+        echo -e "📄 ${YELLOW}To view the full response run:${RESET}"
+        echo -e "   less ${DIM}$AI_RESPONSE_FILE${RESET}"
+    else
+        echo "$response"
+    fi
+    
     return 0
 }
 
@@ -517,8 +559,8 @@ handle_asterisk_error() {
     echo -e "${CYAN}🔍 Checking for solutions...${RESET}"
     echo ""
     
-    # Query Pollinations.AI for solution
-    local solution=$(query_pollinations_ai "$error_msg $context" 500)
+    # Query Pollinations.AI for solution (max 10 lines displayed)
+    local solution=$(query_pollinations_ai "$error_msg $context" 10)
     
     if [ -n "$solution" ]; then
         echo -e "${YELLOW}${BOLD}💡 Suggested solution:${RESET}"
@@ -740,8 +782,8 @@ perform_ami_diagnostic_checks() {
         echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
         echo ""
         
-        # Query Pollinations.AI using the helper function
-        local ai_solution=$(query_pollinations_ai "Asterisk AMI $error_summary How to fix?" 800)
+        # Query Pollinations.AI using the helper function (max 15 lines displayed)
+        local ai_solution=$(query_pollinations_ai "Asterisk AMI $error_summary How to fix?" 15)
         
         if [ -n "$ai_solution" ]; then
             echo -e "${GREEN}${BOLD}💡 AI-Suggested Solution:${RESET}"
@@ -2151,6 +2193,28 @@ if next_step "Essential Dependencies" "dependencies"; then
             print_verbose "$tool already installed"
         fi
     done
+    
+    # Install sipexer via Go (requires Go installation)
+    # Pin to v1.2.0 for reproducible builds - update as needed
+    SIPEXER_VERSION="v1.2.0"
+    if command -v go &> /dev/null; then
+        if ! command -v sipexer &> /dev/null; then
+            print_verbose "Installing sipexer $SIPEXER_VERSION via Go..."
+            if go install github.com/miconda/sipexer@${SIPEXER_VERSION} > /dev/null 2>&1; then
+                print_verbose "sipexer installed successfully"
+                # Ensure Go bin is in PATH
+                if [ -d "$HOME/go/bin" ]; then
+                    export PATH="$PATH:$HOME/go/bin"
+                fi
+            else
+                print_verbose "Failed to install sipexer (optional)"
+            fi
+        else
+            print_verbose "sipexer already installed"
+        fi
+    else
+        print_verbose "Go not installed, skipping sipexer installation"
+    fi
 fi
 
 # Install GitHub CLI
@@ -2768,13 +2832,22 @@ fi
 if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     print_info "Configuring Asterisk Manager Interface..."
 
-    # Source INI helper script
-    if [ ! -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
-        print_warning "INI helper script not found yet, will configure after repo clone"
-    else
+    # Source AMI tools script (preferred) or INI helper as fallback
+    ami_configured=false
+    
+    if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
+        source /opt/rayanpbx/scripts/ami-tools.sh
+        if configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"; then
+            print_success "AMI configured via ami-tools"
+            ami_configured=true
+        fi
+    elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
         source /opt/rayanpbx/scripts/ini-helper.sh
         modify_manager_conf "rayanpbx_ami_secret"
-        print_success "AMI configured"
+        print_success "AMI configured via ini-helper"
+        ami_configured=true
+    else
+        print_warning "Helper scripts not found yet, will configure after repo clone"
     fi
 
     # Ensure PJSIP transport configuration exists (port 5060 UDP and TCP)
@@ -2793,6 +2866,15 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     if check_asterisk_status "Asterisk startup" "true"; then
         print_success "Asterisk service is running"
         print_info "Active channels: $(asterisk -rx 'core show channels' 2>/dev/null | grep 'active channel' || echo '0 active channels')"
+        
+        # Verify AMI connection if configured
+        if [ "$ami_configured" = "true" ] && type test_ami_connection &> /dev/null; then
+            if test_ami_connection "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret"; then
+                print_success "AMI connection verified"
+            else
+                print_warning "AMI configured but connection test failed - will retry after full setup"
+            fi
+        fi
     else
         print_error "Failed to start Asterisk service"
         echo ""
@@ -2822,9 +2904,9 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
             error_summary="${error_summary}Recent errors: $(echo "$recent_errors" | head -3 | tr '\n' ' ')"
         fi
         
-        # Use Pollinations.AI to get solution using the helper function
+        # Use Pollinations.AI to get solution using the helper function (max 12 lines displayed)
         echo -e "${CYAN}🤖 Consulting AI for solution...${RESET}"
-        local ai_solution=$(query_pollinations_ai "$error_summary How to fix?" 600)
+        local ai_solution=$(query_pollinations_ai "$error_summary How to fix?" 12)
         
         if [ -n "$ai_solution" ]; then
             echo ""
@@ -2857,8 +2939,14 @@ if next_step "RayanPBX Source Code" "source"; then
 
     # Now configure AMI if we skipped earlier
     if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
-        source /opt/rayanpbx/scripts/ini-helper.sh
-        modify_manager_conf "rayanpbx_ami_secret"
+        # Use ami-tools.sh (preferred) or ini-helper.sh as fallback
+        if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
+            source /opt/rayanpbx/scripts/ami-tools.sh
+            configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"
+        elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
+            source /opt/rayanpbx/scripts/ini-helper.sh
+            modify_manager_conf "rayanpbx_ami_secret"
+        fi
         touch /etc/asterisk/manager.conf.rayanpbx-configured
         
         print_progress "Reloading Asterisk to apply AMI configuration..."
@@ -2889,6 +2977,15 @@ if next_step "RayanPBX Source Code" "source"; then
             fi
         else
             print_success "Asterisk configuration reloaded successfully"
+            
+            # Verify AMI connection
+            if type test_ami_connection &> /dev/null; then
+                if test_ami_connection "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret"; then
+                    print_success "AMI connection verified"
+                else
+                    print_warning "AMI connection test failed - may need manual configuration"
+                fi
+            fi
         fi
     fi
 fi

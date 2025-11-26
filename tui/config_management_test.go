@@ -383,3 +383,142 @@ func TestIsSectionHeader(t *testing.T) {
 		}
 	}
 }
+
+// TestMultiLineSectionParsing tests that multi-line sections are parsed correctly
+func TestMultiLineSectionParsing(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir := t.TempDir()
+	envPath := filepath.Join(tmpDir, ".env")
+	
+	// Create a test .env file with multi-line section comments
+	testEnvContent := `# RayanPBX Configuration
+# This file is shared across all components
+# Backend, Frontend, TUI, CLI
+
+APP_NAME=TestApp
+APP_ENV=development
+
+# Database Configuration
+# Used for MySQL connections
+DB_HOST=localhost
+`
+	if err := os.WriteFile(envPath, []byte(testEnvContent), 0644); err != nil {
+		t.Fatalf("Failed to create test .env file: %v", err)
+	}
+	
+	// Create a ConfigManager with custom path
+	cm := &ConfigManager{
+		envPath: envPath,
+		verbose: false,
+	}
+	
+	if err := cm.LoadConfigs(); err != nil {
+		t.Fatalf("Failed to load configs: %v", err)
+	}
+	
+	configs := cm.GetConfigs()
+	
+	// Find the RayanPBX section
+	var rayanPbxSection *EnvConfig
+	var dbSection *EnvConfig
+	for i := range configs {
+		if configs[i].IsSection {
+			if configs[i].SectionName == "RayanPBX Configuration" {
+				rayanPbxSection = &configs[i]
+			}
+			if configs[i].SectionName == "Database Configuration" {
+				dbSection = &configs[i]
+			}
+		}
+	}
+	
+	if rayanPbxSection == nil {
+		t.Fatal("Expected to find 'RayanPBX Configuration' section")
+	}
+	
+	// Verify multi-line section has multiple lines
+	if len(rayanPbxSection.SectionLines) != 3 {
+		t.Errorf("Expected 3 section lines for RayanPBX Configuration, got %d", len(rayanPbxSection.SectionLines))
+	}
+	
+	// Verify expanded is false by default
+	if rayanPbxSection.Expanded {
+		t.Error("Expected section to be collapsed by default")
+	}
+	
+	if dbSection == nil {
+		t.Fatal("Expected to find 'Database Configuration' section")
+	}
+	
+	// Database section should have 2 lines
+	if len(dbSection.SectionLines) != 2 {
+		t.Errorf("Expected 2 section lines for Database Configuration, got %d", len(dbSection.SectionLines))
+	}
+}
+
+// TestNavigationSkipsSections tests that navigation skips over section headers
+func TestNavigationSkipsSections(t *testing.T) {
+	// Create configs with sections interspersed
+	configs := []EnvConfig{
+		{IsSection: true, SectionName: "Section 1"},
+		{Key: "CONFIG_1", Value: "value1"},
+		{IsSection: true, SectionName: "Section 2"},
+		{Key: "CONFIG_2", Value: "value2"},
+		{Key: "CONFIG_3", Value: "value3"},
+	}
+	
+	// Test that getFilteredConfigs returns all items including sections
+	filtered := getFilteredConfigs(configs, "")
+	if len(filtered) != 5 {
+		t.Errorf("Expected 5 items (including sections), got %d", len(filtered))
+	}
+	
+	// Count sections vs configs
+	sectionCount := 0
+	configCount := 0
+	for _, c := range filtered {
+		if c.IsSection {
+			sectionCount++
+		} else {
+			configCount++
+		}
+	}
+	
+	if sectionCount != 2 {
+		t.Errorf("Expected 2 sections, got %d", sectionCount)
+	}
+	
+	if configCount != 3 {
+		t.Errorf("Expected 3 configs, got %d", configCount)
+	}
+}
+
+// TestSectionExpandToggle tests that section expand/collapse works
+func TestSectionExpandToggle(t *testing.T) {
+	configs := []EnvConfig{
+		{IsSection: true, SectionName: "Test Section", SectionLines: []string{"Test Section", "Line 2", "Line 3"}, Expanded: false},
+		{Key: "CONFIG_1", Value: "value1"},
+	}
+	
+	m := initialModel(nil, nil, false)
+	m.configItems = configs
+	
+	// Verify initial state
+	if m.configItems[0].Expanded {
+		t.Error("Expected section to start collapsed")
+	}
+	
+	// Toggle expand
+	toggleSectionExpand(&m, 0)
+	
+	if !m.configItems[0].Expanded {
+		t.Error("Expected section to be expanded after toggle")
+	}
+	
+	// Toggle collapse
+	toggleSectionExpand(&m, 0)
+	
+	if m.configItems[0].Expanded {
+		t.Error("Expected section to be collapsed after second toggle")
+	}
+}
