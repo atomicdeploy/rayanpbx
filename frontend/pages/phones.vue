@@ -190,6 +190,186 @@
         </div>
       </div>
 
+      <!-- CTI/CSTA Control Panel - Beautiful Design -->
+      <div class="cti-panel">
+        <div class="panel-header-section">
+          <h3>📞 CTI/CSTA Controls</h3>
+          <div class="cti-status-indicators">
+            <span :class="['indicator', ctiStatus.cti_working ? 'active' : 'inactive']">
+              {{ ctiStatus.cti_working ? '✅ CTI Active' : '❌ CTI Inactive' }}
+            </span>
+            <span :class="['indicator', ctiStatus.snmp_enabled ? 'active' : 'inactive']">
+              {{ ctiStatus.snmp_enabled ? '📊 SNMP On' : '📊 SNMP Off' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Real-time Phone State -->
+        <div v-if="phoneState" class="phone-state-panel">
+          <div class="state-grid">
+            <div class="state-card">
+              <div class="state-icon">📱</div>
+              <div class="state-info">
+                <span class="state-label">Active Line</span>
+                <span class="state-value">{{ phoneState.active_line || 1 }}</span>
+              </div>
+            </div>
+            <div :class="['state-card', phoneState.dnd_enabled ? 'alert' : '']">
+              <div class="state-icon">🚫</div>
+              <div class="state-info">
+                <span class="state-label">DND</span>
+                <span class="state-value">{{ phoneState.dnd_enabled ? 'Enabled' : 'Disabled' }}</span>
+              </div>
+            </div>
+            <div :class="['state-card', phoneState.forward_enabled ? 'warning' : '']">
+              <div class="state-icon">↗️</div>
+              <div class="state-info">
+                <span class="state-label">Forward</span>
+                <span class="state-value">{{ phoneState.forward_enabled ? phoneState.forward_target || 'Enabled' : 'Disabled' }}</span>
+              </div>
+            </div>
+            <div :class="['state-card', phoneState.mwi ? 'info' : '']">
+              <div class="state-icon">📧</div>
+              <div class="state-info">
+                <span class="state-label">Voicemail</span>
+                <span class="state-value">{{ phoneState.mwi ? 'Messages Waiting' : 'No Messages' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Call Control Section -->
+        <div class="cti-section">
+          <h4>📞 Call Control</h4>
+          <div class="cti-button-grid">
+            <button @click="executeCTI('accept_call')" class="cti-btn success">
+              <span class="btn-icon">✅</span>
+              <span class="btn-label">Accept</span>
+            </button>
+            <button @click="executeCTI('reject_call')" class="cti-btn danger">
+              <span class="btn-icon">❌</span>
+              <span class="btn-label">Reject</span>
+            </button>
+            <button @click="executeCTI('end_call')" class="cti-btn danger">
+              <span class="btn-icon">🔚</span>
+              <span class="btn-label">End Call</span>
+            </button>
+            <button @click="executeCTI('hold')" class="cti-btn warning">
+              <span class="btn-icon">⏸️</span>
+              <span class="btn-label">Hold</span>
+            </button>
+            <button @click="executeCTI('unhold')" class="cti-btn primary">
+              <span class="btn-icon">▶️</span>
+              <span class="btn-label">Resume</span>
+            </button>
+            <button @click="executeCTI('mute')" class="cti-btn secondary">
+              <span class="btn-icon">🔇</span>
+              <span class="btn-label">Mute</span>
+            </button>
+            <button @click="executeCTI('unmute')" class="cti-btn secondary">
+              <span class="btn-icon">🔊</span>
+              <span class="btn-label">Unmute</span>
+            </button>
+            <button @click="executeCTI('redial')" class="cti-btn info">
+              <span class="btn-icon">🔁</span>
+              <span class="btn-label">Redial</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Dial Pad Section -->
+        <div class="cti-section">
+          <h4>📲 Dial</h4>
+          <div class="dial-section">
+            <div class="dial-input-group">
+              <input 
+                v-model="dialNumber" 
+                type="text" 
+                placeholder="Enter number to dial" 
+                class="dial-input"
+                @keyup.enter="executeCTI('dial', { number: dialNumber })"
+              />
+              <button @click="executeCTI('dial', { number: dialNumber })" class="cti-btn success dial-btn">
+                📞 Dial
+              </button>
+            </div>
+            <div class="dial-input-group">
+              <input 
+                v-model="dtmfDigits" 
+                type="text" 
+                placeholder="DTMF digits" 
+                class="dial-input small"
+              />
+              <button @click="executeCTI('dtmf', { digits: dtmfDigits })" class="cti-btn info dial-btn">
+                🔢 Send DTMF
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transfer Section -->
+        <div class="cti-section">
+          <h4>↗️ Transfer</h4>
+          <div class="transfer-section">
+            <input 
+              v-model="transferTarget" 
+              type="text" 
+              placeholder="Transfer destination" 
+              class="dial-input"
+            />
+            <div class="transfer-buttons">
+              <button @click="executeCTI('blind_transfer', { target: transferTarget })" class="cti-btn primary">
+                ↗️ Blind Transfer
+              </button>
+              <button @click="executeCTI('attended_transfer', { target: transferTarget })" class="cti-btn info">
+                👥 Attended Transfer
+              </button>
+              <button @click="executeCTI('conference')" class="cti-btn success">
+                🎙️ Conference
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Features Section -->
+        <div class="cti-section">
+          <h4>⚙️ Features</h4>
+          <div class="feature-buttons">
+            <button @click="toggleDND()" :class="['cti-btn', phoneState?.dnd_enabled ? 'danger' : 'secondary']">
+              🚫 {{ phoneState?.dnd_enabled ? 'Disable DND' : 'Enable DND' }}
+            </button>
+            <button @click="showForwardModal = true" class="cti-btn info">
+              ↗️ Call Forward
+            </button>
+            <button @click="showLCDModal = true" class="cti-btn warning">
+              📺 LCD Message
+            </button>
+            <button @click="testCTI()" class="cti-btn secondary">
+              🧪 Test CTI
+            </button>
+          </div>
+        </div>
+
+        <!-- CTI Setup Section -->
+        <div class="cti-section">
+          <h4>🔧 CTI Setup</h4>
+          <div class="setup-buttons">
+            <button @click="enableCTI()" class="cti-btn success">
+              ✅ Enable CTI
+            </button>
+            <button @click="enableSNMP()" class="cti-btn info">
+              📊 Enable SNMP
+            </button>
+            <button @click="provisionCTIFeatures()" class="cti-btn primary">
+              🚀 Provision All
+            </button>
+            <button @click="refreshCTIStatus()" class="cti-btn secondary">
+              🔄 Refresh Status
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Action URLs Panel -->
       <div class="action-urls-panel">
         <h3>📡 Action URLs</h3>
@@ -222,6 +402,65 @@
       <div v-if="phoneConfig" class="config-panel">
         <h3>⚙️ Configuration</h3>
         <pre class="config-content">{{ JSON.stringify(phoneConfig, null, 2) }}</pre>
+      </div>
+
+      <!-- LCD Message Modal -->
+      <div v-if="showLCDModal" class="modal-overlay">
+        <div class="modal-content">
+          <h3>📺 Display LCD Message</h3>
+          <input
+            v-model="lcdMessage"
+            type="text"
+            placeholder="Message to display"
+            class="input"
+            maxlength="128"
+          />
+          <input
+            v-model.number="lcdDuration"
+            type="number"
+            placeholder="Duration (seconds)"
+            class="input"
+            min="1"
+            max="300"
+          />
+          <div class="modal-actions">
+            <button @click="sendLCDMessage" class="btn btn-primary">
+              📺 Send Message
+            </button>
+            <button @click="showLCDModal = false" class="btn btn-secondary">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Forward Modal -->
+      <div v-if="showForwardModal" class="modal-overlay">
+        <div class="modal-content">
+          <h3>↗️ Configure Call Forwarding</h3>
+          <select v-model="forwardType" class="input">
+            <option value="unconditional">Unconditional</option>
+            <option value="busy">When Busy</option>
+            <option value="noanswer">No Answer</option>
+          </select>
+          <input
+            v-model="forwardTarget"
+            type="text"
+            placeholder="Forward destination"
+            class="input"
+          />
+          <div class="modal-actions">
+            <button @click="setForward(true)" class="btn btn-success">
+              ✅ Enable Forward
+            </button>
+            <button @click="setForward(false)" class="btn btn-danger">
+              ❌ Disable Forward
+            </button>
+            <button @click="showForwardModal = false" class="btn btn-secondary">
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Credentials Input -->
@@ -326,7 +565,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 definePageMeta({
   middleware: 'auth'
@@ -360,6 +599,20 @@ const lldpNeighbors = ref([])
 const arpNeighbors = ref([])
 const discoveredDevices = ref([])
 
+// CTI/CSTA state
+const phoneState = ref(null)
+const ctiStatus = ref({ cti_working: false, snmp_enabled: false })
+const dialNumber = ref('')
+const dtmfDigits = ref('')
+const transferTarget = ref('')
+const showLCDModal = ref(false)
+const showForwardModal = ref(false)
+const lcdMessage = ref('')
+const lcdDuration = ref(10)
+const forwardType = ref('unconditional')
+const forwardTarget = ref('')
+let ctiRefreshInterval = null
+
 // Computed property for current discovery list based on tab
 const currentDiscoveryList = computed(() => {
   switch (discoveryTab.value) {
@@ -388,6 +641,13 @@ onMounted(async () => {
   }
   refreshPhones()
   loadExtensions()
+})
+
+onUnmounted(() => {
+  // Clean up interval when leaving page
+  if (ctiRefreshInterval) {
+    clearInterval(ctiRefreshInterval)
+  }
 })
 
 async function discoverAllPhones() {
@@ -522,6 +782,180 @@ async function refreshPhones() {
 async function selectPhone(phone) {
   selectedPhone.value = phone
   await refreshPhoneStatus()
+  await refreshCTIStatus()
+  
+  // Start real-time status polling
+  if (ctiRefreshInterval) {
+    clearInterval(ctiRefreshInterval)
+  }
+  ctiRefreshInterval = setInterval(async () => {
+    if (selectedPhone.value) {
+      await refreshCTIStatus()
+    }
+  }, 5000) // Poll every 5 seconds
+}
+
+// CTI/CSTA Functions
+async function refreshCTIStatus() {
+  if (!selectedPhone.value) return
+  
+  try {
+    const data = await api.getCTIStatus(selectedPhone.value.ip, credentials.value)
+    if (data.success) {
+      phoneState.value = data.data || {}
+    }
+    
+    // Also test CTI status
+    const testData = await api.testCTIFeatures(selectedPhone.value.ip, credentials.value)
+    if (testData.success) {
+      ctiStatus.value = {
+        cti_working: testData.cti_working || testData.results?.cti || false,
+        snmp_enabled: testData.snmp_enabled || testData.results?.snmp || false
+      }
+    }
+  } catch (error) {
+    console.error('Failed to get CTI status:', error?.message || 'Unknown error')
+  }
+}
+
+async function executeCTI(operation, params = {}) {
+  if (!selectedPhone.value) return
+  
+  try {
+    const data = await api.executeCTIOperation(
+      selectedPhone.value.ip,
+      operation,
+      params,
+      credentials.value
+    )
+    
+    if (data.success) {
+      showNotification(`${operation.replace('_', ' ')} executed successfully`, 'success')
+      await refreshCTIStatus()
+    } else {
+      showNotification(data.error || `Failed to execute ${operation}`, 'error')
+    }
+  } catch (error) {
+    showNotification(`Failed to execute ${operation}`, 'error')
+  }
+}
+
+async function toggleDND() {
+  if (!selectedPhone.value) return
+  const enable = !phoneState.value?.dnd_enabled
+  await executeCTI('dnd', { value: enable ? '1' : '0' })
+}
+
+async function setForward(enable) {
+  if (!selectedPhone.value) return
+  
+  await executeCTI('forward', {
+    value: enable ? '1' : '0',
+    target: forwardTarget.value,
+    forward_type: forwardType.value
+  })
+  
+  showForwardModal.value = false
+}
+
+async function sendLCDMessage() {
+  if (!selectedPhone.value || !lcdMessage.value) return
+  
+  try {
+    const data = await api.displayLCDMessage(
+      selectedPhone.value.ip,
+      lcdMessage.value,
+      lcdDuration.value,
+      credentials.value
+    )
+    
+    if (data.success) {
+      showNotification('Message sent to phone display', 'success')
+      showLCDModal.value = false
+      lcdMessage.value = ''
+    } else {
+      showNotification(data.error || 'Failed to send message', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to send LCD message', 'error')
+  }
+}
+
+async function enableCTI() {
+  if (!selectedPhone.value) return
+  
+  try {
+    const data = await api.enableCTI(selectedPhone.value.ip, credentials.value)
+    if (data.success) {
+      showNotification('CTI enabled successfully', 'success')
+      await refreshCTIStatus()
+    } else {
+      showNotification(data.error || 'Failed to enable CTI', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to enable CTI', 'error')
+  }
+}
+
+async function enableSNMP() {
+  if (!selectedPhone.value) return
+  
+  try {
+    const snmpConfig = { community: 'public', version: 'v2c' }
+    const data = await api.enableSNMP(selectedPhone.value.ip, snmpConfig, credentials.value)
+    if (data.success) {
+      showNotification('SNMP enabled successfully', 'success')
+      await refreshCTIStatus()
+    } else {
+      showNotification(data.error || 'Failed to enable SNMP', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to enable SNMP', 'error')
+  }
+}
+
+async function provisionCTIFeatures() {
+  if (!selectedPhone.value) return
+  
+  try {
+    const snmpConfig = { community: 'public', version: 'v2c' }
+    const data = await api.provisionCTIFeatures(
+      selectedPhone.value.ip,
+      true, // enable CTI
+      true, // enable SNMP
+      snmpConfig,
+      credentials.value
+    )
+    if (data.success) {
+      showNotification('CTI and SNMP features provisioned successfully', 'success')
+      await refreshCTIStatus()
+    } else {
+      showNotification(data.error || 'Failed to provision CTI features', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to provision CTI features', 'error')
+  }
+}
+
+async function testCTI() {
+  if (!selectedPhone.value) return
+  
+  try {
+    const data = await api.testCTIFeatures(selectedPhone.value.ip, credentials.value)
+    if (data.success) {
+      const ctiOK = data.cti_working || data.results?.cti
+      const snmpOK = data.snmp_enabled || data.results?.snmp
+      showNotification(
+        `CTI: ${ctiOK ? '✅ Working' : '❌ Not working'} | SNMP: ${snmpOK ? '✅ Enabled' : '❌ Disabled'}`,
+        ctiOK ? 'success' : 'warning'
+      )
+      ctiStatus.value = { cti_working: ctiOK, snmp_enabled: snmpOK }
+    } else {
+      showNotification(data.error || 'CTI test failed', 'error')
+    }
+  } catch (error) {
+    showNotification('CTI test failed', 'error')
+  }
 }
 
 async function refreshPhoneStatus() {
@@ -1289,5 +1723,307 @@ function showNotification(message, type = 'info') {
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+/* CTI Panel Styles */
+.cti-panel {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 30px;
+  color: white;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+}
+
+.panel-header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.panel-header-section h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.cti-status-indicators {
+  display: flex;
+  gap: 12px;
+}
+
+.indicator {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.indicator.active {
+  background: rgba(40, 167, 69, 0.9);
+}
+
+.indicator.inactive {
+  background: rgba(220, 53, 69, 0.7);
+}
+
+/* Phone State Panel */
+.phone-state-panel {
+  margin-bottom: 24px;
+}
+
+.state-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.state-card {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: all 0.3s ease;
+}
+
+.state-card:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+}
+
+.state-card.alert {
+  background: rgba(220, 53, 69, 0.4);
+  border: 1px solid rgba(220, 53, 69, 0.6);
+}
+
+.state-card.warning {
+  background: rgba(255, 193, 7, 0.3);
+  border: 1px solid rgba(255, 193, 7, 0.5);
+}
+
+.state-card.info {
+  background: rgba(23, 162, 184, 0.3);
+  border: 1px solid rgba(23, 162, 184, 0.5);
+}
+
+.state-icon {
+  font-size: 28px;
+}
+
+.state-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.state-label {
+  font-size: 12px;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.state-value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* CTI Section */
+.cti-section {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.cti-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* CTI Button Grid */
+.cti-button-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 10px;
+}
+
+.cti-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 12px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-height: 70px;
+}
+
+.cti-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.cti-btn:active {
+  transform: translateY(0);
+}
+
+.btn-icon {
+  font-size: 22px;
+  margin-bottom: 6px;
+}
+
+.btn-label {
+  font-size: 12px;
+}
+
+.cti-btn.success {
+  background: linear-gradient(135deg, #28a745, #20c997);
+  color: white;
+}
+
+.cti-btn.danger {
+  background: linear-gradient(135deg, #dc3545, #e74c3c);
+  color: white;
+}
+
+.cti-btn.warning {
+  background: linear-gradient(135deg, #ffc107, #fd7e14);
+  color: #212529;
+}
+
+.cti-btn.primary {
+  background: linear-gradient(135deg, #007bff, #6610f2);
+  color: white;
+}
+
+.cti-btn.info {
+  background: linear-gradient(135deg, #17a2b8, #3498db);
+  color: white;
+}
+
+.cti-btn.secondary {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.cti-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Dial Section */
+.dial-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dial-input-group {
+  display: flex;
+  gap: 10px;
+}
+
+.dial-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 15px;
+}
+
+.dial-input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dial-input:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dial-input.small {
+  max-width: 180px;
+}
+
+.dial-btn {
+  flex-direction: row;
+  min-height: auto;
+  padding: 12px 20px;
+  gap: 8px;
+}
+
+/* Transfer Section */
+.transfer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transfer-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.transfer-buttons .cti-btn {
+  flex-direction: row;
+  min-height: auto;
+  padding: 12px 18px;
+  gap: 8px;
+}
+
+/* Feature Buttons */
+.feature-buttons, .setup-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.feature-buttons .cti-btn, .setup-buttons .cti-btn {
+  flex-direction: row;
+  min-height: auto;
+  padding: 12px 18px;
+  gap: 8px;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-overlay .modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  min-width: 400px;
+  max-width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 </style>

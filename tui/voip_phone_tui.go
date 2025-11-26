@@ -7,16 +7,22 @@ import (
 
 // renderVoIPPhones renders the VoIP phones list screen
 func (m model) renderVoIPPhones() string {
-	content := infoStyle.Render("📱 VoIP Phones Management") + "\n\n"
+	content := infoStyle.Render("📱 VoIP Phones Management") + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	if m.voipPhones == nil || len(m.voipPhones) == 0 {
 		content += "📭 No phones detected\n\n"
 		content += helpStyle.Render("💡 Phones are detected from SIP registrations\n")
-		content += helpStyle.Render("   Press 'm' to manually add a phone by IP address")
+		content += helpStyle.Render("   Press 'm' to manually add a phone by IP address\n")
+		content += helpStyle.Render("   Press 'd' to discover phones on the network")
 		return menuStyle.Render(content)
 	}
 	
-	content += fmt.Sprintf("Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
+	content += fmt.Sprintf("📊 Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
+	
+	// Header
+	content += helpStyle.Render("  Extension      IP Address         Status        Vendor") + "\n"
+	content += helpStyle.Render("  ──────────────────────────────────────────────────────") + "\n"
 	
 	for i, phone := range m.voipPhones {
 		cursor := " "
@@ -24,22 +30,45 @@ func (m model) renderVoIPPhones() string {
 			cursor = "▶"
 		}
 		
+		// Status with emoji
 		status := "🔴 Offline"
-		if phone.Status == "Registered" || phone.Status == "Available" {
+		statusStyle := errorStyle
+		if phone.Status == "Registered" || phone.Status == "Available" || phone.Status == "online" {
 			status = "🟢 Online"
+			statusStyle = successStyle
+		} else if phone.Status == "discovered" || phone.Status == "Manual" {
+			status = "🟡 Added"
+			statusStyle = warningStyle
 		}
 		
-		line := fmt.Sprintf("%s %s - %s (%s) %s\n",
+		// Extract vendor from user agent
+		vendor := phone.UserAgent
+		if len(vendor) > 15 {
+			vendor = vendor[:15] + "..."
+		}
+		
+		// Format extension
+		ext := phone.Extension
+		if ext == "" {
+			ext = "---"
+		}
+		if len(ext) > 12 {
+			ext = ext[:12]
+		}
+		
+		line := fmt.Sprintf("%s %-12s  %-18s %s  %s\n",
 			cursor,
-			successStyle.Render(phone.Extension),
+			successStyle.Render(ext),
 			phone.IP,
-			phone.UserAgent,
-			status,
+			statusStyle.Render(fmt.Sprintf("%-10s", status)),
+			helpStyle.Render(vendor),
 		)
 		content += line
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, Enter for details, 'm' to add manually, 'd' to discover phones")
+	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
+	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details    m  Add manually") + "\n"
+	content += helpStyle.Render("   d    Discover        r      Refresh         ESC  Back")
 	
 	return menuStyle.Render(content)
 }
@@ -52,42 +81,66 @@ func (m model) renderVoIPPhoneDetails() string {
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
 	
-	content := infoStyle.Render(fmt.Sprintf("📱 Phone Details: %s", phone.Extension)) + "\n\n"
+	content := infoStyle.Render(fmt.Sprintf("📱 Phone Details: %s", phone.Extension)) + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	// Phone info output if available
 	if m.voipPhoneOutput != "" {
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-		content += m.voipPhoneOutput + "\n"
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+		content += successStyle.Render("📋 Last Operation:") + "\n"
+		content += "┌─────────────────────────────────────┐\n"
+		outputLines := strings.Split(m.voipPhoneOutput, "\n")
+		for _, line := range outputLines {
+			if line != "" {
+				content += "│ " + line + "\n"
+			}
+		}
+		content += "└─────────────────────────────────────┘\n\n"
 	}
 	
-	// Basic information
-	content += "📊 Basic Information:\n"
-	content += fmt.Sprintf("  Extension: %s\n", successStyle.Render(phone.Extension))
-	content += fmt.Sprintf("  IP Address: %s\n", phone.IP)
-	content += fmt.Sprintf("  Status: %s\n", phone.Status)
-	if phone.UserAgent != "" {
-		content += fmt.Sprintf("  User Agent: %s\n", phone.UserAgent)
+	// Basic information in a nice box
+	content += infoStyle.Render("📊 Basic Information") + "\n"
+	content += "┌─────────────────────────────────────┐\n"
+	content += fmt.Sprintf("│ Extension:   %s\n", successStyle.Render(phone.Extension))
+	content += fmt.Sprintf("│ IP Address:  %s\n", phone.IP)
+	
+	// Status with color
+	statusText := phone.Status
+	if phone.Status == "Registered" || phone.Status == "Available" || phone.Status == "online" {
+		statusText = "🟢 " + phone.Status
+	} else if phone.Status == "discovered" || phone.Status == "Manual" {
+		statusText = "🟡 " + phone.Status
+	} else {
+		statusText = "🔴 " + phone.Status
 	}
+	content += fmt.Sprintf("│ Status:      %s\n", statusText)
+	
+	if phone.UserAgent != "" {
+		content += fmt.Sprintf("│ User Agent:  %s\n", phone.UserAgent)
+	}
+	content += "└─────────────────────────────────────┘\n"
 	
 	// Show phone status details if available
 	if m.currentPhoneStatus != nil {
-		content += "\n🔧 Device Information:\n"
-		content += fmt.Sprintf("  Model: %s\n", m.currentPhoneStatus.Model)
-		content += fmt.Sprintf("  Firmware: %s\n", m.currentPhoneStatus.Firmware)
-		content += fmt.Sprintf("  MAC: %s\n", m.currentPhoneStatus.MAC)
-		content += fmt.Sprintf("  Uptime: %s\n", m.currentPhoneStatus.Uptime)
+		content += "\n" + infoStyle.Render("🔧 Device Information") + "\n"
+		content += "┌─────────────────────────────────────┐\n"
+		content += fmt.Sprintf("│ Model:       %s\n", successStyle.Render(m.currentPhoneStatus.Model))
+		content += fmt.Sprintf("│ Firmware:    %s\n", m.currentPhoneStatus.Firmware)
+		content += fmt.Sprintf("│ MAC:         %s\n", m.currentPhoneStatus.MAC)
+		content += fmt.Sprintf("│ Uptime:      %s\n", m.currentPhoneStatus.Uptime)
+		content += "└─────────────────────────────────────┘\n"
 		
 		if len(m.currentPhoneStatus.Accounts) > 0 {
-			content += "\n📞 SIP Accounts:\n"
+			content += "\n" + infoStyle.Render("📞 SIP Accounts") + "\n"
+			content += "┌─────────────────────────────────────┐\n"
 			for _, acc := range m.currentPhoneStatus.Accounts {
 				statusIcon := "🔴"
 				if acc.Status == "Registered" {
 					statusIcon = "🟢"
 				}
-				content += fmt.Sprintf("  %s Account %d: %s (%s)\n", 
+				content += fmt.Sprintf("│ %s Account %d: %s (%s)\n", 
 					statusIcon, acc.Number, acc.Extension, acc.Status)
 			}
+			content += "└─────────────────────────────────────┘\n"
 		}
 		
 		if m.currentPhoneStatus.NetworkInfo != nil {
@@ -112,21 +165,40 @@ func (m model) renderVoIPPhoneControl() string {
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
 	
-	content := infoStyle.Render(fmt.Sprintf("🎛️  Phone Control: %s", phone.Extension)) + "\n\n"
+	content := infoStyle.Render(fmt.Sprintf("🎛️  Phone Control: %s", phone.Extension)) + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	// Show operation output if any
 	if m.voipPhoneOutput != "" {
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-		content += m.voipPhoneOutput + "\n"
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+		content += successStyle.Render("📋 Output:") + "\n"
+		content += "┌─────────────────────────────────────┐\n"
+		outputLines := strings.Split(m.voipPhoneOutput, "\n")
+		for _, line := range outputLines {
+			if line != "" {
+				content += "│ " + line + "\n"
+			}
+		}
+		content += "└─────────────────────────────────────┘\n\n"
 	}
 	
-	content += "Select an operation:\n\n"
-	
+	// Render menu items with section styling
 	for i, item := range m.voipControlMenu {
+		// Check if it's a separator line
+		if strings.HasPrefix(item, "────") {
+			content += helpStyle.Render("  ─────────────────────────────────") + "\n"
+			continue
+		}
+		
+		// Check if it's a section header
+		if strings.HasSuffix(item, ":") && !strings.HasPrefix(item, "  ") {
+			content += "\n" + infoStyle.Render(item) + "\n"
+			continue
+		}
+		
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
+			// Skip separators and headers from selection
 			item = selectedItemStyle.Render(item)
 		} else {
 			item = fmt.Sprintf("%s", item)
