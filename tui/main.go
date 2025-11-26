@@ -162,6 +162,8 @@ const (
 	extensionSyncScreen
 	extensionSyncDetailScreen
 	usageInputScreen
+	resetConfigurationScreen
+	resetConfirmScreen
 )
 
 type model struct {
@@ -251,6 +253,11 @@ type model struct {
 	configSearchQuery   string       // Search/filter query
 	configInlineEdit    bool         // Whether inline editing mode is active
 	configInlineValue   string       // Current inline edit value
+
+	// Reset Configuration
+	resetConfiguration *ResetConfiguration
+	resetSummary       string
+	resetMenu          []string
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -270,6 +277,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	configManager := NewAsteriskConfigManager(verbose)
 	helloWorldSetup := NewHelloWorldSetup(configManager, asteriskManager, verbose)
 	extensionSyncManager := NewExtensionSyncManager(db, asteriskManager, configManager)
+	resetConfiguration := NewResetConfiguration(db, configManager, asteriskManager, verbose)
 	
 	return model{
 		currentScreen: mainMenu,
@@ -295,6 +303,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		configManager:         configManager,
 		helloWorldSetup:       helloWorldSetup,
 		extensionSyncManager:  extensionSyncManager,
+		resetConfiguration:    resetConfiguration,
 		verbose:               verbose,
 		asteriskMenu: []string{
 			"🟢 Start Asterisk Service",
@@ -344,6 +353,11 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📤 Sync All Asterisk → DB",
 			"🔍 Refresh Sync Status",
 			"🔙 Back to Extensions",
+		},
+		resetMenu: []string{
+			"🗑️  Reset All Configuration",
+			"📋 Show Reset Summary",
+			"🔙 Back to System Settings",
 		},
 	}
 }
@@ -457,11 +471,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = len(m.helloWorldMenu) - 1
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// Navigate system settings with rollover (6 options)
+				// Navigate system settings with rollover (7 options)
 				if m.cursor > 0 {
 					m.cursor--
 				} else {
-					m.cursor = 5
+					m.cursor = 6
+				}
+			} else if m.currentScreen == resetConfigurationScreen {
+				// Navigate reset configuration menu with rollover
+				if m.cursor > 0 {
+					m.cursor--
+				} else if len(m.resetMenu) > 0 {
+					m.cursor = len(m.resetMenu) - 1
 				}
 			} else if m.currentScreen == extensionsScreen {
 				// Navigate extensions list with rollover (use sync infos if available)
@@ -541,10 +562,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = 0
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 6 options with rollover
-				if m.cursor < 5 {
+				// System settings has 7 options with rollover
+				if m.cursor < 6 {
 					m.cursor++
 				} else {
+					m.cursor = 0
+				}
+			} else if m.currentScreen == resetConfigurationScreen {
+				// Navigate reset configuration menu with rollover
+				if m.cursor < len(m.resetMenu)-1 {
+					m.cursor++
+				} else if len(m.resetMenu) > 0 {
 					m.cursor = 0
 				}
 			} else if m.currentScreen == extensionsScreen {
@@ -627,7 +655,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = len(m.helloWorldMenu) - 1
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				m.cursor = 5
+				m.cursor = 6
+			} else if m.currentScreen == resetConfigurationScreen {
+				if len(m.resetMenu) > 0 {
+					m.cursor = len(m.resetMenu) - 1
+				}
 			} else if m.currentScreen == extensionsScreen {
 				if len(m.extensions) > 0 {
 					m.selectedExtensionIdx = len(m.extensions) - 1
@@ -757,6 +789,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Confirm deletion
 			if m.currentScreen == deleteExtensionScreen {
 				m.deleteExtension()
+			} else if m.currentScreen == resetConfirmScreen {
+				// Execute the reset
+				m.executeResetConfiguration()
 			}
 
 		case "enter":
@@ -877,6 +912,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == extensionSyncScreen {
 				// Handle extension sync menu selection
 				m.handleExtensionSyncSelection()
+			} else if m.currentScreen == resetConfigurationScreen {
+				// Handle reset configuration menu selection
+				m.handleResetConfigurationSelection()
+			} else if m.currentScreen == resetConfirmScreen {
+				// Handle reset confirmation (y to confirm)
+				// Already handled via 'y' key below
 			}
 
 		case "esc":
@@ -971,6 +1012,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == voipPhonesScreen {
 					m.currentScreen = mainMenu
 					m.cursor = m.mainMenuCursor
+					m.errorMsg = ""
+					m.successMsg = ""
+				} else if m.currentScreen == resetConfigurationScreen || m.currentScreen == resetConfirmScreen {
+					// Go back to system settings
+					m.currentScreen = systemSettingsScreen
+					m.cursor = 5 // Reset Configuration option
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
@@ -1101,6 +1148,10 @@ func (m model) View() string {
 		s += m.renderHelloWorld()
 	case extensionSyncScreen:
 		s += m.renderExtensionSync()
+	case resetConfigurationScreen:
+		s += m.renderResetConfiguration()
+	case resetConfirmScreen:
+		s += m.renderResetConfirm()
 	}
 
 	// Footer with emojis
@@ -1129,6 +1180,10 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else if m.currentScreen == systemSettingsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
+	} else if m.currentScreen == resetConfigurationScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back to System Settings • q: Quit")
+	} else if m.currentScreen == resetConfirmScreen {
+		s += helpStyle.Render("y: Confirm Reset • ESC/n: Cancel • q: Quit")
 	} else if m.currentScreen == diagnosticsMenuScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back to Main Menu • q: Quit")
 	} else if m.currentScreen == asteriskMenuScreen {
@@ -3725,6 +3780,7 @@ func (m *model) renderSystemSettings() string {
 		"📝 Set to Production Mode",
 		"🔧 Set to Development Mode",
 		"🚀 Run System Upgrade",
+		"🗑️  Reset All Configuration",
 		"⬅️  Back to Main Menu",
 	}
 	
@@ -3767,6 +3823,16 @@ func (m *model) handleSystemSettingsAction() tea.Cmd {
 		// Run System Upgrade
 		return m.runSystemUpgrade()
 	case 5:
+		// Reset Configuration - go to reset screen
+		m.currentScreen = resetConfigurationScreen
+		m.cursor = 0
+		m.errorMsg = ""
+		m.successMsg = ""
+		// Load reset summary
+		if m.resetConfiguration != nil {
+			m.resetSummary, _ = m.resetConfiguration.GetSummary()
+		}
+	case 6:
 		// Back to main menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
@@ -4313,6 +4379,138 @@ func (m *model) handleExtensionSyncSelection() {
 		m.currentScreen = extensionsScreen
 		m.cursor = m.selectedExtensionIdx
 	}
+}
+
+// renderResetConfiguration renders the reset configuration screen
+func (m model) renderResetConfiguration() string {
+	content := titleStyle.Render("🗑️  Reset Configuration") + "\n\n"
+	
+	// Show warning
+	content += warningStyle.Render("⚠️  DANGER ZONE") + "\n"
+	content += "This will reset ALL configuration to a clean state.\n\n"
+	
+	// Show summary if available
+	if m.resetSummary != "" {
+		content += m.resetSummary + "\n"
+	}
+	
+	// Menu
+	content += infoStyle.Render("Select an action:") + "\n\n"
+	
+	for i, item := range m.resetMenu {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		} else {
+			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
+	
+	return menuStyle.Render(content)
+}
+
+// renderResetConfirm renders the reset confirmation screen
+func (m model) renderResetConfirm() string {
+	content := titleStyle.Render("🗑️  Confirm Reset") + "\n\n"
+	
+	content += errorStyle.Render("⚠️  WARNING: THIS ACTION CANNOT BE UNDONE!") + "\n\n"
+	
+	// Show what will be deleted
+	if m.resetSummary != "" {
+		content += m.resetSummary + "\n"
+	}
+	
+	content += "\n" + warningStyle.Render("Are you sure you want to reset all configuration?") + "\n\n"
+	content += "Press " + successStyle.Render("'y'") + " to confirm, or " + helpStyle.Render("ESC") + " to cancel.\n"
+	
+	return menuStyle.Render(content)
+}
+
+// handleResetConfigurationSelection handles reset configuration menu selection
+func (m *model) handleResetConfigurationSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	switch m.cursor {
+	case 0: // Reset All Configuration - go to confirm screen
+		m.currentScreen = resetConfirmScreen
+		// Refresh summary
+		if m.resetConfiguration != nil {
+			m.resetSummary, _ = m.resetConfiguration.GetSummary()
+		}
+		
+	case 1: // Show Reset Summary
+		if m.resetConfiguration != nil {
+			summary, err := m.resetConfiguration.GetSummary()
+			if err != nil {
+				m.errorMsg = fmt.Sprintf("Failed to get summary: %v", err)
+			} else {
+				m.resetSummary = summary
+				m.successMsg = "Summary refreshed"
+			}
+		}
+		
+	case 2: // Back to System Settings
+		m.currentScreen = systemSettingsScreen
+		m.cursor = 5 // Reset Configuration option
+	}
+}
+
+// executeResetConfiguration executes the reset operation
+func (m *model) executeResetConfiguration() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	if m.resetConfiguration == nil {
+		m.errorMsg = "Reset configuration manager not initialized"
+		m.currentScreen = resetConfigurationScreen
+		m.cursor = 0
+		return
+	}
+	
+	result, err := m.resetConfiguration.ResetAll()
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Reset failed: %v", err)
+		if result != nil && result.HasErrors() {
+			m.errorMsg += "\nErrors: " + strings.Join(result.Errors, "; ")
+		}
+	} else {
+		successMsg := "Reset completed successfully!\n"
+		if result.DatabaseCleared {
+			successMsg += fmt.Sprintf("   • Removed %d extensions, %d trunks", result.ExtensionsRemoved, result.TrunksRemoved)
+			if result.VoIPPhonesRemoved > 0 {
+				successMsg += fmt.Sprintf(", %d VoIP phones", result.VoIPPhonesRemoved)
+			}
+			successMsg += "\n"
+		}
+		if result.PjsipCleared {
+			successMsg += "   • pjsip.conf reset to clean state\n"
+		}
+		if result.ExtensionsCleared {
+			successMsg += "   • extensions.conf reset to clean state\n"
+		}
+		if result.AsteriskReloaded {
+			successMsg += "   • Asterisk configuration reloaded\n"
+		}
+		m.successMsg = successMsg
+	}
+	
+	// Go back to reset configuration screen
+	m.currentScreen = resetConfigurationScreen
+	m.cursor = 0
+	
+	// Refresh the summary
+	if m.resetConfiguration != nil {
+		m.resetSummary, _ = m.resetConfiguration.GetSummary()
+	}
+	
+	// Reload extensions list (should be empty now)
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+	}
+	m.loadExtensionSyncInfo()
 }
 
 func main() {
