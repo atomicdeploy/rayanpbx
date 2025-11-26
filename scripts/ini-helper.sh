@@ -3,6 +3,12 @@
 # INI Configuration File Helper
 # Modifies INI-style configuration files while preserving structure
 
+# Source the backup manager for centralized backup functionality
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/backup-manager.sh" ]; then
+    source "${SCRIPT_DIR}/backup-manager.sh"
+fi
+
 # Function to uncomment a line in INI file
 uncomment_ini_line() {
     local file="$1"
@@ -127,6 +133,8 @@ normalize_ini_section() {
 }
 
 # Helper function to calculate file checksum
+# Note: This function is kept for backward compatibility
+# The backup_config_file function in backup-manager.sh also provides this
 calculate_file_checksum() {
     local file="$1"
     
@@ -145,6 +153,8 @@ calculate_file_checksum() {
 }
 
 # Function to backup config file
+# This function now uses the centralized backup manager to store backups
+# in /etc/asterisk/backups/ subdirectory instead of the same directory
 backup_config() {
     local file="$1"
     
@@ -152,6 +162,13 @@ backup_config() {
         return 1
     fi
     
+    # Use centralized backup manager if available
+    if type backup_config_file &>/dev/null; then
+        backup_config_file "$file"
+        return $?
+    fi
+    
+    # Fallback to legacy behavior if backup manager is not available
     # Calculate checksum of the file to backup
     local file_checksum
     if ! file_checksum=$(calculate_file_checksum "$file"); then

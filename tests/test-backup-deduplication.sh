@@ -39,6 +39,9 @@ setup_test_env() {
     TEST_DIR=$(mktemp -d)
     TEST_FILE="$TEST_DIR/test_config.conf"
     
+    # Set custom backup directory for testing
+    export BACKUP_DIR="$TEST_DIR/backups"
+    
     # Create a test configuration file
     cat > "$TEST_FILE" << 'EOF'
 [general]
@@ -52,6 +55,7 @@ write=all
 EOF
     
     print_info "Test directory: $TEST_DIR"
+    print_info "Backup directory: $BACKUP_DIR"
 }
 
 # Cleanup test environment
@@ -97,13 +101,13 @@ test_no_duplicate_backup() {
     
     # Count backup files
     local backup_count
-    backup_count=$(find "$TEST_DIR" -name "test_config.conf.backup.*" | wc -l)
+    backup_count=$(find "$BACKUP_DIR" -name "test_config.conf.*.backup" | wc -l)
     
     if [ "$backup_count" -eq 1 ]; then
         print_pass "Only one backup exists (no duplicate created)"
     else
         print_fail "Expected 1 backup but found $backup_count"
-        find "$TEST_DIR" -name "test_config.conf.backup.*" -ls
+        find "$BACKUP_DIR" -name "test_config.conf.*.backup" -ls
     fi
     
     # Verify both calls returned the same backup file
@@ -123,7 +127,7 @@ test_backup_on_content_change() {
     
     # Get initial backup count
     local initial_count
-    initial_count=$(find "$TEST_DIR" -name "test_config.conf.backup.*" | wc -l)
+    initial_count=$(find "$BACKUP_DIR" -name "test_config.conf.*.backup" | wc -l)
     
     # Modify the file content
     echo "" >> "$TEST_FILE"
@@ -138,7 +142,7 @@ test_backup_on_content_change() {
     
     # Count backups again
     local new_count
-    new_count=$(find "$TEST_DIR" -name "test_config.conf.backup.*" | wc -l)
+    new_count=$(find "$BACKUP_DIR" -name "test_config.conf.*.backup" | wc -l)
     
     if [ "$new_count" -gt "$initial_count" ]; then
         print_pass "New backup created after content change ($initial_count -> $new_count)"
@@ -156,14 +160,14 @@ test_no_duplicate_after_change() {
     
     # Get current backup count
     local count_before
-    count_before=$(find "$TEST_DIR" -name "test_config.conf.backup.*" | wc -l)
+    count_before=$(find "$BACKUP_DIR" -name "test_config.conf.*.backup" | wc -l)
     
     # Try to backup again without changing content
     sleep 1
     backup_config "$TEST_FILE" > /dev/null
     
     local count_after
-    count_after=$(find "$TEST_DIR" -name "test_config.conf.backup.*" | wc -l)
+    count_after=$(find "$BACKUP_DIR" -name "test_config.conf.*.backup" | wc -l)
     
     if [ "$count_before" -eq "$count_after" ]; then
         print_pass "No duplicate created after multiple backup attempts"
@@ -180,6 +184,9 @@ test_cli_backup() {
     local cli_test_dir
     cli_test_dir=$(mktemp -d)
     local test_env="$cli_test_dir/.env"
+    
+    # Set backup directory for this test
+    export BACKUP_DIR="$cli_test_dir/backups"
     
     cat > "$test_env" << 'EOF'
 APP_NAME=RayanPBX
@@ -200,13 +207,13 @@ EOF
     # First backup
     backup_config "$test_env" > /dev/null
     local backup_count1
-    backup_count1=$(find "$cli_test_dir" -name ".env.backup.*" | wc -l)
+    backup_count1=$(find "$BACKUP_DIR" -name ".env.*.backup" 2>/dev/null | wc -l)
     
     # Try backup again with same content
     sleep 1
     backup_config "$test_env" > /dev/null
     local backup_count2
-    backup_count2=$(find "$cli_test_dir" -name ".env.backup.*" | wc -l)
+    backup_count2=$(find "$BACKUP_DIR" -name ".env.*.backup" 2>/dev/null | wc -l)
     
     if [ "$backup_count1" -eq "$backup_count2" ] && [ "$backup_count1" -eq 1 ]; then
         print_pass "CLI backup deduplication works correctly"

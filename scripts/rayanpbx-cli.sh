@@ -1833,6 +1833,155 @@ cmd_tui() {
     exec "$tui_path" "$@"
 }
 
+# Backup Management Commands
+# Uses centralized backup-manager.sh for consistent backups
+
+# Backup all Asterisk configuration files
+cmd_backup_all() {
+    print_header "Backup Configuration Files"
+    
+    # Source backup manager if not already sourced
+    if ! type backup_all &>/dev/null; then
+        if [ -f "$SCRIPT_DIR/backup-manager.sh" ]; then
+            source "$SCRIPT_DIR/backup-manager.sh"
+        else
+            print_error "Backup manager not found at $SCRIPT_DIR/backup-manager.sh"
+            exit 1
+        fi
+    fi
+    
+    local force=false
+    [ "${1:-}" = "--force" ] && force=true
+    
+    backup_all "$force"
+}
+
+# Backup a specific configuration file
+cmd_backup_file() {
+    local file="$1"
+    
+    if [ -z "$file" ]; then
+        echo "Usage: rayanpbx-cli backup file <filename>"
+        echo "  filename: manager.conf, pjsip.conf, extensions.conf, cdr.conf, cel.conf"
+        exit 2
+    fi
+    
+    # Source backup manager if not already sourced
+    if ! type backup_config_file &>/dev/null; then
+        if [ -f "$SCRIPT_DIR/backup-manager.sh" ]; then
+            source "$SCRIPT_DIR/backup-manager.sh"
+        else
+            print_error "Backup manager not found at $SCRIPT_DIR/backup-manager.sh"
+            exit 1
+        fi
+    fi
+    
+    # Handle full path or just filename
+    if [[ ! "$file" == /* ]]; then
+        file="/etc/asterisk/$file"
+    fi
+    
+    local backup_path
+    if backup_path=$(backup_config_file "$file"); then
+        print_success "Backed up: $file"
+        print_info "Backup saved to: $backup_path"
+    else
+        print_error "Failed to backup: $file"
+        exit 1
+    fi
+}
+
+# List available backups
+cmd_backup_list() {
+    # Source backup manager if not already sourced
+    if ! type list_backups &>/dev/null; then
+        if [ -f "$SCRIPT_DIR/backup-manager.sh" ]; then
+            source "$SCRIPT_DIR/backup-manager.sh"
+        else
+            print_error "Backup manager not found at $SCRIPT_DIR/backup-manager.sh"
+            exit 1
+        fi
+    fi
+    
+    list_backups "${1:-}"
+}
+
+# Restore a backup
+cmd_backup_restore() {
+    local backup_file="$1"
+    
+    if [ -z "$backup_file" ]; then
+        echo "Usage: rayanpbx-cli backup restore <backup_file> [target_file]"
+        echo "  backup_file: Name of the backup file (e.g., manager.conf.20240101_120000.backup)"
+        echo "  target_file: Optional target path (defaults to /etc/asterisk/<name>)"
+        exit 2
+    fi
+    
+    # Source backup manager if not already sourced
+    if ! type restore_backup &>/dev/null; then
+        if [ -f "$SCRIPT_DIR/backup-manager.sh" ]; then
+            source "$SCRIPT_DIR/backup-manager.sh"
+        else
+            print_error "Backup manager not found at $SCRIPT_DIR/backup-manager.sh"
+            exit 1
+        fi
+    fi
+    
+    print_header "Restore Backup"
+    
+    # Interactive confirmation
+    print_warn "This will restore the backup and overwrite the current configuration."
+    read -p "Are you sure you want to continue? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_info "Restore cancelled"
+        exit 0
+    fi
+    
+    if restore_backup "$backup_file" "${2:-}"; then
+        print_success "Restore completed successfully"
+        print_info "You may need to reload Asterisk: rayanpbx-cli asterisk restart"
+    else
+        print_error "Restore failed"
+        exit 1
+    fi
+}
+
+# Show backup status
+cmd_backup_status() {
+    # Source backup manager if not already sourced
+    if ! type show_status &>/dev/null; then
+        if [ -f "$SCRIPT_DIR/backup-manager.sh" ]; then
+            source "$SCRIPT_DIR/backup-manager.sh"
+        else
+            print_error "Backup manager not found at $SCRIPT_DIR/backup-manager.sh"
+            exit 1
+        fi
+    fi
+    
+    show_status
+}
+
+# Cleanup old backups
+cmd_backup_cleanup() {
+    local keep="${1:-5}"
+    
+    # Source backup manager if not already sourced
+    if ! type cleanup_backups &>/dev/null; then
+        if [ -f "$SCRIPT_DIR/backup-manager.sh" ]; then
+            source "$SCRIPT_DIR/backup-manager.sh"
+        else
+            print_error "Backup manager not found at $SCRIPT_DIR/backup-manager.sh"
+            exit 1
+        fi
+    fi
+    
+    print_header "Cleanup Old Backups"
+    print_info "Keeping $keep most recent backups per configuration file"
+    
+    cleanup_backups "$keep"
+}
+
 # Main command dispatcher
 cmd_version() {
     echo -e "${CYAN}${BOLD}RayanPBX CLI${RESET} ${GREEN}v${VERSION}${RESET}"
@@ -1906,6 +2055,15 @@ cmd_help() {
         echo -e "   ${GREEN}set-mode${NC} <mode>                   Set application mode (production/development/local)"
         echo -e "   ${GREEN}toggle-debug${NC}                      Toggle debug mode on/off"
         echo -e "   ${GREEN}reset${NC}                             Reset ALL configuration (database + Asterisk files)"
+        echo ""
+        
+        echo -e "${CYAN}💾 backup${NC} ${DIM}- Configuration backup management${NC}"
+        echo -e "   ${GREEN}all${NC} [--force]                     Backup all managed config files"
+        echo -e "   ${GREEN}file${NC} <config>                     Backup a specific config file"
+        echo -e "   ${GREEN}list${NC} [filter]                     List available backups"
+        echo -e "   ${GREEN}restore${NC} <backup> [target]         Restore a backup file"
+        echo -e "   ${GREEN}status${NC}                            Show backup status summary"
+        echo -e "   ${GREEN}cleanup${NC} [keep]                    Remove old backups (keep N most recent)"
         echo ""
         
         echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
@@ -1996,6 +2154,33 @@ cmd_help() {
                 echo -e "  Reloads configuration for specified service or all services."
                 echo -e "  ${DIM}Services: asterisk, laravel (backend), frontend, all (default)${NC}"
                 echo -e "  ${DIM}Example: rayanpbx-cli config reload asterisk${NC}"
+                echo ""
+                ;;
+            backup)
+                echo -e "${CYAN}${BOLD}Configuration Backup Management${NC}"
+                echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+                echo -e "Manage backups of Asterisk configuration files.\n"
+                echo -e "${DIM}Backups are stored in: /etc/asterisk/backups/${NC}\n"
+                echo -e "${DIM}Managed files: manager.conf, pjsip.conf, extensions.conf, cdr.conf, cel.conf${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli backup all [--force]${NC}"
+                echo -e "  Creates backups of all managed configuration files."
+                echo -e "  ${DIM}Use --force to create backup even if identical backup exists.${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli backup all${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli backup file <config>${NC}"
+                echo -e "  Backs up a specific configuration file."
+                echo -e "  ${DIM}Example: rayanpbx-cli backup file manager.conf${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli backup list [filter]${NC}"
+                echo -e "  Lists all available backup files."
+                echo -e "  ${DIM}Example: rayanpbx-cli backup list${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli backup list manager.conf${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli backup restore <backup> [target]${NC}"
+                echo -e "  Restores a backup file to its original location."
+                echo -e "  ${DIM}Example: rayanpbx-cli backup restore manager.conf.20240101_120000.backup${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli backup status${NC}"
+                echo -e "  Shows backup status summary including count and sizes.\n"
+                echo -e "${YELLOW}rayanpbx-cli backup cleanup [keep]${NC}"
+                echo -e "  Removes old backups, keeping N most recent per file (default: 5)."
+                echo -e "  ${DIM}Example: rayanpbx-cli backup cleanup 3${NC}"
                 echo ""
                 ;;
             tui)
@@ -2123,6 +2308,17 @@ main() {
                 toggle-debug) cmd_system_toggle_debug ;;
                 reset) cmd_system_reset ;;
                 *) echo "Unknown system command: ${2:-}"; exit 2 ;;
+            esac
+            ;;
+        backup)
+            case "${2:-}" in
+                all|"") cmd_backup_all "${3:-}" ;;
+                file) cmd_backup_file "${3:-}" ;;
+                list) cmd_backup_list "${3:-}" ;;
+                restore) cmd_backup_restore "${3:-}" "${4:-}" ;;
+                status) cmd_backup_status ;;
+                cleanup) cmd_backup_cleanup "${3:-}" ;;
+                *) echo "Unknown backup command: ${2:-}"; exit 2 ;;
             esac
             ;;
         tui)

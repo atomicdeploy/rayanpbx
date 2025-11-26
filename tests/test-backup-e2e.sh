@@ -42,6 +42,9 @@ TEST_DIR=$(mktemp -d)
 MOCK_ETC_ASTERISK="$TEST_DIR/etc/asterisk"
 MOCK_OPT_RAYANPBX="$TEST_DIR/opt/rayanpbx"
 
+# Set custom backup directory for testing
+export BACKUP_DIR="$TEST_DIR/backups"
+
 mkdir -p "$MOCK_ETC_ASTERISK"
 mkdir -p "$MOCK_OPT_RAYANPBX"
 
@@ -50,6 +53,7 @@ print_header "E2E Test: Installer Upgrade Scenario"
 print_info "Test environment: $TEST_DIR"
 print_info "Mock Asterisk config: $MOCK_ETC_ASTERISK"
 print_info "Mock RayanPBX install: $MOCK_OPT_RAYANPBX"
+print_info "Backup directory: $BACKUP_DIR"
 
 # Scenario 1: Fresh Installation
 print_header "Scenario 1: Fresh Installation"
@@ -76,7 +80,7 @@ set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "enabled" "yes"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "admin" "secret" "rayanpbx_ami_secret"
 
-backup_count=$(find "$MOCK_ETC_ASTERISK" -name "*.backup.*" | wc -l)
+backup_count=$(find "$BACKUP_DIR" -name "*.backup" 2>/dev/null | wc -l)
 print_pass "Installation complete: $backup_count backup created"
 
 # Scenario 2: First Upgrade (no config changes)
@@ -90,7 +94,7 @@ set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "enabled" "yes"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "admin" "secret" "rayanpbx_ami_secret"
 
-backup_count2=$(find "$MOCK_ETC_ASTERISK" -name "*.backup.*" | wc -l)
+backup_count2=$(find "$BACKUP_DIR" -name "*.backup" 2>/dev/null | wc -l)
 
 # On first upgrade, a backup is created of the current (modified) state before re-applying settings
 expected_count=$((backup_count + 1))
@@ -112,7 +116,7 @@ set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "enabled" "yes"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "admin" "secret" "rayanpbx_ami_secret"
 
-backup_count3=$(find "$MOCK_ETC_ASTERISK" -name "*.backup.*" | wc -l)
+backup_count3=$(find "$BACKUP_DIR" -name "*.backup" 2>/dev/null | wc -l)
 
 if [ "$backup_count3" -eq "$backup_count2" ]; then
     print_pass "Still no duplicate backup created (still $backup_count3 backups)"
@@ -137,7 +141,7 @@ set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "enabled" "yes"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "admin" "secret" "rayanpbx_ami_secret"
 
-backup_count4=$(find "$MOCK_ETC_ASTERISK" -name "*.backup.*" | wc -l)
+backup_count4=$(find "$BACKUP_DIR" -name "*.backup" 2>/dev/null | wc -l)
 
 if [ "$backup_count4" -gt "$backup_count3" ]; then
     print_pass "New backup created for different content ($backup_count3 -> $backup_count4)"
@@ -156,7 +160,7 @@ set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "enabled" "yes"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "general" "bindaddr" "127.0.0.1"
 set_ini_value "$MOCK_ETC_ASTERISK/manager.conf" "admin" "secret" "rayanpbx_ami_secret"
 
-backup_count5=$(find "$MOCK_ETC_ASTERISK" -name "*.backup.*" | wc -l)
+backup_count5=$(find "$BACKUP_DIR" -name "*.backup" 2>/dev/null | wc -l)
 
 if [ "$backup_count5" -eq "$backup_count4" ]; then
     print_pass "No duplicate created after stabilization ($backup_count5 backups total)"
@@ -168,7 +172,7 @@ fi
 print_header "Final Verification"
 
 print_step "Listing all backup files..."
-ls -lh "$MOCK_ETC_ASTERISK/"*.backup.* 2>/dev/null | awk '{print $9}' | while read -r file; do
+ls -lh "$BACKUP_DIR/"*.backup 2>/dev/null | awk '{print $9}' | while read -r file; do
     checksum=$(md5sum "$file" | awk '{print $1}')
     echo -e "  📄 $(basename "$file") - ${checksum:0:8}..."
 done
@@ -177,7 +181,7 @@ print_step "Verifying backup uniqueness..."
 declare -A checksums
 duplicate_found=false
 
-for backup in "$MOCK_ETC_ASTERISK/"*.backup.*; do
+for backup in "$BACKUP_DIR/"*.backup; do
     if [ -f "$backup" ]; then
         checksum=$(md5sum "$backup" | awk '{print $1}')
         if [ -n "${checksums[$checksum]}" ]; then
@@ -197,7 +201,7 @@ fi
 # Summary
 print_header "Test Summary"
 
-total_backups=$(find "$MOCK_ETC_ASTERISK" -name "*.backup.*" | wc -l)
+total_backups=$(find "$BACKUP_DIR" -name "*.backup" 2>/dev/null | wc -l)
 unique_contents=${#checksums[@]}
 
 echo -e "  Total backup files:   ${GREEN}$total_backups${RESET}"
