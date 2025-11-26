@@ -192,6 +192,46 @@ else
 fi
 
 echo ""
+echo -e "${CYAN}9. Checking presence/BLF support...${NC}"
+
+# Check for required Asterisk modules for presence
+PUBLISH_MODULE=$(asterisk -rx "module show like pjsip_publish" 2>/dev/null | grep -c "res_pjsip_publish_asterisk" || echo "0")
+EXTEN_STATE_MODULE=$(asterisk -rx "module show like exten_state" 2>/dev/null | grep -c "res_pjsip_exten_state" || echo "0")
+
+if [[ "$PUBLISH_MODULE" -gt 0 ]]; then
+    echo -e "${GREEN}   ✓ res_pjsip_publish_asterisk module loaded${NC}"
+else
+    echo -e "${YELLOW}   ⚠ res_pjsip_publish_asterisk not loaded${NC}"
+    echo -e "${YELLOW}   Run: asterisk -rx 'module load res_pjsip_publish_asterisk'${NC}"
+fi
+
+if [[ "$EXTEN_STATE_MODULE" -gt 0 ]]; then
+    echo -e "${GREEN}   ✓ res_pjsip_exten_state module loaded${NC}"
+else
+    echo -e "${YELLOW}   ⚠ res_pjsip_exten_state not loaded${NC}"
+    echo -e "${YELLOW}   Run: asterisk -rx 'module load res_pjsip_exten_state'${NC}"
+fi
+
+# Check for hints in dialplan
+HINTS=$(asterisk -rx "core show hints" 2>/dev/null | grep -c "PJSIP/" || echo "0")
+if [[ "$HINTS" -gt 0 ]]; then
+    echo -e "${GREEN}   ✓ Found $HINTS hint(s) for presence/BLF${NC}"
+else
+    echo -e "${YELLOW}   ⚠ No hints found - BLF may not work${NC}"
+    echo -e "${YELLOW}   Hints should be added in extensions.conf like:${NC}"
+    echo -e "${YELLOW}   exten => 100,hint,PJSIP/100${NC}"
+fi
+
+# Check for subscribe_context in endpoints
+SUBSCRIBE_CTX=$(grep -c "subscribe_context=" /etc/asterisk/pjsip.conf 2>/dev/null || echo "0")
+if [[ "$SUBSCRIBE_CTX" -gt 0 ]]; then
+    echo -e "${GREEN}   ✓ Found $SUBSCRIBE_CTX endpoint(s) with subscribe_context${NC}"
+else
+    echo -e "${YELLOW}   ⚠ No endpoints have subscribe_context configured${NC}"
+    echo -e "${YELLOW}   Add to endpoint: subscribe_context=from-internal${NC}"
+fi
+
+echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}✓ Configuration test complete!${NC}"
 echo ""
@@ -203,6 +243,11 @@ echo -e "     - Port: 5060"
 echo -e "     - Extension: 1001 (example)"
 echo -e "     - Password: Your configured password"
 echo -e "  3. Monitor events: php artisan rayanpbx:monitor-events"
+echo ""
+echo -e "${CYAN}For presence/BLF support:${NC}"
+echo -e "  - Ensure res_pjsip_publish_asterisk is loaded"
+echo -e "  - Ensure endpoints have subscribe_context configured"
+echo -e "  - Ensure hints are defined in extensions.conf"
 echo ""
 echo -e "${CYAN}For detailed setup instructions, see:${NC}"
 echo -e "  ${YELLOW}PJSIP_SETUP_GUIDE.md${NC}"

@@ -38,6 +38,10 @@ auth=100
 aors=100
 direct_media=no
 mailboxes=100@default
+; SIP Presence support: subscribe_context enables BLF/presence subscriptions
+subscribe_context=from-internal
+; Device state: report busy when 1+ calls active
+device_state_busy_at=1
 
 [100]
 type=auth
@@ -50,6 +54,8 @@ type=aor
 max_contacts=1
 remove_existing=yes
 qualify_frequency=60
+; Enable outbound presence publishing
+support_outbound=yes
 ; END MANAGED - Extension 100
 
 ; BEGIN MANAGED - Extension 101
@@ -65,6 +71,10 @@ auth=101
 aors=101
 direct_media=no
 mailboxes=101@default
+; SIP Presence support: subscribe_context enables BLF/presence subscriptions
+subscribe_context=from-internal
+; Device state: report busy when 1+ calls active
+device_state_busy_at=1
 
 [101]
 type=auth
@@ -77,6 +87,8 @@ type=aor
 max_contacts=1
 remove_existing=yes
 qualify_frequency=60
+; Enable outbound presence publishing
+support_outbound=yes
 ; END MANAGED - Extension 101
 
 ;-----------------------------------------------------------------------------
@@ -146,6 +158,21 @@ match=tel07.fp.shatel.ir
 ; ✅ mailboxes for voicemail integration
 ; ✅ Consistent section naming
 ; ✅ Explicit port numbers in contacts
+; ✅ subscribe_context for SIP presence/BLF support
+; ✅ device_state_busy_at for accurate busy status
+; ✅ support_outbound in AOR for presence publishing
+;
+; Presence/Event Support Notes:
+; - subscribe_context: Enables BLF (Busy Lamp Field) and presence subscriptions
+; - device_state_busy_at: Reports "busy" status when N or more calls are active
+; - support_outbound: Enables outbound PUBLISH for presence state updates
+; - Hints in extensions.conf map extensions to PJSIP endpoints for device state
+;
+; IMPORTANT: The "presence" SIP event (RFC 3856) requires the res_pjsip_publish_asterisk
+; module to be loaded in Asterisk. If you see 489 "Bad Event" responses:
+;   1. Ensure res_pjsip_publish_asterisk is loaded: asterisk -rx "module show like publish"
+;   2. Load if missing: asterisk -rx "module load res_pjsip_publish_asterisk"
+;   3. Verify with: asterisk -rx "pjsip show subscriptions inbound"
 ;
 ; Notes:
 ; - Each extension/trunk is wrapped in MANAGED blocks for safe updates

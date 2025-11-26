@@ -149,6 +149,12 @@ class AsteriskAdapter
             $config .= "mailboxes={$extension->extension_number}@default\n";
         }
 
+        // SIP Presence and Device State support
+        // subscribe_context enables presence subscriptions for BLF/monitoring
+        $config .= "subscribe_context={$extension->context}\n";
+        // device_state_busy_at controls when endpoint reports "busy" state
+        $config .= "device_state_busy_at=1\n";
+
         $config .= "\n[{$extension->extension_number}]\n";
         $config .= "type=auth\n";
         $config .= "auth_type=userpass\n";
@@ -160,6 +166,8 @@ class AsteriskAdapter
         $config .= "max_contacts={$extension->max_contacts}\n";
         $config .= "remove_existing=yes\n";
         $config .= 'qualify_frequency='.($extension->qualify_frequency ?? 60)."\n";
+        // Support outbound publish for presence
+        $config .= "support_outbound=yes\n";
 
         $config .= "; END MANAGED - Extension {$extension->extension_number}\n";
 
@@ -381,6 +389,18 @@ class AsteriskAdapter
     {
         $config = "\n; BEGIN MANAGED - RayanPBX Internal Extensions\n";
         $config .= "[internal]\n";
+
+        // Add hint definitions for presence/BLF support
+        // These hints map extension numbers to their PJSIP endpoints for device state monitoring
+        $config .= "; Device state hints for presence/BLF support\n";
+        foreach ($extensions as $extension) {
+            if (! $extension->enabled) {
+                continue;
+            }
+            $extNum = $extension->extension_number;
+            $config .= "exten => {$extNum},hint,PJSIP/{$extNum}\n";
+        }
+        $config .= "\n";
 
         // Add individual extension rules
         foreach ($extensions as $extension) {

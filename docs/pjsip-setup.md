@@ -8,7 +8,8 @@ This guide walks you through setting up and managing PJSIP extensions in RayanPB
 3. [Verification](#verification)
 4. [Configuration Files](#configuration-files)
 5. [Real-time Monitoring](#real-time-monitoring)
-6. [Troubleshooting](#troubleshooting)
+6. [Presence and BLF Support](#presence-and-blf-support)
+7. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -20,6 +21,7 @@ RayanPBX now provides comprehensive PJSIP management that:
 - ✅ Monitors real-time registration status
 - ✅ Tracks call events (ringing, hangup)
 - ✅ Supports external media address configuration (NAT)
+- ✅ Provides SIP presence and BLF (Busy Lamp Field) support
 
 ## Creating Extensions
 
@@ -250,6 +252,95 @@ curl http://localhost:8000/api/events/calls \
 curl http://localhost:8000/api/events/extension/1001 \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
+
+## Presence and BLF Support
+
+RayanPBX automatically configures extensions for SIP presence and BLF (Busy Lamp Field) functionality.
+
+### What is Presence/BLF?
+
+- **Presence**: Shows the availability status of extensions (available, busy, ringing, etc.)
+- **BLF (Busy Lamp Field)**: Visual indicators on IP phones showing other extensions' status
+
+### Automatic Configuration
+
+When you create an extension, RayanPBX automatically generates:
+
+1. **PJSIP Endpoint Settings**:
+   ```ini
+   subscribe_context=from-internal  ; Enables presence subscriptions
+   device_state_busy_at=1           ; Reports busy when 1+ calls active
+   ```
+
+2. **AOR Settings**:
+   ```ini
+   support_outbound=yes  ; Enables outbound presence PUBLISH
+   ```
+
+3. **Dialplan Hints**:
+   ```ini
+   exten => 1001,hint,PJSIP/1001  ; Maps extension to PJSIP endpoint
+   ```
+
+### Verifying Presence Support
+
+Check if hints are registered:
+```bash
+asterisk -rx "core show hints"
+```
+
+Expected output:
+```
+1001@internal         : PJSIP/1001        State:Unavailable   Watchers  0
+1002@internal         : PJSIP/1002        State:Idle          Watchers  1
+```
+
+Check subscriptions:
+```bash
+asterisk -rx "pjsip show subscriptions inbound"
+```
+
+### Configuring BLF on IP Phones
+
+Example for GrandStream phones:
+1. Go to **Accounts** → **Account X** → **BLF Keys**
+2. Set **Mode**: Speed Dial + BLF
+3. Set **Value**: Extension number (e.g., `1002`)
+4. Set **Account**: Your SIP account
+
+### Troubleshooting Presence (489 Bad Event)
+
+If you see "489 Bad Event" responses in SIP logs:
+
+1. **Check required Asterisk modules**:
+   ```bash
+   asterisk -rx "module show like pjsip_publish"
+   ```
+   
+   You should see `res_pjsip_publish_asterisk` loaded.
+
+2. **Load missing modules**:
+   ```bash
+   asterisk -rx "module load res_pjsip_publish_asterisk"
+   ```
+
+3. **Verify hints are configured**:
+   ```bash
+   asterisk -rx "dialplan show from-internal" | grep hint
+   ```
+
+4. **Check endpoint subscribe_context**:
+   ```bash
+   asterisk -rx "pjsip show endpoint 1001" | grep subscribe
+   ```
+
+### Presence Event Limitations
+
+**Note**: The SIP "presence" event type (RFC 3856) requires specific Asterisk modules:
+- `res_pjsip_publish_asterisk` - Handles inbound PUBLISH for presence
+- `res_pjsip_exten_state` - Provides extension state via PJSIP
+
+If your Asterisk build doesn't include these modules, presence publishing may not work. BLF via SUBSCRIBE/NOTIFY will still function for monitoring extension states.
 
 ## Troubleshooting
 

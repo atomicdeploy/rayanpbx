@@ -48,6 +48,11 @@ class ConfigValidatorService
                 if (!preg_match("/^\[$endpoint\].*?^allow=/ms", $config)) {
                     $warnings[] = "Endpoint '$endpoint' has no codecs configured";
                 }
+                
+                // Check for presence/BLF support configuration
+                if (!preg_match("/^\[$endpoint\].*?^subscribe_context=/ms", $config)) {
+                    $warnings[] = "Endpoint '$endpoint' has no subscribe_context - presence/BLF subscriptions may not work";
+                }
             }
         }
         
@@ -121,6 +126,11 @@ class ConfigValidatorService
         if (preg_match_all('/Dial\(PJSIP\/([^@\)]+)/m', $config, $dialMatches)) {
             $endpoints = array_unique($dialMatches[1]);
             $warnings[] = "Dialplan references " . count($endpoints) . " PJSIP endpoints - ensure they are configured";
+        }
+        
+        // Check for device state hints (presence/BLF support)
+        if (!preg_match('/^exten\s*=>\s*\d+,hint,PJSIP/m', $config)) {
+            $warnings[] = "No hints found - BLF (Busy Lamp Field) may not work. Consider adding hints like: exten => 100,hint,PJSIP/100";
         }
         
         // Check for proper priority sequencing
