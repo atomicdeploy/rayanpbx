@@ -20,6 +20,11 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
+BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -48,6 +53,15 @@ print_warning() {
 
 print_error() {
     print_msg "$RED" "[ERROR] $1"
+}
+
+# Print elegant banner
+print_banner() {
+    echo ""
+    echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}${BOLD}║${NC}           ${WHITE}${BOLD}🔐 RayanPBX PAM Setup Script${NC}           ${CYAN}${BOLD}║${NC}"
+    echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
 }
 
 # Check if running as root
@@ -145,40 +159,45 @@ test_pam() {
     
     # Show instructions for manual testing
     echo ""
-    print_info "To test PAM authentication manually, run:"
-    echo "  pamtester ${PAM_SERVICE_NAME} <username> authenticate"
+    echo -e "${CYAN}${BOLD}📝 Manual Testing${NC}"
+    echo -e "${DIM}To test PAM authentication manually, run:${NC}"
+    echo -e "  ${WHITE}pamtester ${PAM_SERVICE_NAME} <username> authenticate${NC}"
     echo ""
-    print_info "You will be prompted for the password."
+    echo -e "${DIM}You will be prompted for the password.${NC}"
 }
 
 # Show status
 show_status() {
-    print_info "Checking PAM configuration status..."
+    print_banner
+    echo -e "${BOLD}${CYAN}📊 PAM Configuration Status${NC}"
     echo ""
     
     # Check pamtester
+    echo -ne "  ${DIM}pamtester:${NC} "
     if command -v pamtester &> /dev/null; then
-        print_success "pamtester: installed ($(which pamtester))"
+        echo -e "${GREEN}✓ installed${NC} ${DIM}($(which pamtester))${NC}"
     else
-        print_error "pamtester: not installed"
+        echo -e "${RED}✗ not installed${NC}"
     fi
     
     # Check PAM service file
+    echo -ne "  ${DIM}PAM service file:${NC} "
     if [[ -f "$PAM_SERVICE_FILE" ]]; then
-        print_success "PAM service file: exists (${PAM_SERVICE_FILE})"
+        echo -e "${GREEN}✓ exists${NC} ${DIM}(${PAM_SERVICE_FILE})${NC}"
     else
-        print_warning "PAM service file: not found (${PAM_SERVICE_FILE})"
+        echo -e "${YELLOW}⚠ not found${NC} ${DIM}(${PAM_SERVICE_FILE})${NC}"
     fi
     
     # Check shadow file readability by web server user
+    echo -ne "  ${DIM}Shadow group membership:${NC} "
     if id "$RAYANPBX_USER" &> /dev/null; then
         if groups "$RAYANPBX_USER" | grep -q shadow; then
-            print_success "Shadow group: ${RAYANPBX_USER} is member"
+            echo -e "${GREEN}✓ ${RAYANPBX_USER} is member${NC}"
         else
-            print_warning "Shadow group: ${RAYANPBX_USER} is NOT a member"
+            echo -e "${YELLOW}⚠ ${RAYANPBX_USER} is NOT a member${NC}"
         fi
     else
-        print_warning "Web server user ${RAYANPBX_USER} not found"
+        echo -e "${YELLOW}⚠ User ${RAYANPBX_USER} not found${NC}"
     fi
     
     echo ""
@@ -209,23 +228,44 @@ uninstall() {
 
 # Show help
 show_help() {
-    echo "RayanPBX PAM Setup Script"
+    print_banner
+    
+    echo -e "${BOLD}${WHITE}DESCRIPTION${NC}"
+    echo -e "  ${DIM}This script sets up PAM (Pluggable Authentication Modules) for RayanPBX,${NC}"
+    echo -e "  ${DIM}enabling Linux user account authentication for the web interface.${NC}"
     echo ""
-    echo "Usage: sudo $0 [options]"
+    
+    echo -e "${BOLD}${WHITE}USAGE${NC}"
+    echo -e "  ${CYAN}sudo${NC} ${WHITE}$0${NC} ${GREEN}[option]${NC}"
     echo ""
-    echo "Options:"
-    echo "  --install     Install required packages and configure PAM"
-    echo "  --uninstall   Remove RayanPBX PAM configuration"
-    echo "  --status      Check PAM configuration status"
-    echo "  --help        Show this help message"
+    
+    echo -e "${BOLD}${WHITE}OPTIONS${NC}"
+    echo -e "  ${GREEN}--install${NC}     ${DIM}Install required packages and configure PAM${NC}"
+    echo -e "  ${GREEN}--uninstall${NC}   ${DIM}Remove RayanPBX PAM configuration${NC}"
+    echo -e "  ${GREEN}--status${NC}      ${DIM}Check PAM configuration status${NC}"
+    echo -e "  ${GREEN}--help${NC}        ${DIM}Show this help message${NC}"
     echo ""
-    echo "Environment Variables:"
-    echo "  RAYANPBX_USER   User that runs the web server (default: www-data)"
+    
+    echo -e "${BOLD}${WHITE}ENVIRONMENT VARIABLES${NC}"
+    echo -e "  ${YELLOW}RAYANPBX_USER${NC}   ${DIM}User that runs the web server${NC}"
+    echo -e "                  ${DIM}Default: ${WHITE}www-data${NC}"
     echo ""
-    echo "Examples:"
-    echo "  sudo $0 --install"
-    echo "  sudo $0 --status"
-    echo "  sudo RAYANPBX_USER=nginx $0 --install"
+    
+    echo -e "${BOLD}${WHITE}EXAMPLES${NC}"
+    echo -e "  ${DIM}# Install PAM configuration${NC}"
+    echo -e "  ${CYAN}sudo${NC} ${WHITE}$0${NC} ${GREEN}--install${NC}"
+    echo ""
+    echo -e "  ${DIM}# Check current status${NC}"
+    echo -e "  ${CYAN}sudo${NC} ${WHITE}$0${NC} ${GREEN}--status${NC}"
+    echo ""
+    echo -e "  ${DIM}# Install with custom web server user${NC}"
+    echo -e "  ${CYAN}sudo${NC} ${YELLOW}RAYANPBX_USER${NC}=${WHITE}nginx${NC} ${WHITE}$0${NC} ${GREEN}--install${NC}"
+    echo ""
+    
+    echo -e "${BOLD}${WHITE}NOTES${NC}"
+    echo -e "  ${DIM}• This script must be run with root privileges (sudo)${NC}"
+    echo -e "  ${DIM}• PAM authentication allows users to log in with their Linux credentials${NC}"
+    echo -e "  ${DIM}• The web server user needs shadow group access to verify passwords${NC}"
     echo ""
 }
 
@@ -233,6 +273,7 @@ show_help() {
 main() {
     case "${1:-}" in
         --install)
+            print_banner
             check_root
             install_packages
             create_pam_service
@@ -240,13 +281,14 @@ main() {
             test_pam
             ;;
         --uninstall)
+            print_banner
             check_root
             uninstall
             ;;
         --status)
             show_status
             ;;
-        --help)
+        --help|-h)
             show_help
             ;;
         "")

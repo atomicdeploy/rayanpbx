@@ -82,6 +82,7 @@ declare -a ALL_STEPS=(
     "pm2:PM2 Process Management Setup"
     "systemd:Systemd Services Configuration"
     "cron:Cron Jobs Setup"
+    "pam:PAM Authentication Setup"
     "health-check:Service Verification & Health Checks"
     "complete:Installation Complete"
 )
@@ -3271,6 +3272,35 @@ if next_step "Cron Jobs Setup" "cron"; then
     (crontab -l 2>/dev/null || true; echo "* * * * * cd /opt/rayanpbx/backend && php artisan schedule:run >> /dev/null 2>&1") | crontab -
 
     print_success "Cron jobs configured"
+fi
+
+# Setup PAM authentication for RayanPBX
+if next_step "PAM Authentication Setup" "pam"; then
+    print_info "Setting up PAM authentication..."
+    
+    # Check if PAM is enabled in .env
+    PAM_ENABLED=$(grep "^RAYANPBX_PAM_ENABLED=" /opt/rayanpbx/.env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "true")
+    
+    if [ "$PAM_ENABLED" = "true" ] || [ "$PAM_ENABLED" = "1" ]; then
+        # Run the setup-pam.sh script
+        if [ -f "/opt/rayanpbx/scripts/setup-pam.sh" ]; then
+            print_progress "Running PAM setup script..."
+            chmod +x /opt/rayanpbx/scripts/setup-pam.sh
+            
+            # Run PAM setup with --install flag
+            if /opt/rayanpbx/scripts/setup-pam.sh --install; then
+                print_success "PAM authentication configured successfully"
+            else
+                print_warning "PAM setup completed with warnings - check above for details"
+            fi
+        else
+            print_warning "PAM setup script not found at /opt/rayanpbx/scripts/setup-pam.sh"
+            print_info "You can manually run: sudo /opt/rayanpbx/scripts/setup-pam.sh --install"
+        fi
+    else
+        print_info "PAM authentication is disabled in .env (RAYANPBX_PAM_ENABLED=$PAM_ENABLED)"
+        print_info "Skipping PAM setup. Development credentials will be used instead."
+    fi
 fi
 
 # Verify services with comprehensive health checks
