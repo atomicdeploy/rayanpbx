@@ -127,9 +127,24 @@ install_tools() {
             fi
             ;;
         sipexer)
-            print_warning "sipexer installation requires manual setup"
-            print_info "Visit: https://github.com/miconda/sipexer"
-            return 1
+            # sipexer is a Go-based SIP testing tool
+            # See: https://github.com/miconda/sipexer
+            if ! command_exists go; then
+                print_warning "Go is required to install sipexer"
+                print_info "Install Go first: apt-get install golang-go"
+                return 1
+            fi
+            
+            print_info "Installing sipexer from source..."
+            go install github.com/miconda/sipexer@latest > /dev/null 2>&1
+            
+            # Add Go bin to PATH if not already there
+            if [ -d "$HOME/go/bin" ]; then
+                export PATH="$PATH:$HOME/go/bin"
+                print_info "Added $HOME/go/bin to PATH for this session"
+                print_warning "To make permanent, add to your shell profile:"
+                print_info "  echo 'export PATH=\$PATH:\$HOME/go/bin' >> ~/.bashrc"
+            fi
             ;;
         sipp)
             if command_exists apt-get; then
@@ -230,6 +245,86 @@ test_registration_sipsak() {
     else
         print_fail "Registration test failed for $extension"
         print_info "Check log: $log_file"
+        return 1
+    fi
+}
+
+# Test SIP registration using sipexer
+test_registration_sipexer() {
+    local extension=$1
+    local password=$2
+    local server=${3:-$DEFAULT_SERVER}
+    local port=${4:-$DEFAULT_PORT}
+    
+    print_test "Testing SIP registration (sipexer): $extension@$server:$port"
+    
+    local log_file="/tmp/sipexer-reg-${extension}.log"
+    
+    # sipexer uses a modern Go-based approach for SIP testing
+    # See: https://github.com/miconda/sipexer
+    if sipexer --register --user "${extension}" --password "${password}" \
+        --ruri "sip:${server}:${port}" --timeout "${DEFAULT_TIMEOUT}s" > "$log_file" 2>&1; then
+        if grep -qi "200 OK\|registered" "$log_file"; then
+            print_pass "Registration test successful for $extension"
+            rm -f "$log_file"
+            return 0
+        fi
+    fi
+    
+    print_fail "Registration test failed for $extension"
+    print_info "Check log: $log_file"
+    return 1
+}
+
+# Test SIP call with audio playback using PJSUA
+# This function registers, dials, plays an audio file, and hangs up
+test_call_with_audio_pjsua() {
+    local extension=$1
+    local password=$2
+    local dial_target=$3
+    local audio_file=$4
+    local server=${5:-$DEFAULT_SERVER}
+    local port=${6:-$DEFAULT_PORT}
+    
+    print_test "Testing call with audio: $extension -> $dial_target"
+    
+    if [ ! -f "$audio_file" ]; then
+        print_fail "Audio file not found: $audio_file"
+        return 1
+    fi
+    
+    # Create PJSUA config for caller with audio playback
+    # pjsua uses --play-file to play a WAV file during call
+    # See: https://www.pjsip.org/pjsua.htm
+    local config_file="/tmp/pjsua-audio-${extension}.cfg"
+    cat > "$config_file" <<EOF
+--id sip:${extension}@${server}
+--registrar sip:${server}:${port}
+--realm *
+--username ${extension}
+--password ${password}
+--play-file ${audio_file}
+--duration 10
+EOF
+    
+    local log_file="/tmp/pjsua-audio-${extension}.log"
+    
+    # Run pjsua to dial and play audio
+    timeout 15 pjsua --config-file "$config_file" "sip:${dial_target}@${server}:${port}" > "$log_file" 2>&1 &
+    local pid=$!
+    
+    sleep 8
+    
+    # Check if call was established and audio was playing
+    if grep -qi "Call.*CONFIRMED\|MEDIA ACTIVE\|Playing" "$log_file"; then
+        print_pass "Call with audio playback successful"
+        kill $pid 2>/dev/null || true
+        rm -f "$config_file" "$log_file"
+        return 0
+    else
+        print_fail "Call with audio playback failed"
+        print_info "Check log: $log_file"
+        kill $pid 2>/dev/null || true
         return 1
     fi
 }
@@ -429,11 +524,13 @@ ${BOLD}USAGE:${RESET}
 
 ${BOLD}COMMANDS:${RESET}
     tools                           List available SIP testing tools
-    install <tool>                  Install a specific SIP tool (pjsua, sipsak, sipp)
+    install <tool>                  Install a specific SIP tool (pjsua, sipsak, sipexer, sipp)
     
     register <ext> <pass> [server]  Test SIP registration
     call <from> <fpass> <to> <tpass> [server]
                                     Test call between extensions
+    audio <ext> <pass> <dial> <audiofile> [server]
+                                    Make a call and play an audio file (requires pjsua)
     options [server]                Test SIP OPTIONS ping
     
     full <ext1> <pass1> <ext2> <pass2> [server]
@@ -450,8 +547,11 @@ ${BOLD}EXAMPLES:${RESET}
     # List available tools
     $0 tools
     
-    # Install pjsua
+    # Install pjsua (recommended - supports audio playback)
     $0 install pjsua
+    
+    # Install sipexer (modern Go-based SIP tool)
+    $0 install sipexer
     
     # Test registration
     $0 register 1001 mypassword
@@ -459,11 +559,19 @@ ${BOLD}EXAMPLES:${RESET}
     # Test call between extensions
     $0 call 1001 pass1 1002 pass2
     
+    # Make a call and play an audio file
+    $0 audio 1001 mypassword 1002 /path/to/audio.wav
+    
     # Run full test suite
     $0 full 1001 pass1 1002 pass2
     
     # Test with remote server
     $0 -s 192.168.1.100 register 1001 mypassword
+
+${BOLD}AUDIO PLAYBACK:${RESET}
+    pjsua is the recommended tool for audio playback testing.
+    It can register as a SIP extension, dial a number, play an audio file,
+    and then hang up. This is useful for testing complete call flows.
 
 EOF
 }
@@ -523,10 +631,13 @@ main() {
             
             echo
             print_info "Supported tools:"
-            echo "  - pjsua:   Full-featured SIP user agent (recommended)"
+            echo "  - pjsua:   Full-featured SIP user agent with audio playback (recommended)"
             echo "  - sipsak:  SIP Swiss Army Knife for quick tests"
-            echo "  - sipexer: Modern SIP testing tool"
+            echo "  - sipexer: Modern Go-based SIP testing tool (https://github.com/miconda/sipexer)"
             echo "  - sipp:    Performance testing and scenarios"
+            echo
+            print_info "For audio playback testing, use pjsua:"
+            echo "  $0 audio <ext> <pass> <dial> <audiofile>"
             ;;
             
         install)
@@ -587,6 +698,32 @@ main() {
                 test_call_pjsua "$from_ext" "$from_pass" "$to_ext" "$to_pass" "$test_server" "$port"
             else
                 print_fail "pjsua not available (required for call testing)"
+                print_info "Install with: $0 install pjsua"
+                exit 1
+            fi
+            
+            print_summary
+            ;;
+        
+        audio)
+            local extension=$1
+            local password=$2
+            local dial_target=$3
+            local audio_file=$4
+            local test_server=${5:-$server}
+            
+            if [ -z "$extension" ] || [ -z "$password" ] || [ -z "$dial_target" ] || [ -z "$audio_file" ]; then
+                print_fail "All parameters required"
+                echo "Usage: $0 audio <extension> <password> <dial_target> <audio_file> [server]"
+                exit 1
+            fi
+            
+            print_header
+            
+            if command_exists pjsua; then
+                test_call_with_audio_pjsua "$extension" "$password" "$dial_target" "$audio_file" "$test_server" "$port"
+            else
+                print_fail "pjsua not available (required for audio playback)"
                 print_info "Install with: $0 install pjsua"
                 exit 1
             fi

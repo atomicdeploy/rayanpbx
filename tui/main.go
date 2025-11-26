@@ -98,7 +98,7 @@ var sipTestScriptPaths = []string{
 }
 
 // SIP testing tools that can be installed
-var sipTools = []string{"pjsua", "sipsak", "sipp"}
+var sipTools = []string{"pjsua", "sipsak", "sipexer", "sipp"}
 
 // Default extension values
 const (
@@ -2923,8 +2923,11 @@ func (m *model) handleSipTestMenuSelection() {
 			for _, tool := range missingTools {
 				output.WriteString(fmt.Sprintf("  rayanpbx-cli sip-test install %s\n", tool))
 			}
-			output.WriteString("\nOr install all at once:\n")
+			output.WriteString("\nOr install pjsua, sipsak, sipp via apt:\n")
 			output.WriteString("  sudo apt-get update && sudo apt-get install -y pjsua sipsak sipp\n")
+			output.WriteString("\nFor sipexer (requires Go):\n")
+			output.WriteString("  go install github.com/miconda/sipexer@latest\n")
+			output.WriteString("  # Ensure $HOME/go/bin is in your PATH\n")
 		} else {
 			output.WriteString("🎉 All SIP testing tools are installed!\n")
 		}
