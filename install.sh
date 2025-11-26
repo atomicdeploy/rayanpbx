@@ -538,9 +538,7 @@ query_pollinations_ai() {
     if [ "$total_lines" -gt "$max_lines" ]; then
         printf '%s\n' "$response" | head -n "$max_lines"
         echo ""
-        echo "[... truncated - $(($total_lines - $max_lines)) more lines available ...]"
-        echo ""
-        echo "To view the full AI response, run: cat $AI_RESPONSE_FILE"
+        echo -e "To view the full response with [$(($total_lines - $max_lines)) more lines, run:\ncat $AI_RESPONSE_FILE"
     else
         echo "$response"
     fi
