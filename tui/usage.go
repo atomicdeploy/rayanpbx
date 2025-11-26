@@ -90,6 +90,10 @@ func ShowCLIUsage() {
 	fmt.Println()
 	yellow.Println("  rayanpbx-cli diag health-check")
 	fmt.Println("    └─ Run comprehensive system health check")
+	fmt.Println()
+	yellow.Println("  rayanpbx-cli diag lldp-test")
+	fmt.Println("    └─ Test LLDP discovery and display parsed results")
+	green.Println("       Example: rayanpbx-cli diag lldp-test")
 
 	// System
 	magenta.Println("\n🖥️  System:")

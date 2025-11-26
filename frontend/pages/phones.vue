@@ -1590,7 +1590,7 @@ function showNotification(message, type = 'info') {
 /* LLDP Panel Styles */
 .lldp-panel,
 .discovery-panel {
-  background: white;
+  background: var(--panel-bg, white);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 20px;
@@ -1603,7 +1603,7 @@ function showNotification(message, type = 'info') {
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 15px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color, #eee);
   gap: 15px;
 }
 
@@ -1616,16 +1616,17 @@ function showNotification(message, type = 'info') {
 
 .tab-btn {
   padding: 6px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color, #ddd);
   border-radius: 4px;
-  background: #f5f5f5;
+  background: var(--tab-bg, #f5f5f5);
+  color: var(--text-color, inherit);
   cursor: pointer;
   font-size: 13px;
   transition: all 0.2s;
 }
 
 .tab-btn:hover {
-  background: #e0e0e0;
+  background: var(--tab-hover-bg, #e0e0e0);
 }
 
 .tab-btn.active {
@@ -1640,27 +1641,29 @@ function showNotification(message, type = 'info') {
   border-radius: 4px;
   font-size: 10px;
   font-weight: bold;
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--badge-bg, #e0e7ff);
+  color: var(--badge-color, #3730a3);
   margin-top: 4px;
 }
 
 .panel-header h3 {
   margin: 0;
   font-size: 18px;
+  color: var(--text-color, inherit);
 }
 
 .btn-close {
   background: transparent;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color, #ddd);
   border-radius: 4px;
   padding: 4px 10px;
   cursor: pointer;
   font-size: 16px;
+  color: var(--text-color, inherit);
 }
 
 .btn-close:hover {
-  background: #f0f0f0;
+  background: var(--hover-bg, #f0f0f0);
 }
 
 .neighbor-cards {
@@ -1670,12 +1673,12 @@ function showNotification(message, type = 'info') {
 }
 
 .neighbor-card {
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color, #ddd);
   border-radius: 8px;
   padding: 15px;
   display: flex;
   gap: 15px;
-  background: #fafafa;
+  background: var(--card-bg, #fafafa);
 }
 
 .neighbor-icon {
@@ -1689,7 +1692,7 @@ function showNotification(message, type = 'info') {
 .neighbor-info h4 {
   margin: 0 0 8px 0;
   font-size: 16px;
-  color: #333;
+  color: var(--text-primary, #333);
 }
 
 .neighbor-ip,
@@ -1697,7 +1700,7 @@ function showNotification(message, type = 'info') {
 .neighbor-vendor {
   margin: 4px 0;
   font-size: 13px;
-  color: #666;
+  color: var(--text-muted, #666);
 }
 
 .neighbor-capabilities {
@@ -1708,8 +1711,8 @@ function showNotification(message, type = 'info') {
 }
 
 .capability-badge {
-  background: #e3f2fd;
-  color: #1976d2;
+  background: var(--capability-bg, #e3f2fd);
+  color: var(--capability-color, #1976d2);
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 11px;
@@ -2017,7 +2020,8 @@ function showNotification(message, type = 'info') {
 }
 
 .modal-overlay .modal-content {
-  background: white;
+  background: var(--modal-bg, white);
+  color: var(--text-color, inherit);
   padding: 30px;
   border-radius: 16px;
   min-width: 400px;
@@ -2025,5 +2029,72 @@ function showNotification(message, type = 'info') {
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .phones-container {
+    --panel-bg: #1e1e2e;
+    --card-bg: #2a2a3e;
+    --border-color: #3a3a4e;
+    --text-color: #e0e0e0;
+    --text-primary: #f0f0f0;
+    --text-muted: #a0a0a0;
+    --tab-bg: #2a2a3e;
+    --tab-hover-bg: #3a3a4e;
+    --hover-bg: #3a3a4e;
+    --badge-bg: #3730a3;
+    --badge-color: #e0e7ff;
+    --capability-bg: #1a365d;
+    --capability-color: #90cdf4;
+    --modal-bg: #1e1e2e;
+  }
+  
+  .discovery-panel,
+  .lldp-panel {
+    background: var(--panel-bg);
+  }
+  
+  .neighbor-card {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+  }
+  
+  .tab-btn {
+    background: var(--tab-bg);
+    border-color: var(--border-color);
+    color: var(--text-color);
+  }
+  
+  .tab-btn:hover {
+    background: var(--tab-hover-bg);
+  }
+  
+  .neighbor-info h4 {
+    color: var(--text-primary);
+  }
+  
+  .neighbor-ip,
+  .neighbor-mac,
+  .neighbor-vendor {
+    color: var(--text-muted);
+  }
+  
+  .btn-close {
+    border-color: var(--border-color);
+    color: var(--text-color);
+  }
+  
+  .btn-close:hover {
+    background: var(--hover-bg);
+  }
+  
+  .panel-header {
+    border-bottom-color: var(--border-color);
+  }
+  
+  .panel-header h3 {
+    color: var(--text-primary);
+  }
 }
 </style>

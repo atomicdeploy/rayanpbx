@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 // Discovery constants
@@ -1159,4 +1161,144 @@ func parseLLDPPacket(data []byte) (*LLDPInfo, error) {
 // ScanSubnet scans a subnet for VoIP phones
 func (pd *PhoneDiscovery) ScanSubnet(subnet string) ([]DiscoveredPhone, error) {
 	return pd.DiscoverPhones(subnet)
+}
+
+// TestLLDPDiscovery runs LLDP discovery and returns detailed results including raw output for debugging
+func (pd *PhoneDiscovery) TestLLDPDiscovery() ([]DiscoveredPhone, map[string]string, error) {
+	rawOutputs := make(map[string]string)
+	var allPhones []DiscoveredPhone
+
+	// Try json0 format
+	output, err := exec.Command("lldpctl", "-f", "json0").Output()
+	if err == nil {
+		rawOutputs["json0"] = string(output)
+		phones, parseErr := pd.parseLLDPCtlJson0(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	} else {
+		rawOutputs["json0_error"] = err.Error()
+	}
+
+	// Try plain format
+	output, err = exec.Command("lldpctl", "-f", "plain").Output()
+	if err == nil {
+		rawOutputs["plain"] = string(output)
+		phones, parseErr := pd.parseLLDPCliShowNeighbors(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	} else {
+		rawOutputs["plain_error"] = err.Error()
+	}
+
+	// Try json format
+	output, err = exec.Command("lldpctl", "-f", "json").Output()
+	if err == nil {
+		rawOutputs["json"] = string(output)
+		phones, parseErr := pd.parseLLDPCtlJson(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	} else {
+		rawOutputs["json_error"] = err.Error()
+	}
+
+	// Try keyvalue format
+	output, err = exec.Command("lldpctl", "-f", "keyvalue").Output()
+	if err == nil {
+		rawOutputs["keyvalue"] = string(output)
+		phones, parseErr := pd.parseLLDPCtlOutput(string(output))
+		if parseErr == nil && len(phones) > 0 {
+			allPhones = append(allPhones, phones...)
+		}
+	} else {
+		rawOutputs["keyvalue_error"] = err.Error()
+	}
+
+	// Deduplicate
+	allPhones = pd.mergePhonesByMAC(allPhones)
+
+	return allPhones, rawOutputs, nil
+}
+
+// ShowLLDPTestResults displays LLDP test results in a human-readable format
+func ShowLLDPTestResults() {
+	cyan := color.New(color.FgCyan, color.Bold)
+	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
+	red := color.New(color.FgRed)
+	magenta := color.New(color.FgMagenta)
+
+	cyan.Println("\n📡 LLDP Discovery Test")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Create a phone discovery instance
+	pd := NewPhoneDiscovery(nil)
+
+	phones, rawOutputs, err := pd.TestLLDPDiscovery()
+	if err != nil {
+		red.Printf("❌ Error running LLDP discovery: %v\n", err)
+		return
+	}
+
+	// Show raw output summary
+	magenta.Println("\n📋 Raw LLDP Output:")
+	for format, output := range rawOutputs {
+		if strings.HasSuffix(format, "_error") {
+			red.Printf("  %s: %s\n", strings.TrimSuffix(format, "_error"), output)
+		} else {
+			lines := strings.Split(strings.TrimSpace(output), "\n")
+			if len(lines) > 0 && lines[0] != "" {
+				green.Printf("  %s: %d lines of output\n", format, len(lines))
+				// Show first few lines as preview
+				preview := output
+				if len(preview) > 500 {
+					preview = preview[:500] + "... (truncated)"
+				}
+				fmt.Printf("    Preview:\n")
+				for _, line := range strings.Split(preview, "\n")[:min(10, len(strings.Split(preview, "\n")))] {
+					fmt.Printf("      %s\n", line)
+				}
+			} else {
+				yellow.Printf("  %s: empty output\n", format)
+			}
+		}
+	}
+
+	// Show parsed results
+	magenta.Println("\n📱 Parsed VoIP Phones:")
+	if len(phones) == 0 {
+		yellow.Println("  No VoIP phones discovered")
+		fmt.Println("\n💡 Tips:")
+		fmt.Println("  • Ensure lldpd service is running: sudo systemctl status lldpd")
+		fmt.Println("  • VoIP phones must have LLDP enabled and be connected to the same network")
+		fmt.Println("  • Some phones only broadcast LLDP packets periodically (every 30-60 seconds)")
+	} else {
+		for i, phone := range phones {
+			green.Printf("\n  Phone %d:\n", i+1)
+			fmt.Printf("    IP:       %s\n", phone.IP)
+			fmt.Printf("    MAC:      %s\n", phone.MAC)
+			fmt.Printf("    Hostname: %s\n", phone.Hostname)
+			fmt.Printf("    Vendor:   %s\n", phone.Vendor)
+			fmt.Printf("    Model:    %s\n", phone.Model)
+			fmt.Printf("    Port ID:  %s\n", phone.PortID)
+			if phone.Serial != "" {
+				fmt.Printf("    Serial:   %s\n", phone.Serial)
+			}
+			if len(phone.Capabilities) > 0 {
+				fmt.Printf("    Capabilities: %s\n", strings.Join(phone.Capabilities, ", "))
+			}
+		}
+	}
+
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

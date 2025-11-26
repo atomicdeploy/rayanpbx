@@ -12,8 +12,8 @@ func (m model) renderVoIPPhones() string {
 	
 	if m.voipPhones == nil || len(m.voipPhones) == 0 {
 		content += "📭 No phones detected\n\n"
-		content += helpStyle.Render("💡 Phones are detected from SIP registrations\n")
-		content += helpStyle.Render("   Press 'm' to manually add a phone by IP address\n")
+		content += helpStyle.Render("💡 Phones are detected from SIP registrations") + "\n"
+		content += helpStyle.Render("   Press 'a' to manually add a phone by IP address") + "\n"
 		content += helpStyle.Render("   Press 'd' to discover phones on the network")
 		return menuStyle.Render(content)
 	}
@@ -67,7 +67,7 @@ func (m model) renderVoIPPhones() string {
 	}
 	
 	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
-	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details    m  Add manually") + "\n"
+	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details    a  Add manually") + "\n"
 	content += helpStyle.Render("   d    Discover        r      Refresh         ESC  Back")
 	
 	return menuStyle.Render(content)
@@ -400,8 +400,8 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 				m.currentScreen = voipPhoneDetailsScreen
 				m.refreshPhoneStatus()
 			}
-		case "m":
-			// Manual IP input
+		case "a":
+			// Manual IP input (add phone)
 			m.initManualIPInput()
 		case "d":
 			// Phone discovery
@@ -545,7 +545,7 @@ func (m *model) refreshPhoneStatus() {
 	
 	// If no stored credentials, prompt user to add phone manually first
 	if credentials["password"] == "" {
-		m.errorMsg = "No credentials available. Please add phone manually with 'm' to provide credentials."
+		m.errorMsg = "No credentials available. Please add phone manually with 'a' to provide credentials."
 		m.voipPhoneOutput = ""
 		return
 	}
@@ -592,7 +592,7 @@ func (m *model) executeVoIPControlAction() {
 	
 	// Check if we have credentials
 	if credentials["password"] == "" {
-		m.errorMsg = "No credentials available. Please add phone manually with 'm' to provide credentials."
+		m.errorMsg = "No credentials available. Please add phone manually with 'a' to provide credentials."
 		return
 	}
 	
@@ -1003,7 +1003,7 @@ func (m *model) executeVoIPProvision() {
 	
 	// Check if we have credentials
 	if credentials["password"] == "" {
-		m.errorMsg = "No credentials available. Please add phone manually with 'm' to provide credentials."
+		m.errorMsg = "No credentials available. Please add phone manually with 'a' to provide credentials."
 		return
 	}
 	
