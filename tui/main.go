@@ -461,12 +461,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedExtensionIdx = len(m.extensions) - 1
 				}
 			} else if m.currentScreen == extensionSyncScreen {
-				// Navigate sync screen (extensions + menu)
+				// Navigate sync screen (extensions + menu) with rollover
+				maxIdx := len(m.extensionSyncInfos) + len(m.extensionSyncMenu) - 1
 				if m.cursor > 0 {
 					m.cursor--
-					if m.cursor < len(m.extensionSyncInfos) {
-						m.selectedSyncIdx = m.cursor
-					}
+				} else if maxIdx >= 0 {
+					m.cursor = maxIdx
+				}
+				if m.cursor < len(m.extensionSyncInfos) {
+					m.selectedSyncIdx = m.cursor
 				}
 			} else if m.currentScreen == docsListScreen {
 				// Navigate docs list with rollover
@@ -542,13 +545,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedExtensionIdx = 0
 				}
 			} else if m.currentScreen == extensionSyncScreen {
-				// Navigate sync screen (extensions + menu)
+				// Navigate sync screen (extensions + menu) with rollover
 				maxIdx := len(m.extensionSyncInfos) + len(m.extensionSyncMenu) - 1
 				if m.cursor < maxIdx {
 					m.cursor++
-					if m.cursor < len(m.extensionSyncInfos) {
-						m.selectedSyncIdx = m.cursor
-					}
+				} else if maxIdx >= 0 {
+					m.cursor = 0
+				}
+				if m.cursor < len(m.extensionSyncInfos) {
+					m.selectedSyncIdx = m.cursor
 				}
 			} else if m.currentScreen == docsListScreen {
 				// Navigate docs list with rollover
