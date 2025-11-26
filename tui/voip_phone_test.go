@@ -275,21 +275,37 @@ func TestInitVoIPControlMenu(t *testing.T) {
 		t.Error("VoIP control menu should not be empty")
 	}
 	
-	expectedMenuItems := []string{
-		"📊 Get Phone Status",
-		"🔄 Reboot Phone",
-		"🏭 Factory Reset",
-		"📋 Get Configuration",
-		"⚙️ Set Configuration",
-		"🔧 Provision Extension",
-		"📡 TR-069 Management",
-		"🔗 Webhook Configuration",
-		"📊 Live Monitoring",
-		"🔙 Back to Details",
+	// Menu should have at least 15 items (basic operations + CTI + back)
+	minExpectedItems := 15
+	if len(m.voipControlMenu) < minExpectedItems {
+		t.Errorf("Expected at least %d menu items, got %d", minExpectedItems, len(m.voipControlMenu))
 	}
 	
-	if len(m.voipControlMenu) != len(expectedMenuItems) {
-		t.Errorf("Expected %d menu items, got %d", len(expectedMenuItems), len(m.voipControlMenu))
+	// Verify first few items are correct
+	if m.voipControlMenu[0] != "📊 Get Phone Status" {
+		t.Errorf("First menu item should be 'Get Phone Status', got '%s'", m.voipControlMenu[0])
+	}
+	
+	if m.voipControlMenu[1] != "🔄 Reboot Phone" {
+		t.Errorf("Second menu item should be 'Reboot Phone', got '%s'", m.voipControlMenu[1])
+	}
+	
+	// Verify last item is Back
+	lastItem := m.voipControlMenu[len(m.voipControlMenu)-1]
+	if lastItem != "🔙 Back to Details" {
+		t.Errorf("Last menu item should be 'Back to Details', got '%s'", lastItem)
+	}
+	
+	// Verify CTI operations section header exists
+	foundCTIHeader := false
+	for _, item := range m.voipControlMenu {
+		if item == "📞 CTI/CSTA Operations:" {
+			foundCTIHeader = true
+			break
+		}
+	}
+	if !foundCTIHeader {
+		t.Error("Menu should contain CTI/CSTA Operations header")
 	}
 }
 

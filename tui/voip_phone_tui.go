@@ -7,16 +7,22 @@ import (
 
 // renderVoIPPhones renders the VoIP phones list screen
 func (m model) renderVoIPPhones() string {
-	content := infoStyle.Render("📱 VoIP Phones Management") + "\n\n"
+	content := infoStyle.Render("📱 VoIP Phones Management") + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	if m.voipPhones == nil || len(m.voipPhones) == 0 {
 		content += "📭 No phones detected\n\n"
 		content += helpStyle.Render("💡 Phones are detected from SIP registrations\n")
-		content += helpStyle.Render("   Press 'm' to manually add a phone by IP address")
+		content += helpStyle.Render("   Press 'm' to manually add a phone by IP address\n")
+		content += helpStyle.Render("   Press 'd' to discover phones on the network")
 		return menuStyle.Render(content)
 	}
 	
-	content += fmt.Sprintf("Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
+	content += fmt.Sprintf("📊 Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
+	
+	// Header
+	content += helpStyle.Render("  Extension      IP Address         Status        Vendor") + "\n"
+	content += helpStyle.Render("  ──────────────────────────────────────────────────────") + "\n"
 	
 	for i, phone := range m.voipPhones {
 		cursor := " "
@@ -24,22 +30,45 @@ func (m model) renderVoIPPhones() string {
 			cursor = "▶"
 		}
 		
+		// Status with emoji
 		status := "🔴 Offline"
-		if phone.Status == "Registered" || phone.Status == "Available" {
+		statusStyle := errorStyle
+		if phone.Status == "Registered" || phone.Status == "Available" || phone.Status == "online" {
 			status = "🟢 Online"
+			statusStyle = successStyle
+		} else if phone.Status == "discovered" || phone.Status == "Manual" {
+			status = "🟡 Added"
+			statusStyle = warningStyle
 		}
 		
-		line := fmt.Sprintf("%s %s - %s (%s) %s\n",
+		// Extract vendor from user agent
+		vendor := phone.UserAgent
+		if len(vendor) > 15 {
+			vendor = vendor[:15] + "..."
+		}
+		
+		// Format extension
+		ext := phone.Extension
+		if ext == "" {
+			ext = "---"
+		}
+		if len(ext) > 12 {
+			ext = ext[:12]
+		}
+		
+		line := fmt.Sprintf("%s %-12s  %-18s %s  %s\n",
 			cursor,
-			successStyle.Render(phone.Extension),
+			successStyle.Render(ext),
 			phone.IP,
-			phone.UserAgent,
-			status,
+			statusStyle.Render(fmt.Sprintf("%-10s", status)),
+			helpStyle.Render(vendor),
 		)
 		content += line
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Tip: Use ↑/↓ to select, Enter for details, 'm' to add manually, 'd' to discover phones")
+	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
+	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details    m  Add manually") + "\n"
+	content += helpStyle.Render("   d    Discover        r      Refresh         ESC  Back")
 	
 	return menuStyle.Render(content)
 }
@@ -52,42 +81,66 @@ func (m model) renderVoIPPhoneDetails() string {
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
 	
-	content := infoStyle.Render(fmt.Sprintf("📱 Phone Details: %s", phone.Extension)) + "\n\n"
+	content := infoStyle.Render(fmt.Sprintf("📱 Phone Details: %s", phone.Extension)) + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	// Phone info output if available
 	if m.voipPhoneOutput != "" {
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-		content += m.voipPhoneOutput + "\n"
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+		content += successStyle.Render("📋 Last Operation:") + "\n"
+		content += "┌─────────────────────────────────────┐\n"
+		outputLines := strings.Split(m.voipPhoneOutput, "\n")
+		for _, line := range outputLines {
+			if line != "" {
+				content += "│ " + line + "\n"
+			}
+		}
+		content += "└─────────────────────────────────────┘\n\n"
 	}
 	
-	// Basic information
-	content += "📊 Basic Information:\n"
-	content += fmt.Sprintf("  Extension: %s\n", successStyle.Render(phone.Extension))
-	content += fmt.Sprintf("  IP Address: %s\n", phone.IP)
-	content += fmt.Sprintf("  Status: %s\n", phone.Status)
-	if phone.UserAgent != "" {
-		content += fmt.Sprintf("  User Agent: %s\n", phone.UserAgent)
+	// Basic information in a nice box
+	content += infoStyle.Render("📊 Basic Information") + "\n"
+	content += "┌─────────────────────────────────────┐\n"
+	content += fmt.Sprintf("│ Extension:   %s\n", successStyle.Render(phone.Extension))
+	content += fmt.Sprintf("│ IP Address:  %s\n", phone.IP)
+	
+	// Status with color
+	statusText := phone.Status
+	if phone.Status == "Registered" || phone.Status == "Available" || phone.Status == "online" {
+		statusText = "🟢 " + phone.Status
+	} else if phone.Status == "discovered" || phone.Status == "Manual" {
+		statusText = "🟡 " + phone.Status
+	} else {
+		statusText = "🔴 " + phone.Status
 	}
+	content += fmt.Sprintf("│ Status:      %s\n", statusText)
+	
+	if phone.UserAgent != "" {
+		content += fmt.Sprintf("│ User Agent:  %s\n", phone.UserAgent)
+	}
+	content += "└─────────────────────────────────────┘\n"
 	
 	// Show phone status details if available
 	if m.currentPhoneStatus != nil {
-		content += "\n🔧 Device Information:\n"
-		content += fmt.Sprintf("  Model: %s\n", m.currentPhoneStatus.Model)
-		content += fmt.Sprintf("  Firmware: %s\n", m.currentPhoneStatus.Firmware)
-		content += fmt.Sprintf("  MAC: %s\n", m.currentPhoneStatus.MAC)
-		content += fmt.Sprintf("  Uptime: %s\n", m.currentPhoneStatus.Uptime)
+		content += "\n" + infoStyle.Render("🔧 Device Information") + "\n"
+		content += "┌─────────────────────────────────────┐\n"
+		content += fmt.Sprintf("│ Model:       %s\n", successStyle.Render(m.currentPhoneStatus.Model))
+		content += fmt.Sprintf("│ Firmware:    %s\n", m.currentPhoneStatus.Firmware)
+		content += fmt.Sprintf("│ MAC:         %s\n", m.currentPhoneStatus.MAC)
+		content += fmt.Sprintf("│ Uptime:      %s\n", m.currentPhoneStatus.Uptime)
+		content += "└─────────────────────────────────────┘\n"
 		
 		if len(m.currentPhoneStatus.Accounts) > 0 {
-			content += "\n📞 SIP Accounts:\n"
+			content += "\n" + infoStyle.Render("📞 SIP Accounts") + "\n"
+			content += "┌─────────────────────────────────────┐\n"
 			for _, acc := range m.currentPhoneStatus.Accounts {
 				statusIcon := "🔴"
 				if acc.Status == "Registered" {
 					statusIcon = "🟢"
 				}
-				content += fmt.Sprintf("  %s Account %d: %s (%s)\n", 
+				content += fmt.Sprintf("│ %s Account %d: %s (%s)\n", 
 					statusIcon, acc.Number, acc.Extension, acc.Status)
 			}
+			content += "└─────────────────────────────────────┘\n"
 		}
 		
 		if m.currentPhoneStatus.NetworkInfo != nil {
@@ -112,21 +165,40 @@ func (m model) renderVoIPPhoneControl() string {
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
 	
-	content := infoStyle.Render(fmt.Sprintf("🎛️  Phone Control: %s", phone.Extension)) + "\n\n"
+	content := infoStyle.Render(fmt.Sprintf("🎛️  Phone Control: %s", phone.Extension)) + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	// Show operation output if any
 	if m.voipPhoneOutput != "" {
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-		content += m.voipPhoneOutput + "\n"
-		content += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+		content += successStyle.Render("📋 Output:") + "\n"
+		content += "┌─────────────────────────────────────┐\n"
+		outputLines := strings.Split(m.voipPhoneOutput, "\n")
+		for _, line := range outputLines {
+			if line != "" {
+				content += "│ " + line + "\n"
+			}
+		}
+		content += "└─────────────────────────────────────┘\n\n"
 	}
 	
-	content += "Select an operation:\n\n"
-	
+	// Render menu items with section styling
 	for i, item := range m.voipControlMenu {
+		// Check if it's a separator line
+		if strings.HasPrefix(item, "────") {
+			content += helpStyle.Render("  ─────────────────────────────────") + "\n"
+			continue
+		}
+		
+		// Check if it's a section header
+		if strings.HasSuffix(item, ":") && !strings.HasPrefix(item, "  ") {
+			content += "\n" + infoStyle.Render(item) + "\n"
+			continue
+		}
+		
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
+			// Skip separators and headers from selection
 			item = selectedItemStyle.Render(item)
 		} else {
 			item = fmt.Sprintf("%s", item)
@@ -244,22 +316,64 @@ func (m *model) initVoIPPhonesScreen() {
 	m.loadRegisteredPhones()
 }
 
-// loadRegisteredPhones loads phones from Asterisk registrations
+// loadRegisteredPhones loads phones from Asterisk registrations and database
 func (m *model) loadRegisteredPhones() {
 	if m.phoneManager == nil {
 		m.phoneManager = NewPhoneManager(m.asteriskManager)
 	}
 	
+	// Get phones from Asterisk
 	phones, err := m.phoneManager.GetRegisteredPhones()
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Failed to load phones: %v", err)
-		m.voipPhones = []PhoneInfo{}
-		return
+		m.errorMsg = fmt.Sprintf("Failed to load phones from Asterisk: %v", err)
+		phones = []PhoneInfo{}
+	}
+	
+	// Get phones from database
+	if m.db != nil {
+		dbPhones, err := GetVoIPPhones(m.db)
+		if err == nil && dbPhones != nil {
+			// Merge database phones with Asterisk phones
+			phoneMap := make(map[string]PhoneInfo)
+			
+			// Add Asterisk phones first
+			for _, p := range phones {
+				phoneMap[p.IP] = p
+			}
+			
+			// Add/update with database phones
+			for _, dbp := range dbPhones {
+				if existing, ok := phoneMap[dbp.IP]; ok {
+					// Update existing phone with DB info
+					if dbp.Extension != "" && existing.Extension == "" {
+						existing.Extension = dbp.Extension
+					}
+					if dbp.UserAgent != "" {
+						existing.UserAgent = dbp.UserAgent
+					}
+					phoneMap[dbp.IP] = existing
+				} else {
+					// Add database-only phone
+					phoneMap[dbp.IP] = PhoneInfo{
+						Extension: dbp.Extension,
+						IP:        dbp.IP,
+						Status:    dbp.Status,
+						UserAgent: dbp.UserAgent,
+					}
+				}
+			}
+			
+			// Convert map back to slice
+			phones = make([]PhoneInfo, 0, len(phoneMap))
+			for _, p := range phoneMap {
+				phones = append(phones, p)
+			}
+		}
 	}
 	
 	m.voipPhones = phones
 	if len(phones) > 0 {
-		m.successMsg = fmt.Sprintf("Found %d registered phone(s)", len(phones))
+		m.successMsg = fmt.Sprintf("Found %d phone(s)", len(phones))
 	}
 }
 
@@ -348,6 +462,21 @@ func (m *model) initVoIPControlMenu() {
 		"📡 TR-069 Management",
 		"🔗 Webhook Configuration",
 		"📊 Live Monitoring",
+		"────────────────────", // Separator
+		"📞 CTI/CSTA Operations:",
+		"  📱 Get Phone State",
+		"  ✅ Accept Call",
+		"  ❌ Reject Call",
+		"  🔚 End Call",
+		"  ⏸️  Hold Call",
+		"  ▶️  Resume Call",
+		"  📲 Dial Number",
+		"  🔢 Send DTMF",
+		"  ↗️  Blind Transfer",
+		"  🚫 Toggle DND",
+		"────────────────────", // Separator
+		"🔧 Enable CTI Features",
+		"🧪 Test CTI/SNMP",
 		"🔙 Back to Details",
 	}
 }
@@ -575,7 +704,206 @@ func (m *model) executeVoIPControlAction() {
 			m.voipPhoneOutput += "No status data available. Get phone status first."
 		}
 		
-	case 9: // Back to Details
+	case 9: // Separator - do nothing
+		// Separator line
+		
+	case 10: // CTI/CSTA header - do nothing
+		m.voipPhoneOutput = "CTI/CSTA Operations:\n\n"
+		m.voipPhoneOutput += "Computer-Telephony Integration (CTI) and\n"
+		m.voipPhoneOutput += "Computer Supported Telecommunications Applications (CSTA)\n"
+		m.voipPhoneOutput += "provide programmatic control over phone operations.\n\n"
+		m.voipPhoneOutput += "Select an operation from the menu below."
+		
+	case 11: // Get Phone State
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI operations only available for GrandStream phones"
+			return
+		}
+		state, err := gsPhone.GetPhoneState()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to get phone state: %v", err)
+		} else {
+			var output strings.Builder
+			output.WriteString("Phone State:\n\n")
+			output.WriteString(fmt.Sprintf("  DND Enabled: %v\n", state.DNDEnabled))
+			output.WriteString(fmt.Sprintf("  Forward Enabled: %v\n", state.ForwardEnabled))
+			if state.ForwardTarget != "" {
+				output.WriteString(fmt.Sprintf("  Forward Target: %s\n", state.ForwardTarget))
+			}
+			output.WriteString(fmt.Sprintf("  Message Waiting: %v\n", state.MWI))
+			output.WriteString(fmt.Sprintf("  Active Line: %d\n", state.ActiveLine))
+			if len(state.Calls) > 0 {
+				output.WriteString("\nActive Calls:\n")
+				for _, call := range state.Calls {
+					output.WriteString(fmt.Sprintf("  Line %d: %s (%s) - %s\n", 
+						call.LineID, call.RemoteNumber, call.Direction, call.State))
+				}
+			} else {
+				output.WriteString("\nNo active calls\n")
+			}
+			m.voipPhoneOutput = output.String()
+			m.successMsg = "Phone state retrieved successfully"
+		}
+		
+	case 12: // Accept Call
+		err := phoneInstance.AcceptCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to accept call: %v", err)
+		} else {
+			m.successMsg = "Accept call command sent successfully"
+		}
+		
+	case 13: // Reject Call
+		err := phoneInstance.RejectCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reject call: %v", err)
+		} else {
+			m.successMsg = "Reject call command sent successfully"
+		}
+		
+	case 14: // End Call
+		err := phoneInstance.EndCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to end call: %v", err)
+		} else {
+			m.successMsg = "End call command sent successfully"
+		}
+		
+	case 15: // Hold Call
+		err := phoneInstance.HoldCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to hold call: %v", err)
+		} else {
+			m.successMsg = "Hold call command sent successfully"
+		}
+		
+	case 16: // Resume Call
+		err := phoneInstance.ResumeCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to resume call: %v", err)
+		} else {
+			m.successMsg = "Resume call command sent successfully"
+		}
+		
+	case 17: // Dial Number
+		// Dial functionality requires interactive input which is complex in TUI
+		// Users should use the Web API or Web UI for dialing
+		m.voipPhoneOutput = "Dial Number:\n\n"
+		m.voipPhoneOutput += "To dial a number programmatically, use the Web API:\n"
+		m.voipPhoneOutput += "POST /api/grandstream/cti/operation\n"
+		m.voipPhoneOutput += "{\n"
+		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
+		m.voipPhoneOutput += "  \"operation\": \"dial\",\n"
+		m.voipPhoneOutput += "  \"number\": \"<destination>\"\n"
+		m.voipPhoneOutput += "}\n\n"
+		m.voipPhoneOutput += "Or use the Web UI for interactive dialing."
+		
+	case 18: // Send DTMF
+		m.voipPhoneOutput = "Send DTMF:\n\n"
+		m.voipPhoneOutput += "To send DTMF tones, use the Web API:\n"
+		m.voipPhoneOutput += "POST /api/phones/control\n"
+		m.voipPhoneOutput += "{\n"
+		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
+		m.voipPhoneOutput += "  \"action\": \"dtmf\",\n"
+		m.voipPhoneOutput += "  \"digits\": \"<dtmf-digits>\"\n"
+		m.voipPhoneOutput += "}"
+		
+	case 19: // Blind Transfer
+		m.voipPhoneOutput = "Blind Transfer:\n\n"
+		m.voipPhoneOutput += "To perform blind transfer, use the Web API:\n"
+		m.voipPhoneOutput += "POST /api/phones/control\n"
+		m.voipPhoneOutput += "{\n"
+		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
+		m.voipPhoneOutput += "  \"action\": \"blind_transfer\",\n"
+		m.voipPhoneOutput += "  \"target\": \"<extension>\"\n"
+		m.voipPhoneOutput += "}"
+		
+	case 20: // Toggle DND
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "DND toggle only available for GrandStream phones"
+			return
+		}
+		// Get current state first
+		state, err := gsPhone.GetPhoneState()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to get phone state: %v", err)
+			return
+		}
+		// Toggle DND
+		newDND := !state.DNDEnabled
+		err = gsPhone.SetDND(newDND)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to toggle DND: %v", err)
+		} else {
+			if newDND {
+				m.successMsg = "DND enabled successfully"
+			} else {
+				m.successMsg = "DND disabled successfully"
+			}
+		}
+		
+	case 21: // Separator - do nothing
+		// Separator line
+		
+	case 22: // Enable CTI Features
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI features only available for GrandStream phones"
+			return
+		}
+		// Enable CTI with SNMP
+		snmpConfig := &SNMPConfig{
+			Enabled:   true,
+			Community: "public",
+			Version:   "v2c",
+		}
+		err := gsPhone.EnableCTIFeatures(true, snmpConfig)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to enable CTI features: %v", err)
+		} else {
+			m.successMsg = "CTI and SNMP features enabled successfully"
+			m.voipPhoneOutput = "CTI Features Enabled:\n\n"
+			m.voipPhoneOutput += "✅ CTI API access enabled\n"
+			m.voipPhoneOutput += "✅ SNMP monitoring enabled\n"
+			m.voipPhoneOutput += "✅ Community: public\n"
+			m.voipPhoneOutput += "✅ Version: v2c\n\n"
+			m.voipPhoneOutput += "You may need to reboot the phone for all changes to take effect."
+		}
+		
+	case 23: // Test CTI/SNMP
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI test only available for GrandStream phones"
+			return
+		}
+		ctiOK, snmpOK, err := gsPhone.TestCTIFeatures()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("CTI test error: %v", err)
+		}
+		
+		var output strings.Builder
+		output.WriteString("CTI/SNMP Test Results:\n\n")
+		if ctiOK {
+			output.WriteString("✅ CTI API: Working\n")
+		} else {
+			output.WriteString("❌ CTI API: Not working or not enabled\n")
+		}
+		if snmpOK {
+			output.WriteString("✅ SNMP: Enabled\n")
+		} else {
+			output.WriteString("❌ SNMP: Not enabled\n")
+		}
+		
+		if !ctiOK || !snmpOK {
+			output.WriteString("\n💡 Use 'Enable CTI Features' to enable these features.\n")
+		}
+		
+		m.voipPhoneOutput = output.String()
+		m.successMsg = "CTI/SNMP test completed"
+		
+	case 24: // Back to Details
 		m.currentScreen = voipPhoneDetailsScreen
 	}
 }
@@ -623,6 +951,21 @@ func (m *model) executeManualIPAdd() {
 	m.phoneCredentials[ip] = map[string]string{
 		"username": username,
 		"password": password,
+	}
+	
+	// Save to database if available
+	if m.db != nil {
+		dbPhone := &VoIPPhoneDB{
+			IP:            ip,
+			Vendor:        vendor,
+			Status:        "discovered",
+			DiscoveryType: "manual",
+			UserAgent:     strings.ToUpper(vendor),
+		}
+		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
+			// Non-fatal error, just log it
+			m.errorMsg = fmt.Sprintf("Phone added but failed to save to database: %v", err)
+		}
 	}
 }
 

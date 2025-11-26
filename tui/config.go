@@ -370,6 +370,106 @@ func PrintTrunks(trunks []Trunk) {
 	fmt.Printf("Total: %d trunks\n\n", len(trunks))
 }
 
+// VoIPPhoneDB represents a VoIP phone stored in database
+type VoIPPhoneDB struct {
+	ID            int64
+	IP            string
+	MAC           string
+	Extension     string
+	Name          string
+	Vendor        string
+	Model         string
+	Firmware      string
+	Status        string
+	DiscoveryType string
+	UserAgent     string
+	CTIEnabled    bool
+	SNMPEnabled   bool
+	LastSeen      string
+}
+
+// GetVoIPPhones fetches VoIP phones from database
+func GetVoIPPhones(db *sql.DB) ([]VoIPPhoneDB, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	
+	query := `SELECT id, ip, COALESCE(mac, ''), COALESCE(extension, ''), COALESCE(name, ''),
+	          COALESCE(vendor, 'grandstream'), COALESCE(model, ''), COALESCE(firmware, ''),
+	          COALESCE(status, 'discovered'), COALESCE(discovery_type, ''), COALESCE(user_agent, ''),
+	          COALESCE(cti_enabled, 0), COALESCE(snmp_enabled, 0), COALESCE(last_seen, '')
+	          FROM voip_phones ORDER BY last_seen DESC`
+	rows, err := db.Query(query)
+	if err != nil {
+		// Table might not exist yet
+		return nil, nil
+	}
+	defer rows.Close()
+
+	var phones []VoIPPhoneDB
+	for rows.Next() {
+		var phone VoIPPhoneDB
+		if err := rows.Scan(&phone.ID, &phone.IP, &phone.MAC, &phone.Extension, &phone.Name,
+			&phone.Vendor, &phone.Model, &phone.Firmware, &phone.Status, &phone.DiscoveryType,
+			&phone.UserAgent, &phone.CTIEnabled, &phone.SNMPEnabled, &phone.LastSeen); err != nil {
+			continue
+		}
+		phones = append(phones, phone)
+	}
+
+	return phones, nil
+}
+
+// SaveVoIPPhone saves or updates a VoIP phone in the database
+func SaveVoIPPhone(db *sql.DB, phone *VoIPPhoneDB) error {
+	if db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	
+	// Check if phone already exists
+	var existingID int64
+	err := db.QueryRow("SELECT id FROM voip_phones WHERE ip = ?", phone.IP).Scan(&existingID)
+	
+	if err == sql.ErrNoRows {
+		// Insert new phone
+		query := `INSERT INTO voip_phones (ip, mac, extension, name, vendor, model, firmware, 
+		          status, discovery_type, user_agent, cti_enabled, snmp_enabled, last_seen, created_at, updated_at)
+		          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())`
+		result, err := db.Exec(query, phone.IP, phone.MAC, phone.Extension, phone.Name,
+			phone.Vendor, phone.Model, phone.Firmware, phone.Status, phone.DiscoveryType,
+			phone.UserAgent, phone.CTIEnabled, phone.SNMPEnabled)
+		if err != nil {
+			return err
+		}
+		phone.ID, _ = result.LastInsertId()
+	} else if err == nil {
+		// Update existing phone
+		phone.ID = existingID
+		query := `UPDATE voip_phones SET mac = ?, extension = ?, name = ?, vendor = ?, model = ?,
+		          firmware = ?, status = ?, discovery_type = ?, user_agent = ?, cti_enabled = ?,
+		          snmp_enabled = ?, last_seen = NOW(), updated_at = NOW() WHERE id = ?`
+		_, err = db.Exec(query, phone.MAC, phone.Extension, phone.Name, phone.Vendor, phone.Model,
+			phone.Firmware, phone.Status, phone.DiscoveryType, phone.UserAgent, phone.CTIEnabled,
+			phone.SNMPEnabled, phone.ID)
+		if err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
+	
+	return nil
+}
+
+// DeleteVoIPPhone deletes a VoIP phone from the database
+func DeleteVoIPPhone(db *sql.DB, id int64) error {
+	if db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	_, err := db.Exec("DELETE FROM voip_phones WHERE id = ?", id)
+	return err
+}
+
 // PrintSystemStatus displays system status
 func PrintSystemStatus(db *sql.DB) {
 	cyan := color.New(color.FgCyan, color.Bold)

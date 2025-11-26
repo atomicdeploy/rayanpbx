@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\VoipPhone;
 use App\Services\GrandStreamProvisioningService;
 use App\Services\TR069Service;
 use Illuminate\Http\Request;
@@ -28,17 +29,99 @@ class PhoneController extends Controller
     }
 
     /**
-     * List all phones (from Asterisk registrations)
+     * List all phones (from database and Asterisk registrations)
      */
     public function index(Request $request)
     {
-        $phones = $this->grandstreamService->discoverPhones();
+        // Get phones from database
+        $dbPhones = VoipPhone::orderBy('last_seen', 'desc')->get();
+        
+        // Get phones from Asterisk registrations
+        $discoveredPhones = $this->grandstreamService->discoverPhones();
+        $sipPhones = $discoveredPhones['phones'] ?? [];
+        
+        // Merge database phones with discovered phones
+        $phones = $dbPhones->map(function ($phone) {
+            return [
+                'id' => $phone->id,
+                'ip' => $phone->ip,
+                'mac' => $phone->mac,
+                'extension' => $phone->extension,
+                'name' => $phone->getDisplayName(),
+                'vendor' => $phone->vendor,
+                'model' => $phone->model,
+                'firmware' => $phone->firmware,
+                'status' => $phone->status,
+                'discovery_type' => $phone->discovery_type,
+                'user_agent' => $phone->user_agent,
+                'cti_enabled' => $phone->cti_enabled,
+                'snmp_enabled' => $phone->snmp_enabled,
+                'last_seen' => $phone->last_seen?->toIso8601String(),
+                'source' => 'database',
+            ];
+        })->toArray();
+        
+        // Add any SIP-registered phones not in database
+        foreach ($sipPhones as $sipPhone) {
+            $exists = collect($phones)->firstWhere('ip', $sipPhone['ip'] ?? null);
+            if (!$exists && !empty($sipPhone['ip'])) {
+                $phones[] = array_merge($sipPhone, [
+                    'source' => 'asterisk',
+                    'status' => 'registered',
+                ]);
+            }
+        }
         
         return response()->json([
             'success' => true,
-            'phones' => $phones['phones'] ?? [],
-            'total' => count($phones['phones'] ?? []),
+            'phones' => array_values($phones),
+            'total' => count($phones),
         ]);
+    }
+
+    /**
+     * Store a new phone
+     */
+    public function store(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip|unique:voip_phones,ip',
+            'mac' => 'nullable|string|max:17',
+            'extension' => 'nullable|string|max:32',
+            'name' => 'nullable|string|max:100',
+            'vendor' => 'nullable|string|max:50',
+            'model' => 'nullable|string|max:50',
+            'credentials' => 'nullable|array',
+            'credentials.username' => 'nullable|string|max:50',
+            'credentials.password' => 'nullable|string|max:128',
+            'discovery_type' => 'nullable|string|max:20',
+        ]);
+
+        // Only allow expected credential fields
+        $credentials = null;
+        if ($request->has('credentials')) {
+            $creds = $request->input('credentials');
+            $credentials = array_intersect_key($creds, ['username' => true, 'password' => true]);
+        }
+
+        $phone = VoipPhone::create([
+            'ip' => $request->input('ip'),
+            'mac' => $request->input('mac'),
+            'extension' => $request->input('extension'),
+            'name' => $request->input('name'),
+            'vendor' => $request->input('vendor', 'grandstream'),
+            'model' => $request->input('model'),
+            'credentials' => $credentials,
+            'discovery_type' => $request->input('discovery_type', 'manual'),
+            'status' => 'discovered',
+            'last_seen' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'phone' => $phone,
+            'message' => 'Phone added successfully',
+        ], 201);
     }
 
     /**
@@ -46,8 +129,14 @@ class PhoneController extends Controller
      */
     public function show(Request $request, $identifier)
     {
-        // Identifier can be IP, MAC, or extension
-        $ip = $this->resolvePhoneIP($identifier);
+        // Try to find in database first
+        $phone = VoipPhone::where('ip', $identifier)
+            ->orWhere('mac', $identifier)
+            ->orWhere('extension', $identifier)
+            ->first();
+        
+        // Fallback to IP resolution for SIP-only phones
+        $ip = $phone ? $phone->ip : $this->resolvePhoneIP($identifier);
         
         if (!$ip) {
             return response()->json([
@@ -56,12 +145,66 @@ class PhoneController extends Controller
             ], 404);
         }
 
-        $credentials = $request->input('credentials', []);
+        $credentials = $phone ? $phone->getCredentialsForApi() : $request->input('credentials', []);
         $status = $this->grandstreamService->getPhoneStatus($ip, $credentials);
+
+        // Update phone record if it exists
+        if ($phone && $status['success'] ?? false) {
+            $phone->update([
+                'status' => 'online',
+                'last_seen' => now(),
+                'model' => $status['model'] ?? $phone->model,
+                'firmware' => $status['firmware'] ?? $phone->firmware,
+                'mac' => $status['mac'] ?? $phone->mac,
+            ]);
+        }
 
         return response()->json([
             'success' => true,
-            'phone' => $status,
+            'phone' => $phone ? $phone->toArray() : null,
+            'status' => $status,
+        ]);
+    }
+
+    /**
+     * Update phone
+     */
+    public function update(Request $request, $id)
+    {
+        $phone = VoipPhone::findOrFail($id);
+        
+        $request->validate([
+            'ip' => 'sometimes|ip|unique:voip_phones,ip,' . $phone->id,
+            'mac' => 'nullable|string|max:17',
+            'extension' => 'nullable|string|max:32',
+            'name' => 'nullable|string|max:100',
+            'vendor' => 'nullable|string|max:50',
+            'model' => 'nullable|string|max:50',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $phone->update($request->only([
+            'ip', 'mac', 'extension', 'name', 'vendor', 'model', 'credentials'
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'phone' => $phone,
+            'message' => 'Phone updated successfully',
+        ]);
+    }
+
+    /**
+     * Delete phone
+     */
+    public function destroy($id)
+    {
+        $phone = VoipPhone::findOrFail($id);
+        $phone->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Phone deleted successfully',
         ]);
     }
 
@@ -80,7 +223,10 @@ class PhoneController extends Controller
 
         $ip = $request->input('ip');
         $action = $request->input('action');
-        $credentials = $request->input('credentials', []);
+        
+        // Try to get credentials from database
+        $phone = VoipPhone::where('ip', $ip)->first();
+        $credentials = $phone ? $phone->getCredentialsForApi() : $request->input('credentials', []);
 
         // Additional validation for destructive actions
         if ($action === 'factory_reset' && !$request->input('confirm_destructive', false)) {
@@ -121,12 +267,24 @@ class PhoneController extends Controller
 
         $extension = \App\Models\Extension::findOrFail($request->extension_id);
         
+        // Get phone from database to use stored credentials
+        $phone = VoipPhone::where('ip', $request->input('ip'))->first();
+        $credentials = $phone ? $phone->getCredentialsForApi() : $request->input('credentials', []);
+        
         $result = $this->grandstreamService->provisionExtensionToPhone(
             $request->input('ip'),
             $extension->toArray(),
             $request->input('account_number', 1),
-            $request->input('credentials', [])
+            $credentials
         );
+
+        // Update phone record with extension association
+        if ($phone && ($result['success'] ?? false)) {
+            $phone->update([
+                'extension' => $extension->extension_number,
+                'last_seen' => now(),
+            ]);
+        }
 
         return response()->json($result);
     }
@@ -204,6 +362,21 @@ class PhoneController extends Controller
             'event' => $event,
             'data' => $data,
         ]);
+
+        // Update phone status based on event
+        if (!empty($data['ip'])) {
+            $phone = VoipPhone::where('ip', $data['ip'])->first();
+            if ($phone) {
+                $phone->update(['last_seen' => now()]);
+                
+                // Update status based on event
+                if (in_array($event, ['registration', 'registered'])) {
+                    $phone->update(['status' => 'registered']);
+                } elseif ($event === 'unregistered') {
+                    $phone->update(['status' => 'offline']);
+                }
+            }
+        }
 
         // Process webhook based on event type
         switch ($event) {
@@ -302,6 +475,23 @@ class PhoneController extends Controller
     {
         try {
             $result = $this->grandstreamService->discoverPhones();
+            
+            // Auto-add discovered GrandStream phones to database
+            foreach ($result['devices'] ?? [] as $device) {
+                if (!empty($device['ip']) && ($device['vendor'] ?? '') === 'GrandStream') {
+                    VoipPhone::updateOrCreate(
+                        ['ip' => $device['ip']],
+                        [
+                            'mac' => $device['mac'] ?? null,
+                            'vendor' => 'grandstream',
+                            'model' => $device['model'] ?? null,
+                            'discovery_type' => $device['discovery_type'] ?? 'auto',
+                            'status' => 'discovered',
+                            'last_seen' => now(),
+                        ]
+                    );
+                }
+            }
             
             return response()->json([
                 'success' => true,

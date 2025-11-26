@@ -232,5 +232,91 @@ export const useApi = () => {
     async discoverPhones() {
       return apiFetch('/phones/discover')
     },
+
+    // CTI/CSTA Operations
+    async getCTIStatus(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/status', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async getLineStatus(ip: string, lineId: number, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/line-status', {
+        method: 'POST',
+        body: { ip, line_id: lineId, credentials },
+      })
+    },
+
+    async executeCTIOperation(ip: string, operation: string, params: any = {}, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/operation', {
+        method: 'POST',
+        body: { ip, operation, credentials, ...params },
+      })
+    },
+
+    async displayLCDMessage(ip: string, message: string, duration?: number, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/lcd-message', {
+        method: 'POST',
+        body: { ip, message, duration, credentials },
+      })
+    },
+
+    async takeScreenshot(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/screenshot', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async enableCTI(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/enable', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async disableCTI(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/disable', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async provisionCTIFeatures(ip: string, enableCti = true, enableSnmp = true, snmpConfig: any = {}, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/provision', {
+        method: 'POST',
+        body: { ip, enable_cti: enableCti, enable_snmp: enableSnmp, snmp_config: snmpConfig, credentials },
+      })
+    },
+
+    async testCTIFeatures(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/cti/test', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    // SNMP Operations
+    async enableSNMP(ip: string, snmpConfig: any = {}, credentials: any = {}) {
+      return apiFetch('/grandstream/snmp/enable', {
+        method: 'POST',
+        body: { ip, snmp_config: snmpConfig, credentials },
+      })
+    },
+
+    async disableSNMP(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/snmp/disable', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async getSNMPStatus(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/snmp/status', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
   }
 }
