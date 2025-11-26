@@ -538,7 +538,7 @@ query_pollinations_ai() {
     if [ "$total_lines" -gt "$max_lines" ]; then
         printf '%s\n' "$response" | head -n "$max_lines" | sed -z 's/\n+$//'
         echo ""
-        echo -e "${DIM}\($(($total_lines - $max_lines)) more lines available...\)${RESET}"
+        echo -e "${DIM}($(($total_lines - $max_lines)) more lines available...)${RESET}"
         echo ""
         echo -e "📄 ${YELLOW}To view the full response run:${RESET}"
         echo -e "   less ${DIM}$AI_RESPONSE_FILE${RESET}"
