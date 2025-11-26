@@ -360,7 +360,7 @@ jobs:
           fi
           
           # Test --version option
-          output=$(bash install.sh --version 2>&1 || true)
+          output=$(bash install.sh --version 2>&1 | sed 's/\x1b\[[0-9;]*[mGKH]//g' || true)
           if echo "$output" | grep -q "RayanPBX Installation Script v"; then
             echo "✅ --version flag working correctly"
           else
@@ -369,7 +369,7 @@ jobs:
           fi
           
           # Test -V short option
-          output=$(bash install.sh -V 2>&1 || true)
+          output=$(bash install.sh -V 2>&1 | sed 's/\x1b\[[0-9;]*[mGKH]//g' || true)
           if echo "$output" | grep -q "RayanPBX Installation Script v"; then
             echo "✅ -V flag working correctly"
           else
