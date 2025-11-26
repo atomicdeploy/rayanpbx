@@ -1155,7 +1155,7 @@ func viewConfigInput(m model, isAdd bool) string {
 		
 		line := fmt.Sprintf("%s %s: %s", cursor, field, value)
 		if m.inputCursor == i {
-			s.WriteString(selectedItemStyle.Render(line + "█"))
+			s.WriteString(configSelectedStyle.Render(line + "█"))
 		} else {
 			s.WriteString(line)
 		}
