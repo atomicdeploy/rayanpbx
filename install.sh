@@ -3027,56 +3027,93 @@ if next_step "RayanPBX Source Code" "source"; then
         print_success "Repository cloned"
     fi
 
-    # Now configure AMI if we skipped earlier
-    if [ ! -f "/etc/asterisk/manager.conf.rayanpbx-configured" ]; then
-        # Use ami-tools.sh (preferred) or ini-helper.sh as fallback
-        if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
-            source /opt/rayanpbx/scripts/ami-tools.sh
-            configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"
-        elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
-            source /opt/rayanpbx/scripts/ini-helper.sh
-            modify_manager_conf "rayanpbx_ami_secret"
-        fi
-        touch /etc/asterisk/manager.conf.rayanpbx-configured
+    # Now configure AMI if needed
+    # First, check if manager.conf already has valid AMI credentials
+    local ami_configured=false
+    local existing_ami_secret=""
+    local existing_ami_username=""
+    
+    if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
+        source /opt/rayanpbx/scripts/ami-tools.sh
         
-        print_progress "Reloading Asterisk to apply AMI configuration..."
-        if systemctl reload asterisk > /dev/null 2>&1; then
-            print_verbose "Asterisk reload command completed"
-        else
-            print_verbose "Asterisk reload command had issues, will check status"
-        fi
-        
-        sleep 2
-        # Check if it's running and handle any errors
-        if ! check_asterisk_status "Asterisk reload after AMI configuration" "true"; then
-            print_warning "Asterisk reload encountered an issue"
+        # Try to extract existing credentials
+        existing_ami_username=$(extract_ami_username "/etc/asterisk/manager.conf" 2>/dev/null || echo "")
+        if [ -n "$existing_ami_username" ] && [ "$existing_ami_username" != "general" ]; then
+            existing_ami_secret=$(extract_ami_secret "/etc/asterisk/manager.conf" "$existing_ami_username" 2>/dev/null || echo "")
             
-            # Try a full restart if reload failed
-            print_info "Attempting a full restart instead of reload..."
-            if systemctl restart asterisk > /dev/null 2>&1; then
-                sleep 2
-                if check_asterisk_status "Asterisk restart after AMI configuration" "true"; then
-                    print_success "Asterisk restarted successfully"
+            if [ -n "$existing_ami_secret" ]; then
+                # Test if the existing credentials work
+                if test_ami_connection "127.0.0.1" "5038" "$existing_ami_username" "$existing_ami_secret" 2>/dev/null; then
+                    ami_configured=true
+                    print_success "Using existing AMI credentials from manager.conf"
+                    print_verbose "AMI Username: $existing_ami_username"
                 else
-                    print_error "Failed to restart Asterisk after AMI configuration"
-                    print_info "You may need to configure Asterisk manually"
+                    print_verbose "Existing AMI credentials found but connection test failed"
+                fi
+            fi
+        fi
+        
+        if [ "$ami_configured" = false ]; then
+            print_progress "Configuring AMI in manager.conf..."
+            configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"
+            existing_ami_username="admin"
+            existing_ami_secret="rayanpbx_ami_secret"
+            
+            print_progress "Reloading Asterisk to apply AMI configuration..."
+            if systemctl reload asterisk > /dev/null 2>&1; then
+                print_verbose "Asterisk reload command completed"
+            else
+                print_verbose "Asterisk reload command had issues, will check status"
+            fi
+            
+            sleep 2
+            # Check if it's running and handle any errors
+            if ! check_asterisk_status "Asterisk reload after AMI configuration" "true"; then
+                print_warning "Asterisk reload encountered an issue"
+                
+                # Try a full restart if reload failed
+                print_info "Attempting a full restart instead of reload..."
+                if systemctl restart asterisk > /dev/null 2>&1; then
+                    sleep 2
+                    if check_asterisk_status "Asterisk restart after AMI configuration" "true"; then
+                        print_success "Asterisk restarted successfully"
+                    else
+                        print_error "Failed to restart Asterisk after AMI configuration"
+                        print_info "You may need to configure Asterisk manually"
+                    fi
+                else
+                    print_error "Failed to restart Asterisk"
+                    print_cmd "systemctl status asterisk  # Check Asterisk status"
                 fi
             else
-                print_error "Failed to restart Asterisk"
-                print_cmd "systemctl status asterisk  # Check Asterisk status"
-            fi
-        else
-            print_success "Asterisk configuration reloaded successfully"
-            
-            # Verify AMI connection
-            if type test_ami_connection &> /dev/null; then
-                if test_ami_connection "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret"; then
+                print_success "Asterisk configuration reloaded successfully"
+                
+                # Verify AMI connection
+                if test_ami_connection "127.0.0.1" "5038" "$existing_ami_username" "$existing_ami_secret"; then
                     print_success "AMI connection verified"
                 else
                     print_warning "AMI connection test failed - may need manual configuration"
                 fi
             fi
         fi
+        
+        # Store AMI credentials for later use in .env configuration
+        RAYANPBX_AMI_USERNAME="$existing_ami_username"
+        RAYANPBX_AMI_SECRET="$existing_ami_secret"
+    elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
+        source /opt/rayanpbx/scripts/ini-helper.sh
+        modify_manager_conf "rayanpbx_ami_secret"
+        RAYANPBX_AMI_USERNAME="admin"
+        RAYANPBX_AMI_SECRET="rayanpbx_ami_secret"
+        
+        print_progress "Reloading Asterisk to apply AMI configuration..."
+        if systemctl reload asterisk > /dev/null 2>&1; then
+            print_verbose "Asterisk reload command completed"
+        else
+            print_verbose "Asterisk reload command had issues"
+        fi
+        sleep 2
+        check_asterisk_status "Asterisk reload after AMI configuration" "true" || true
     fi
 fi
 
@@ -3096,6 +3133,16 @@ if next_step "Environment Configuration" "env-config"; then
     sed -i "s|DB_DATABASE=.*|DB_DATABASE=rayanpbx|" .env
     sed -i "s|DB_USERNAME=.*|DB_USERNAME=rayanpbx|" .env
     print_verbose "Database credentials updated in .env"
+
+    # Configure AMI credentials (use values extracted from manager.conf)
+    if [ -n "${RAYANPBX_AMI_USERNAME:-}" ]; then
+        sed -i "s|ASTERISK_AMI_USERNAME=.*|ASTERISK_AMI_USERNAME=$RAYANPBX_AMI_USERNAME|" .env
+        print_verbose "AMI username configured: $RAYANPBX_AMI_USERNAME"
+    fi
+    if [ -n "${RAYANPBX_AMI_SECRET:-}" ]; then
+        sed -i "s|ASTERISK_AMI_SECRET=.*|ASTERISK_AMI_SECRET=$RAYANPBX_AMI_SECRET|" .env
+        print_verbose "AMI secret configured from manager.conf"
+    fi
 
     # Generate JWT secret if not already set
     if ! grep -q "JWT_SECRET=.\{10,\}" .env; then
