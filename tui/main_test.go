@@ -929,3 +929,182 @@ func TestVoIPControlMenuRollover(t *testing.T) {
 		t.Errorf("Expected cursor to rollover to 0 (first), got %d", m.cursor)
 	}
 }
+
+// TestExtractCommandParams tests extracting parameter placeholders from commands
+func TestExtractCommandParams(t *testing.T) {
+	testCases := []struct {
+		command    string
+		wantParams []string
+		hasParams  bool
+	}{
+		{
+			command:    "rayanpbx-cli extension create <num> <name> <pass>",
+			wantParams: []string{"num", "name", "pass"},
+			hasParams:  true,
+		},
+		{
+			command:    "rayanpbx-cli extension status <num>",
+			wantParams: []string{"num"},
+			hasParams:  true,
+		},
+		{
+			command:    "rayanpbx-cli extension list",
+			wantParams: nil,
+			hasParams:  false,
+		},
+		{
+			command:    "rayanpbx-cli diag test-trunk <name>",
+			wantParams: []string{"name"},
+			hasParams:  true,
+		},
+		{
+			command:    "",
+			wantParams: nil,
+			hasParams:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		params, hasParams := extractCommandParams(tc.command)
+		
+		if hasParams != tc.hasParams {
+			t.Errorf("extractCommandParams(%q) hasParams = %v, expected %v", tc.command, hasParams, tc.hasParams)
+		}
+		
+		if len(params) != len(tc.wantParams) {
+			t.Errorf("extractCommandParams(%q) got %d params, expected %d", tc.command, len(params), len(tc.wantParams))
+			continue
+		}
+		
+		for i, param := range params {
+			if param != tc.wantParams[i] {
+				t.Errorf("extractCommandParams(%q) params[%d] = %q, expected %q", tc.command, i, param, tc.wantParams[i])
+			}
+		}
+	}
+}
+
+// TestSubstituteCommandParams tests substituting parameter values in commands
+func TestSubstituteCommandParams(t *testing.T) {
+	testCases := []struct {
+		template string
+		values   []string
+		expected string
+	}{
+		{
+			template: "rayanpbx-cli extension create <num> <name> <pass>",
+			values:   []string{"100", "John Doe", "secret123"},
+			expected: `rayanpbx-cli extension create 100 "John Doe" secret123`,
+		},
+		{
+			template: "rayanpbx-cli extension status <num>",
+			values:   []string{"100"},
+			expected: "rayanpbx-cli extension status 100",
+		},
+		{
+			template: "rayanpbx-cli diag test-trunk <name>",
+			values:   []string{"ShatelTrunk"},
+			expected: "rayanpbx-cli diag test-trunk ShatelTrunk",
+		},
+		{
+			template: "rayanpbx-cli extension list",
+			values:   []string{},
+			expected: "rayanpbx-cli extension list",
+		},
+	}
+
+	for _, tc := range testCases {
+		result := substituteCommandParams(tc.template, tc.values)
+		if result != tc.expected {
+			t.Errorf("substituteCommandParams(%q, %v) = %q, expected %q", tc.template, tc.values, result, tc.expected)
+		}
+	}
+}
+
+// TestParameterizedCommandDetection tests that parameterized commands are properly detected
+func TestParameterizedCommandDetection(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = usageScreen
+	m.usageCommands = getUsageCommands()
+	
+	// Test a command with parameters
+	cmd := m.executeCommand("rayanpbx-cli extension create <num> <name> <pass>")
+	
+	// Should switch to input mode
+	if !m.inputMode {
+		t.Error("Expected inputMode to be true for parameterized command")
+	}
+	
+	// Should switch to usageInputScreen
+	if m.currentScreen != usageInputScreen {
+		t.Errorf("Expected currentScreen to be usageInputScreen, got %d", m.currentScreen)
+	}
+	
+	// Should have 3 input fields
+	if len(m.inputFields) != 3 {
+		t.Errorf("Expected 3 input fields, got %d", len(m.inputFields))
+	}
+	
+	// Should have stored the command template
+	if m.usageCommandTemplate != "rayanpbx-cli extension create <num> <name> <pass>" {
+		t.Errorf("Expected usageCommandTemplate to be set, got %q", m.usageCommandTemplate)
+	}
+	
+	// Should return nil cmd since we're switching to input mode
+	if cmd != nil {
+		t.Error("Expected nil cmd for parameterized command")
+	}
+}
+
+// TestUsageInputScreenRendering tests that the usage input screen renders correctly
+func TestUsageInputScreenRendering(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = usageInputScreen
+	m.inputMode = true
+	m.usageCommandTemplate = "rayanpbx-cli extension create <num> <name> <pass>"
+	m.inputFields = []string{"num", "name", "pass"}
+	m.inputValues = []string{"100", "", ""}
+	m.inputCursor = 1
+	
+	output := m.renderUsageInput()
+	
+	// Should contain the command template
+	if !strings.Contains(output, "rayanpbx-cli extension create") {
+		t.Error("Expected output to contain command template")
+	}
+	
+	// Should contain the field names
+	if !strings.Contains(output, "num") || !strings.Contains(output, "name") || !strings.Contains(output, "pass") {
+		t.Error("Expected output to contain field names")
+	}
+	
+	// Should contain the entered value
+	if !strings.Contains(output, "100") {
+		t.Error("Expected output to contain entered value '100'")
+	}
+}
+
+// TestUsageInputScreenNavigation tests navigation in the usage input screen
+func TestUsageInputScreenNavigation(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = usageInputScreen
+	m.inputMode = true
+	m.usageCommandTemplate = "test <a> <b> <c>"
+	m.inputFields = []string{"a", "b", "c"}
+	m.inputValues = []string{"", "", ""}
+	m.inputCursor = 0
+	
+	// Test ESC cancels and returns to usage screen
+	result, _ := m.handleInputMode(tea.KeyMsg{Type: tea.KeyEsc})
+	newModel := result.(model)
+	
+	if newModel.inputMode {
+		t.Error("Expected inputMode to be false after ESC")
+	}
+	if newModel.currentScreen != usageScreen {
+		t.Errorf("Expected currentScreen to be usageScreen after ESC, got %d", newModel.currentScreen)
+	}
+	if newModel.usageCommandTemplate != "" {
+		t.Error("Expected usageCommandTemplate to be cleared after ESC")
+	}
+}

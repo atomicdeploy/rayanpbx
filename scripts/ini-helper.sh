@@ -54,6 +54,78 @@ ensure_ini_section() {
     fi
 }
 
+# Normalize/reorder keys in a section to a known working order
+# This is crucial for Asterisk manager.conf where ACL order matters
+# (deny must come before permit for proper ACL evaluation)
+normalize_ini_section() {
+    local file="$1"
+    local section="$2"
+    # Expected key order (space-separated)
+    local key_order="$3"
+    
+    [ ! -f "$file" ] && return 1
+    
+    # Extract all key=value pairs from the section
+    local section_start
+    section_start=$(grep -n "^\[$section\]" "$file" | head -1 | cut -d: -f1)
+    [ -z "$section_start" ] && return 1
+    
+    # Find section end (next section or end of file)
+    local section_end
+    section_end=$(tail -n +$((section_start + 1)) "$file" | grep -n "^\[" | head -1 | cut -d: -f1)
+    if [ -z "$section_end" ]; then
+        section_end=$(wc -l < "$file")
+    else
+        section_end=$((section_start + section_end - 1))
+    fi
+    
+    # Extract key-value pairs from section (excluding comments and section header)
+    local pairs=()
+    local line_num=$((section_start + 1))
+    while [ $line_num -le $section_end ]; do
+        local line
+        line=$(sed -n "${line_num}p" "$file")
+        # Skip comments and empty lines, only process key=value lines
+        if [[ -n "$line" ]] && [[ ! "$line" =~ ^[[:space:]]*[\;#] ]] && [[ "$line" =~ = ]]; then
+            pairs+=("$line")
+        fi
+        line_num=$((line_num + 1))
+    done
+    
+    # Build ordered output
+    local ordered_pairs=()
+    for key in $key_order; do
+        for pair in "${pairs[@]}"; do
+            if [[ "$pair" =~ ^[[:space:]]*${key}[[:space:]]*= ]]; then
+                ordered_pairs+=("$pair")
+                break
+            fi
+        done
+    done
+    
+    # Add any pairs not in the order list (preserve custom settings)
+    for pair in "${pairs[@]}"; do
+        local found=false
+        for ordered in "${ordered_pairs[@]}"; do
+            [ "$pair" = "$ordered" ] && { found=true; break; }
+        done
+        [ "$found" = false ] && ordered_pairs+=("$pair")
+    done
+    
+    # Reconstruct the section
+    # Remove old section content (keep header)
+    sed -i "$((section_start + 1)),${section_end}d" "$file"
+    
+    # Insert ordered pairs after section header
+    local insert_line=$section_start
+    for pair in "${ordered_pairs[@]}"; do
+        sed -i "${insert_line}a\\${pair}" "$file"
+        insert_line=$((insert_line + 1))
+    done
+    
+    return 0
+}
+
 # Helper function to calculate file checksum
 calculate_file_checksum() {
     local file="$1"
@@ -145,6 +217,11 @@ modify_manager_conf() {
     set_ini_value "$file" "admin" "permit" "127.0.0.1/255.255.255.255"
     set_ini_value "$file" "admin" "read" "all"
     set_ini_value "$file" "admin" "write" "all"
+    
+    # Normalize section order - critical for Asterisk AMI
+    # deny must come before permit for proper ACL evaluation
+    normalize_ini_section "$file" "general" "enabled port bindaddr"
+    normalize_ini_section "$file" "admin" "secret deny permit read write"
     
     echo "Modified $file successfully"
 }
