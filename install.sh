@@ -74,6 +74,7 @@ declare -a ALL_STEPS=(
     "go:Go 1.23 Installation"
     "asterisk:Asterisk 22 Installation"
     "asterisk-ami:Asterisk AMI Configuration"
+    "asterisk-git:Asterisk Config Version Control"
     "source:RayanPBX Source Code"
     "env-config:Environment Configuration"
     "backend:Backend API Setup"
@@ -2920,6 +2921,93 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
         echo ""
         
         print_warning "Continuing with installation, but Asterisk may need additional configuration"
+    fi
+fi
+
+# Initialize /etc/asterisk as a Git repository for version control
+if next_step "Asterisk Config Version Control" "asterisk-git"; then
+    print_info "Setting up version control for Asterisk configuration..."
+    
+    ASTERISK_CONFIG_DIR="/etc/asterisk"
+    
+    # Check if directory exists
+    if [ ! -d "$ASTERISK_CONFIG_DIR" ]; then
+        print_warning "Asterisk configuration directory not found: $ASTERISK_CONFIG_DIR"
+        print_info "This step will be completed after Asterisk is installed"
+    else
+        # Check if already a Git repository
+        if [ -d "$ASTERISK_CONFIG_DIR/.git" ]; then
+            print_success "Git repository already initialized in $ASTERISK_CONFIG_DIR"
+        else
+            print_progress "Initializing Git repository in $ASTERISK_CONFIG_DIR..."
+            
+            cd "$ASTERISK_CONFIG_DIR"
+            
+            # Initialize Git repository
+            git init > /dev/null 2>&1
+            
+            # Create .gitignore to exclude backups directory and other non-essential files
+            cat > "$ASTERISK_CONFIG_DIR/.gitignore" << 'GITIGNORE_EOF'
+# RayanPBX Asterisk Config .gitignore
+# This file specifies intentionally untracked files to ignore
+
+# Backup directories - these are managed separately
+backups/
+backup/
+*.backup
+*.bak
+*.old
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Log files (these can be large and are managed by syslog)
+*.log
+
+# Runtime/PID files
+*.pid
+*.sock
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.*.swp
+GITIGNORE_EOF
+            
+            # Configure Git user for this repository
+            git config user.email "rayanpbx@localhost"
+            git config user.name "RayanPBX"
+            
+            # Add all files and create initial commit
+            git add -A
+            git commit -m "[initial] Asterisk configuration initialized by RayanPBX
+
+Timestamp: $(date '+%Y-%m-%d %H:%M:%S %Z')
+Source: RayanPBX Installer
+Why: Initial snapshot of Asterisk configuration for version control and backup
+
+This repository tracks all changes to Asterisk configuration files.
+Use 'asterisk-git-commit.sh history' to view change history.
+Use 'asterisk-git-commit.sh revert <hash>' to revert to a previous state.
+
+---
+Committed by RayanPBX v${SCRIPT_VERSION}" > /dev/null 2>&1
+            
+            # Set proper ownership
+            chown -R asterisk:asterisk "$ASTERISK_CONFIG_DIR/.git" 2>/dev/null || true
+            chown asterisk:asterisk "$ASTERISK_CONFIG_DIR/.gitignore" 2>/dev/null || true
+            
+            print_success "Git repository initialized in $ASTERISK_CONFIG_DIR"
+            print_info "Configuration changes will now be tracked for version control"
+            print_verbose "View history: asterisk-git-commit.sh history"
+        fi
     fi
 fi
 
