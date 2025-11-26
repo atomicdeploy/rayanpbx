@@ -129,14 +129,16 @@ install_tools() {
         sipexer)
             # sipexer is a Go-based SIP testing tool
             # See: https://github.com/miconda/sipexer
+            # Pin to v1.2.0 for reproducible builds
+            SIPEXER_VERSION="v1.2.0"
             if ! command_exists go; then
                 print_warning "Go is required to install sipexer"
                 print_info "Install Go first: apt-get install golang-go"
                 return 1
             fi
             
-            print_info "Installing sipexer from source..."
-            go install github.com/miconda/sipexer@latest > /dev/null 2>&1
+            print_info "Installing sipexer $SIPEXER_VERSION from source..."
+            go install github.com/miconda/sipexer@${SIPEXER_VERSION} > /dev/null 2>&1
             
             # Add Go bin to PATH if not already there
             if [ -d "$HOME/go/bin" ]; then

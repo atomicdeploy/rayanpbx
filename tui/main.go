@@ -100,6 +100,9 @@ var sipTestScriptPaths = []string{
 // SIP testing tools that can be installed
 var sipTools = []string{"pjsua", "sipsak", "sipexer", "sipp"}
 
+// Version display constants
+const maxVersionDisplayLength = 50
+
 // Default extension values
 const (
 	DefaultExtensionContext   = "from-internal"
@@ -2790,6 +2793,50 @@ func getToolPath(tool string) string {
 	return strings.TrimSpace(string(output))
 }
 
+// getToolVersion returns the version string of an installed tool
+func getToolVersion(tool string) string {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return ""
+	}
+	
+	var cmd *exec.Cmd
+	switch tool {
+	case "pjsua":
+		// pjsua uses --version
+		cmd = exec.Command("pjsua", "--version")
+	case "sipsak":
+		// sipsak uses -V (version flag)
+		cmd = exec.Command("sipsak", "-V")
+	case "sipexer":
+		// sipexer uses -version
+		cmd = exec.Command("sipexer", "-version")
+	case "sipp":
+		// sipp uses -v
+		cmd = exec.Command("sipp", "-v")
+	default:
+		return ""
+	}
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Tool exists but version command failed - return empty to trigger fallback
+		return ""
+	}
+	
+	// Extract first line and trim
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > 0 {
+		version := strings.TrimSpace(lines[0])
+		// Limit version string length for display
+		if len(version) > maxVersionDisplayLength {
+			version = version[:maxVersionDisplayLength-3] + "..."
+		}
+		return version
+	}
+	return ""
+}
+
 // isValidExtension validates an extension number (alphanumeric only)
 func isValidExtension(ext string) bool {
 	if ext == "" || len(ext) > 20 {
@@ -2856,8 +2903,14 @@ func getSipToolsStatus() string {
 	installedCount := 0
 	for _, tool := range sipTools {
 		if checkToolInstalled(tool) {
-			path := getToolPath(tool)
-			output.WriteString(fmt.Sprintf("✅ %s: Installed (%s)\n", tool, path))
+			version := getToolVersion(tool)
+			if version != "" {
+				output.WriteString(fmt.Sprintf("✅ %s: %s\n", tool, version))
+			} else {
+				// Fallback to showing "Installed" with path if version not available
+				path := getToolPath(tool)
+				output.WriteString(fmt.Sprintf("✅ %s: Installed (%s)\n", tool, path))
+			}
 			installedCount++
 		} else {
 			output.WriteString(fmt.Sprintf("❌ %s: Not installed\n", tool))

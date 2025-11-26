@@ -78,8 +78,8 @@ func TestFormatVerboseError(t *testing.T) {
 
 // TestFormatVerboseErrorTruncation tests that long output is truncated
 func TestFormatVerboseErrorTruncation(t *testing.T) {
-	// Create a very long output
-	longOutput := strings.Repeat("x", 1000)
+	// Create a very long output (more than 1000 chars to trigger truncation)
+	longOutput := strings.Repeat("x", 1500)
 	
 	details := ErrorDetails{
 		ExitCode:   1,

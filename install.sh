@@ -2190,6 +2190,28 @@ if next_step "Essential Dependencies" "dependencies"; then
             print_verbose "$tool already installed"
         fi
     done
+    
+    # Install sipexer via Go (requires Go installation)
+    # Pin to v1.2.0 for reproducible builds - update as needed
+    SIPEXER_VERSION="v1.2.0"
+    if command -v go &> /dev/null; then
+        if ! command -v sipexer &> /dev/null; then
+            print_verbose "Installing sipexer $SIPEXER_VERSION via Go..."
+            if go install github.com/miconda/sipexer@${SIPEXER_VERSION} > /dev/null 2>&1; then
+                print_verbose "sipexer installed successfully"
+                # Ensure Go bin is in PATH
+                if [ -d "$HOME/go/bin" ]; then
+                    export PATH="$PATH:$HOME/go/bin"
+                fi
+            else
+                print_verbose "Failed to install sipexer (optional)"
+            fi
+        else
+            print_verbose "sipexer already installed"
+        fi
+    else
+        print_verbose "Go not installed, skipping sipexer installation"
+    fi
 fi
 
 # Install GitHub CLI

@@ -67,14 +67,15 @@ func FormatVerboseError(details ErrorDetails) string {
 	result.WriteString(fmt.Sprintf("❌ Error: %s (Exit Code: %d)\n\n", details.ErrorType, details.ExitCode))
 	
 	if details.FullOutput != "" {
-		// Limit output to first 500 chars to avoid overwhelming the UI
+		// Limit output to first 1000 chars to show more details
 		output := details.FullOutput
-		if len(output) > 500 {
-			output = output[:500] + "...\n(truncated)"
+		if len(output) > 1000 {
+			output = output[:1000] + "\n...\n(truncated - full output may contain more details)"
 		}
-		result.WriteString("📋 Output:\n")
+		result.WriteString("📋 Command Output:\n")
+		result.WriteString("─────────────────────────────────────\n")
 		result.WriteString(output)
-		result.WriteString("\n\n")
+		result.WriteString("\n─────────────────────────────────────\n\n")
 	}
 	
 	result.WriteString("💡 Suggestion: ")
