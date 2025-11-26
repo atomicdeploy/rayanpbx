@@ -552,3 +552,116 @@ func (esm *ExtensionSyncManager) GetSyncSummary() (total, matched, dbOnly, astOn
 func (esm *ExtensionSyncManager) GetAllExtensionsCombined() ([]ExtensionSyncInfo, error) {
 	return esm.CompareExtensions()
 }
+
+// SyncConflict represents a sync conflict that requires user intervention
+type SyncConflict struct {
+	ExtensionNumber string
+	Type           string   // "mismatch"
+	Differences    []string
+	DBExtension    *Extension
+	AsteriskConfig *AsteriskExtension
+}
+
+// AutoSyncResult contains the results of an automatic sync operation
+type AutoSyncResult struct {
+	DBToAsteriskSynced    int
+	AsteriskToDBSynced    int
+	Conflicts             []SyncConflict
+	Errors                []error
+	TotalProcessed        int
+	AlreadyInSync         int
+}
+
+// PerformAutoSync performs automatic bidirectional sync
+// - Extensions only in DB are synced to Asterisk
+// - Extensions only in Asterisk are synced to DB
+// - Mismatched extensions are reported as conflicts for user resolution
+func (esm *ExtensionSyncManager) PerformAutoSync() (*AutoSyncResult, error) {
+	result := &AutoSyncResult{
+		Conflicts: []SyncConflict{},
+		Errors:    []error{},
+	}
+	
+	// Get current sync status
+	syncInfos, err := esm.CompareExtensions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compare extensions: %w", err)
+	}
+	
+	result.TotalProcessed = len(syncInfos)
+	
+	for _, info := range syncInfos {
+		switch info.SyncStatus {
+		case SyncStatusMatch:
+			// Already in sync, nothing to do
+			result.AlreadyInSync++
+			
+		case SyncStatusDBOnly:
+			// Extension only in DB - sync to Asterisk
+			if err := esm.SyncDatabaseToAsterisk(info.ExtensionNumber); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("sync DB→Asterisk for %s: %w", info.ExtensionNumber, err))
+			} else {
+				result.DBToAsteriskSynced++
+			}
+			
+		case SyncStatusAsteriskOnly:
+			// Extension only in Asterisk - sync to DB
+			if err := esm.SyncAsteriskToDatabase(info.ExtensionNumber); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("sync Asterisk→DB for %s: %w", info.ExtensionNumber, err))
+			} else {
+				result.AsteriskToDBSynced++
+			}
+			
+		case SyncStatusMismatch:
+			// Conflict - requires user intervention
+			conflict := SyncConflict{
+				ExtensionNumber: info.ExtensionNumber,
+				Type:           "mismatch",
+				Differences:    info.Differences,
+				DBExtension:    info.DBExtension,
+				AsteriskConfig: info.AsteriskConfig,
+			}
+			result.Conflicts = append(result.Conflicts, conflict)
+		}
+	}
+	
+	// Reload Asterisk if any changes were made
+	if result.DBToAsteriskSynced > 0 {
+		if esm.asteriskConfigMgr != nil {
+			esm.asteriskConfigMgr.ReloadAsterisk()
+		}
+	}
+	
+	return result, nil
+}
+
+// HasConflicts returns true if there are unresolved conflicts
+func (result *AutoSyncResult) HasConflicts() bool {
+	return len(result.Conflicts) > 0
+}
+
+// Summary returns a human-readable summary of the sync result
+func (result *AutoSyncResult) Summary() string {
+	var sb strings.Builder
+	
+	sb.WriteString(fmt.Sprintf("Processed: %d extensions\n", result.TotalProcessed))
+	sb.WriteString(fmt.Sprintf("Already synced: %d\n", result.AlreadyInSync))
+	sb.WriteString(fmt.Sprintf("DB → Asterisk: %d synced\n", result.DBToAsteriskSynced))
+	sb.WriteString(fmt.Sprintf("Asterisk → DB: %d synced\n", result.AsteriskToDBSynced))
+	
+	if len(result.Conflicts) > 0 {
+		sb.WriteString(fmt.Sprintf("⚠️  Conflicts requiring attention: %d\n", len(result.Conflicts)))
+		for _, c := range result.Conflicts {
+			sb.WriteString(fmt.Sprintf("  - Extension %s: %s\n", c.ExtensionNumber, strings.Join(c.Differences, ", ")))
+		}
+	}
+	
+	if len(result.Errors) > 0 {
+		sb.WriteString(fmt.Sprintf("Errors: %d\n", len(result.Errors)))
+		for _, e := range result.Errors {
+			sb.WriteString(fmt.Sprintf("  - %v\n", e))
+		}
+	}
+	
+	return sb.String()
+}

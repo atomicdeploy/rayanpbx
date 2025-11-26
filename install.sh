@@ -3536,6 +3536,31 @@ EOF
         print_info "Installation completed but some services may need manual intervention"
         print_info "Review the error messages above for troubleshooting steps"
     fi
+    
+    # Perform automatic extension sync
+    echo ""
+    print_progress "Performing automatic extension sync..."
+    
+    if [ -f "/opt/rayanpbx/backend/artisan" ]; then
+        cd /opt/rayanpbx/backend
+        
+        # Run sync command and capture output
+        SYNC_OUTPUT=$(php artisan rayanpbx:sync auto 2>&1) && SYNC_EXIT=0 || SYNC_EXIT=$?
+        
+        if [ $SYNC_EXIT -eq 0 ]; then
+            if echo "$SYNC_OUTPUT" | grep -q "conflict\|mismatch"; then
+                print_warning "Extension sync completed with conflicts requiring attention"
+                echo "$SYNC_OUTPUT" | grep -E "conflict|mismatch|Extension" | head -10
+            else
+                print_success "✓ Extensions synchronized between database and Asterisk"
+            fi
+        else
+            print_warning "Extension sync could not complete - will sync on first access"
+            print_verbose "$SYNC_OUTPUT"
+        fi
+    else
+        print_info "Skipping extension sync - backend not yet installed"
+    fi
 fi
 
 # Final Banner

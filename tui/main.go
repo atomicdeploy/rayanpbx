@@ -3954,6 +3954,34 @@ func main() {
 	defer db.Close()
 	green.Println("✅ Database connected")
 
+	// Perform automatic extension sync on startup
+	cyan.Println("🔄 Performing automatic extension sync...")
+	asteriskMgr := NewAsteriskManager()
+	configMgr := NewAsteriskConfigManager(verbose)
+	syncManager := NewExtensionSyncManager(db, asteriskMgr, configMgr)
+	
+	syncResult, err := syncManager.PerformAutoSync()
+	if err != nil {
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("⚠️  Auto-sync failed: %v\n", err)
+	} else {
+		if syncResult.DBToAsteriskSynced > 0 || syncResult.AsteriskToDBSynced > 0 {
+			green.Printf("✅ Synced: %d DB→Asterisk, %d Asterisk→DB\n", 
+				syncResult.DBToAsteriskSynced, syncResult.AsteriskToDBSynced)
+		} else if syncResult.AlreadyInSync > 0 {
+			green.Printf("✅ All %d extensions already in sync\n", syncResult.AlreadyInSync)
+		}
+		
+		if syncResult.HasConflicts() {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("⚠️  %d conflict(s) require attention - use Extensions Sync Manager to resolve\n", 
+				len(syncResult.Conflicts))
+			for _, c := range syncResult.Conflicts {
+				fmt.Printf("   • Extension %s: %s\n", c.ExtensionNumber, strings.Join(c.Differences, ", "))
+			}
+		}
+	}
+
 	fmt.Println()
 	cyan.Println("🚀 Starting TUI interface...")
 	if verbose {

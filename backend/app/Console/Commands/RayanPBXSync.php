@@ -21,7 +21,7 @@ class RayanPBXSync extends Command
      *
      * @var string
      */
-    protected $description = 'Sync extensions between database and Asterisk (status|db-to-asterisk|asterisk-to-db|all-db|all-asterisk)';
+    protected $description = 'Sync extensions between database and Asterisk (status|db-to-asterisk|asterisk-to-db|all-db|all-asterisk|auto)';
 
     private $asterisk;
     private $pjsipConfigPath;
@@ -37,7 +37,7 @@ class RayanPBXSync extends Command
         $action = $this->argument('action');
         $extensionNumber = $this->argument('extension');
 
-        $validActions = ['status', 'db-to-asterisk', 'asterisk-to-db', 'all-db', 'all-asterisk'];
+        $validActions = ['status', 'db-to-asterisk', 'asterisk-to-db', 'all-db', 'all-asterisk', 'auto'];
 
         if (!in_array($action, $validActions)) {
             $this->error("Invalid action: {$action}");
@@ -61,6 +61,9 @@ class RayanPBXSync extends Command
                     
                 case 'all-asterisk':
                     return $this->syncAllAsteriskToDb();
+                    
+                case 'auto':
+                    return $this->performAutoSync();
             }
         } catch (Exception $e) {
             $this->error('Error: ' . $e->getMessage());
@@ -68,6 +71,139 @@ class RayanPBXSync extends Command
         }
 
         return 0;
+    }
+
+    /**
+     * Perform automatic bidirectional sync
+     * - Extensions only in DB are synced to Asterisk
+     * - Extensions only in Asterisk are synced to DB
+     * - Mismatched extensions are reported as conflicts
+     */
+    private function performAutoSync(): int
+    {
+        $this->info('🔄 Performing automatic bidirectional sync...');
+        
+        $dbExtensions = Extension::orderBy('extension_number')->get()->keyBy('extension_number');
+        $asteriskExtensions = collect($this->parsePjsipConfig())->keyBy('extension_number');
+        
+        $synced = 0;
+        $conflicts = [];
+        $errors = [];
+        
+        // Sync Asterisk-only extensions to DB
+        foreach ($asteriskExtensions as $extNumber => $astExt) {
+            if (!$dbExtensions->has($extNumber)) {
+                try {
+                    Extension::create([
+                        'extension_number' => $extNumber,
+                        'name' => $astExt['caller_id'] ?? "Extension {$extNumber}",
+                        'secret' => $astExt['secret'] ?? '',
+                        'context' => $astExt['context'] ?? 'internal',
+                        'transport' => $astExt['transport'] ?? 'transport-udp',
+                        'max_contacts' => $astExt['max_contacts'] ?? 1,
+                        'qualify_frequency' => $astExt['qualify_frequency'] ?? 60,
+                        'direct_media' => ($astExt['direct_media'] ?? 'no') === 'yes',
+                        'codecs' => json_encode($astExt['codecs'] ?? ['ulaw', 'alaw', 'g722']),
+                        'enabled' => true,
+                    ]);
+                    $synced++;
+                    $this->info("  ✓ Imported extension {$extNumber} from Asterisk to DB");
+                } catch (Exception $e) {
+                    $errors[] = "Failed to import {$extNumber}: " . $e->getMessage();
+                }
+            }
+        }
+        
+        // Sync DB-only extensions to Asterisk
+        foreach ($dbExtensions as $extNumber => $dbExt) {
+            if (!$asteriskExtensions->has($extNumber)) {
+                try {
+                    $this->asterisk->createPjsipEndpoint($dbExt);
+                    $synced++;
+                    $this->info("  ✓ Exported extension {$extNumber} from DB to Asterisk");
+                } catch (Exception $e) {
+                    $errors[] = "Failed to export {$extNumber}: " . $e->getMessage();
+                }
+            }
+        }
+        
+        // Check for mismatches
+        foreach ($dbExtensions as $extNumber => $dbExt) {
+            if ($asteriskExtensions->has($extNumber)) {
+                $astExt = $asteriskExtensions[$extNumber];
+                $differences = $this->compareExtensions($dbExt, $astExt);
+                
+                if (!empty($differences)) {
+                    $conflicts[] = [
+                        'extension' => $extNumber,
+                        'differences' => $differences,
+                    ];
+                }
+            }
+        }
+        
+        // Report results
+        $this->info('');
+        $this->info('📊 Sync Summary:');
+        $this->info("  Synced: {$synced} extension(s)");
+        
+        if (!empty($conflicts)) {
+            $this->warn("  Conflicts: " . count($conflicts) . " extension(s) have mismatched configurations");
+            foreach ($conflicts as $conflict) {
+                $this->warn("    • Extension {$conflict['extension']}: " . implode(', ', $conflict['differences']));
+            }
+            $this->info('');
+            $this->info('  Use "php artisan rayanpbx:sync db-to-asterisk <ext>" or "asterisk-to-db <ext>" to resolve');
+        }
+        
+        if (!empty($errors)) {
+            $this->error("  Errors: " . count($errors));
+            foreach ($errors as $error) {
+                $this->error("    • {$error}");
+            }
+        }
+        
+        // Reload Asterisk if changes were made
+        if ($synced > 0) {
+            try {
+                $this->asterisk->reloadPjsip();
+                $this->info('  ✓ Asterisk configuration reloaded');
+            } catch (Exception $e) {
+                $this->warn('  ⚠ Could not reload Asterisk: ' . $e->getMessage());
+            }
+        }
+        
+        if (count($conflicts) > 0) {
+            return 2; // Partial success - conflicts exist
+        }
+        
+        return count($errors) > 0 ? 1 : 0;
+    }
+
+    /**
+     * Compare DB extension with Asterisk config and return differences
+     */
+    private function compareExtensions(Extension $dbExt, array $astExt): array
+    {
+        $differences = [];
+        
+        if ($dbExt->context !== ($astExt['context'] ?? 'internal')) {
+            $differences[] = "context differs";
+        }
+        
+        if ($dbExt->transport !== ($astExt['transport'] ?? 'transport-udp')) {
+            $differences[] = "transport differs";
+        }
+        
+        if ((int)$dbExt->max_contacts !== (int)($astExt['max_contacts'] ?? 1)) {
+            $differences[] = "max_contacts differs";
+        }
+        
+        if (!empty($dbExt->secret) && !empty($astExt['secret']) && $dbExt->secret !== $astExt['secret']) {
+            $differences[] = "secret differs";
+        }
+        
+        return $differences;
     }
 
     /**
