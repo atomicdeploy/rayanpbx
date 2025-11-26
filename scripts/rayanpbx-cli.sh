@@ -208,7 +208,14 @@ load_env_files() {
 load_env_files
 
 # Set defaults after loading
-API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api}"
+# Ensure API_BASE_URL ends with /api
+API_BASE_URL="${API_BASE_URL:-http://localhost:8000}"
+# Remove trailing slash if present
+API_BASE_URL="${API_BASE_URL%/}"
+# Append /api if not already present
+if [[ "$API_BASE_URL" != */api ]]; then
+    API_BASE_URL="${API_BASE_URL}/api"
+fi
 
 # For backward compatibility, maintain ENV_FILE variable pointing to primary config
 ENV_FILE="$RAYANPBX_ROOT/.env"
@@ -229,9 +236,12 @@ is_valid_json() {
     return $?
 }
 
+# Temp file for API response (used to work around subshell variable scoping)
+API_RESPONSE_FILE=""
+
 # API call helper with robust error handling
-# Returns JSON response on stdout
-# Sets global API_CALL_STATUS and API_CALL_ERROR
+# Writes JSON response to API_RESPONSE_FILE
+# Sets global API_CALL_STATUS and API_CALL_ERROR directly (not in subshell)
 api_call() {
     local method=$1
     local endpoint=$2
@@ -255,6 +265,7 @@ api_call() {
         echo '{"error": "Internal error: failed to create temp file"}'
         return 1
     }
+    API_RESPONSE_FILE="$tmp_body"
     
     # Make the request and capture status code and content type
     local http_code content_type
@@ -275,6 +286,7 @@ api_call() {
     # Check if curl failed
     if [ $curl_exit -ne 0 ]; then
         rm -f "$tmp_body"
+        API_RESPONSE_FILE=""
         API_CALL_STATUS=$curl_exit
         API_CALL_ERROR="Failed to connect to API (curl exit code: $curl_exit)"
         print_verbose "API Error: $API_CALL_ERROR"
@@ -286,6 +298,7 @@ api_call() {
     local response
     response=$(cat "$tmp_body" 2>/dev/null)
     rm -f "$tmp_body"
+    API_RESPONSE_FILE=""
     
     print_verbose "HTTP Status: $http_code"
     print_verbose "Response: $response"
@@ -362,14 +375,53 @@ api_call() {
     return 0
 }
 
+# Helper to make API call and store response in a variable
+# This avoids the subshell variable scoping problem
+# Usage: api_call_to_var VARNAME method endpoint [data]
+api_call_to_var() {
+    local varname=$1
+    shift
+    
+    local tmp_file
+    tmp_file=$(mktemp) || {
+        API_CALL_STATUS=1
+        API_CALL_ERROR="Failed to create temp file"
+        eval "$varname='{}'"
+        return 0  # Return 0 to not trigger set -e, caller should check API_CALL_STATUS
+    }
+    
+    # Call api_call and redirect output to file (ignore exit code, caller checks API_CALL_STATUS)
+    api_call "$@" > "$tmp_file" 2>&1 || true
+    
+    # Read file content into variable
+    eval "$varname=\$(cat \"\$tmp_file\" 2>/dev/null)"
+    rm -f "$tmp_file"
+    
+    # Always return 0, caller should check API_CALL_STATUS for errors
+    return 0
+}
+
 # Extension commands
 cmd_extension_list() {
     print_header "📱 Extensions List"
     
-    response=$(api_call GET "extensions")
+    api_call_to_var response GET "extensions"
+    
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to list extensions: ${API_CALL_ERROR:-Unknown error}"
+        if [ -n "$response" ] && command -v jq &> /dev/null && is_valid_json "$response"; then
+            local error_msg
+            error_msg=$(echo "$response" | jq -r '.error // .message // "Unknown error"' 2>/dev/null)
+            if [ -n "$error_msg" ] && [ "$error_msg" != "null" ]; then
+                echo -e "  Details: $error_msg"
+            fi
+        fi
+        exit 1
+    fi
     
     if command -v jq &> /dev/null; then
-        echo "$response" | jq -r '.extensions[] | "\(.extension_number)\t\(.name)\t\(.enabled)"' | \
+        echo "$response" | jq -r '.extensions[] | "\(.extension_number)\t\(.name)\t\(.enabled)"' 2>/dev/null | \
             while IFS=$'\t' read -r num name enabled; do
                 if [ "$enabled" == "true" ]; then
                     echo -e "  ${GREEN}●${NC} $num - $name"
@@ -409,7 +461,7 @@ cmd_extension_create() {
 EOF
 )
     
-    response=$(api_call POST "extensions" "$data")
+    api_call_to_var response POST "extensions" "$data"
     
     # Check if API call was successful
     if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
@@ -451,7 +503,7 @@ cmd_extension_status() {
 EOF
 )
     
-    response=$(api_call POST "asterisk/endpoint/status" "$data")
+    api_call_to_var response POST "asterisk/endpoint/status" "$data"
     
     # Check if API call was successful
     if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
@@ -512,11 +564,17 @@ cmd_extension_toggle() {
     print_info "Toggling extension $number..."
     
     # First, get the extension ID by listing extensions
-    response=$(api_call GET "extensions")
+    api_call_to_var response GET "extensions"
+    
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to list extensions: ${API_CALL_ERROR:-Unknown error}"
+        exit 1
+    fi
     
     if command -v jq &> /dev/null; then
-        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id')
-        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled')
+        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id' 2>/dev/null)
+        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled' 2>/dev/null)
         
         if [ -z "$ext_id" ] || [ "$ext_id" == "null" ]; then
             print_error "Extension $number not found"
@@ -524,10 +582,15 @@ cmd_extension_toggle() {
         fi
         
         # Call the toggle endpoint
-        toggle_response=$(api_call POST "extensions/$ext_id/toggle")
+        api_call_to_var toggle_response POST "extensions/$ext_id/toggle"
+        
+        if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+            print_error "Failed to toggle extension: ${API_CALL_ERROR:-Unknown error}"
+            exit 1
+        fi
         
         if echo "$toggle_response" | grep -q "success\|updated"; then
-            new_enabled=$(echo "$toggle_response" | jq -r '.extension.enabled')
+            new_enabled=$(echo "$toggle_response" | jq -r '.extension.enabled' 2>/dev/null)
             if [ "$new_enabled" == "true" ]; then
                 print_success "Extension $number enabled successfully"
             else
@@ -555,11 +618,17 @@ cmd_extension_enable() {
     print_info "Enabling extension $number..."
     
     # Get extension ID and current status
-    response=$(api_call GET "extensions")
+    api_call_to_var response GET "extensions"
+    
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to list extensions: ${API_CALL_ERROR:-Unknown error}"
+        exit 1
+    fi
     
     if command -v jq &> /dev/null; then
-        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id')
-        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled')
+        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id' 2>/dev/null)
+        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled' 2>/dev/null)
         
         if [ -z "$ext_id" ] || [ "$ext_id" == "null" ]; then
             print_error "Extension $number not found"
@@ -572,7 +641,12 @@ cmd_extension_enable() {
         fi
         
         # Update extension to enable it
-        update_response=$(api_call PUT "extensions/$ext_id" '{"enabled": true}')
+        api_call_to_var update_response PUT "extensions/$ext_id" '{"enabled": true}'
+        
+        if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+            print_error "Failed to enable extension: ${API_CALL_ERROR:-Unknown error}"
+            exit 1
+        fi
         
         if echo "$update_response" | grep -q "success\|updated"; then
             print_success "Extension $number enabled successfully"
@@ -599,11 +673,17 @@ cmd_extension_disable() {
     print_info "Disabling extension $number..."
     
     # Get extension ID and current status
-    response=$(api_call GET "extensions")
+    api_call_to_var response GET "extensions"
+    
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to list extensions: ${API_CALL_ERROR:-Unknown error}"
+        exit 1
+    fi
     
     if command -v jq &> /dev/null; then
-        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id')
-        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled')
+        ext_id=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .id' 2>/dev/null)
+        current_enabled=$(echo "$response" | jq -r --arg num "$number" '.extensions[] | select(.extension_number == $num) | .enabled' 2>/dev/null)
         
         if [ -z "$ext_id" ] || [ "$ext_id" == "null" ]; then
             print_error "Extension $number not found"
@@ -616,7 +696,12 @@ cmd_extension_disable() {
         fi
         
         # Update extension to disable it
-        update_response=$(api_call PUT "extensions/$ext_id" '{"enabled": false}')
+        api_call_to_var update_response PUT "extensions/$ext_id" '{"enabled": false}'
+        
+        if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+            print_error "Failed to disable extension: ${API_CALL_ERROR:-Unknown error}"
+            exit 1
+        fi
         
         if echo "$update_response" | grep -q "success\|updated"; then
             print_success "Extension $number disabled successfully"
@@ -635,10 +720,23 @@ cmd_extension_disable() {
 cmd_trunk_list() {
     print_header "🔗 Trunks List"
     
-    response=$(api_call GET "trunks")
+    api_call_to_var response GET "trunks"
+    
+    # Check if API call was successful
+    if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
+        print_error "Failed to list trunks: ${API_CALL_ERROR:-Unknown error}"
+        if [ -n "$response" ] && command -v jq &> /dev/null && is_valid_json "$response"; then
+            local error_msg
+            error_msg=$(echo "$response" | jq -r '.error // .message // "Unknown error"' 2>/dev/null)
+            if [ -n "$error_msg" ] && [ "$error_msg" != "null" ]; then
+                echo -e "  Details: $error_msg"
+            fi
+        fi
+        exit 1
+    fi
     
     if command -v jq &> /dev/null; then
-        echo "$response" | jq -r '.[] | "\(.name)\t\(.host):\(.port)\t\(.enabled)"' | \
+        echo "$response" | jq -r '.[] | "\(.name)\t\(.host):\(.port)\t\(.enabled)"' 2>/dev/null | \
             while IFS=$'\t' read -r name host enabled; do
                 if [ "$enabled" == "true" ]; then
                     echo -e "  ${GREEN}●${NC} $name - $host"
@@ -662,7 +760,7 @@ cmd_trunk_test() {
     
     print_header "🔍 Testing Trunk: $name"
     
-    response=$(api_call GET "validate/trunk/$name")
+    api_call_to_var response GET "validate/trunk/$name"
     
     # Check if API call was successful
     if [ "${API_CALL_STATUS:-0}" -ne 0 ]; then
@@ -671,8 +769,8 @@ cmd_trunk_test() {
     fi
     
     if command -v jq &> /dev/null; then
-        reachable=$(echo "$response" | jq -r '.reachable // false')
-        latency=$(echo "$response" | jq -r '.latency_ms // "N/A"')
+        reachable=$(echo "$response" | jq -r '.reachable // false' 2>/dev/null)
+        latency=$(echo "$response" | jq -r '.latency_ms // "N/A"' 2>/dev/null)
         
         if [ "$reachable" == "true" ]; then
             print_success "Trunk is reachable"
