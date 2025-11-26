@@ -366,6 +366,202 @@ reload_asterisk_manager() {
     fi
 }
 
+# Check if Asterisk service is running
+check_asterisk_running() {
+    if command -v systemctl &> /dev/null; then
+        if systemctl is-active --quiet asterisk 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    # Fallback: check if asterisk process is running
+    if pgrep -x asterisk > /dev/null 2>&1; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# Start Asterisk service
+start_asterisk_service() {
+    print_info "Attempting to start Asterisk service..."
+    
+    if command -v systemctl &> /dev/null; then
+        if systemctl start asterisk 2>/dev/null; then
+            sleep 3
+            if check_asterisk_running; then
+                print_success "Asterisk service started successfully"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Try service command as fallback
+    if command -v service &> /dev/null; then
+        if service asterisk start 2>/dev/null; then
+            sleep 3
+            if check_asterisk_running; then
+                print_success "Asterisk service started successfully"
+                return 0
+            fi
+        fi
+    fi
+    
+    print_error "Could not start Asterisk service"
+    return 1
+}
+
+# Check if AMI is enabled in manager.conf
+check_ami_enabled() {
+    local manager_conf="$1"
+    
+    if [ ! -f "$manager_conf" ]; then
+        return 1
+    fi
+    
+    # Look for "enabled = yes" in [general] section
+    local in_general=false
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=$(echo "$line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Skip empty lines and comments
+        [[ -z "$line" ]] && continue
+        [[ "$line" == ";"* ]] && continue
+        [[ "$line" == "#"* ]] && continue
+        
+        # Check for section headers
+        if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
+            section="${BASH_REMATCH[1]}"
+            if [ "$section" = "general" ]; then
+                in_general=true
+            else
+                in_general=false
+            fi
+            continue
+        fi
+        
+        # Check for enabled = yes in [general] section
+        if [ "$in_general" = true ]; then
+            if [[ "$line" =~ ^enabled[[:space:]]*=[[:space:]]*yes ]]; then
+                return 0
+            fi
+        fi
+    done < "$manager_conf"
+    
+    return 1
+}
+
+# Enable AMI in manager.conf
+enable_ami_in_manager_conf() {
+    local manager_conf="$1"
+    
+    if [ ! -f "$manager_conf" ]; then
+        print_error "manager.conf not found: $manager_conf"
+        return 1
+    fi
+    
+    print_info "Enabling AMI in manager.conf..."
+    
+    # Use ini-helper if available
+    if type set_ini_value &> /dev/null; then
+        ensure_ini_section "$manager_conf" "general"
+        set_ini_value "$manager_conf" "general" "enabled" "yes"
+        print_success "AMI enabled in manager.conf using ini-helper"
+        return 0
+    fi
+    
+    # Fallback: manual sed-based update
+    # Check if [general] section exists
+    if grep -q "^\[general\]" "$manager_conf"; then
+        # Check if enabled line exists (commented or not)
+        if grep -q "^[;#]*[[:space:]]*enabled[[:space:]]*=" "$manager_conf"; then
+            # Update existing enabled line
+            sed -i 's/^[;#]*[[:space:]]*enabled[[:space:]]*=.*/enabled = yes/' "$manager_conf"
+        else
+            # Add enabled = yes after [general]
+            sed -i '/^\[general\]/a enabled = yes' "$manager_conf"
+        fi
+    else
+        # Add [general] section with enabled = yes
+        {
+            echo ""
+            echo "[general]"
+            echo "enabled = yes"
+        } >> "$manager_conf"
+    fi
+    
+    print_success "AMI enabled in manager.conf"
+    return 0
+}
+
+# Automated diagnostics and fixes for AMI connection issues
+run_automated_ami_fixes() {
+    local manager_conf="$1"
+    local ami_port="${2:-5038}"
+    local fixes_applied=0
+    
+    print_header "🔧 Running Automated AMI Fixes"
+    echo ""
+    
+    # Check 1: Is Asterisk running?
+    print_info "Checking if Asterisk is running..."
+    if ! check_asterisk_running; then
+        print_warn "Asterisk is not running"
+        if start_asterisk_service; then
+            fixes_applied=$((fixes_applied + 1))
+        else
+            print_error "Could not start Asterisk - manual intervention required"
+        fi
+    else
+        print_success "Asterisk is running"
+    fi
+    
+    # Check 2: Is AMI enabled in manager.conf?
+    print_info "Checking if AMI is enabled in manager.conf..."
+    if ! check_ami_enabled "$manager_conf"; then
+        print_warn "AMI is not enabled in manager.conf"
+        if enable_ami_in_manager_conf "$manager_conf"; then
+            fixes_applied=$((fixes_applied + 1))
+            # Reload Asterisk to apply changes
+            reload_asterisk_manager || true
+        fi
+    else
+        print_success "AMI is enabled in manager.conf"
+    fi
+    
+    # Check 3: Port availability (informational - we can't "fix" this automatically)
+    print_info "Checking if port $ami_port is available..."
+    local port_listening=false
+    if command -v ss &> /dev/null; then
+        if ss -tuln 2>/dev/null | grep -qE ":${ami_port}([[:space:]]|$)"; then
+            port_listening=true
+        fi
+    elif command -v netstat &> /dev/null; then
+        if netstat -tuln 2>/dev/null | grep -qE ":${ami_port}([[:space:]]|$)"; then
+            port_listening=true
+        fi
+    fi
+    
+    if [ "$port_listening" = true ]; then
+        print_success "Port $ami_port is listening"
+    else
+        print_warn "Port $ami_port is not yet listening"
+        # Give Asterisk a moment to start listening if we just started it
+        if [ "$fixes_applied" -gt 0 ]; then
+            print_info "Waiting for Asterisk to start listening on port $ami_port..."
+            sleep 3
+        fi
+    fi
+    
+    echo ""
+    if [ "$fixes_applied" -gt 0 ]; then
+        print_info "Applied $fixes_applied automated fix(es)"
+    fi
+    
+    return 0
+}
+
 # Main fix function - extract, update, and test
 fix_ami_credentials() {
     local auto_reload="${1:-true}"
@@ -439,13 +635,38 @@ fix_ami_credentials() {
     else
         echo ""
         print_warn "AMI connection test failed"
-        print_info "Credentials were updated, but connection could not be verified"
-        print_info "Please check:"
-        echo "  1. Asterisk is running: systemctl status asterisk"
-        echo "  2. AMI is enabled in manager.conf: enabled = yes"
-        echo "  3. Firewall allows local connections to port $DEFAULT_AMI_PORT"
+        print_info "Credentials were updated, running automated diagnostics and fixes..."
         echo ""
-        return 1
+        
+        # Run automated fixes
+        run_automated_ami_fixes "$MANAGER_CONF" "$DEFAULT_AMI_PORT"
+        
+        # Test connection again after fixes
+        echo ""
+        print_header "🔌 Retesting AMI Connection"
+        echo ""
+        
+        if test_ami_connection "$DEFAULT_AMI_HOST" "$DEFAULT_AMI_PORT" "$ami_username" "$ami_secret"; then
+            echo ""
+            print_header "✅ AMI Credentials Fixed Successfully"
+            echo ""
+            echo -e "  ${CYAN}AMI Host:${NC}     $DEFAULT_AMI_HOST"
+            echo -e "  ${CYAN}AMI Port:${NC}     $DEFAULT_AMI_PORT"
+            echo -e "  ${CYAN}AMI Username:${NC} $ami_username"
+            echo -e "  ${CYAN}AMI Secret:${NC}   ${ami_secret:0:4}****"
+            echo -e "  ${CYAN}.env File:${NC}    $env_file"
+            echo ""
+            return 0
+        else
+            echo ""
+            print_error "AMI connection still failing after automated fixes"
+            print_info "Manual intervention may be required. Check:"
+            echo "  - Asterisk logs: journalctl -u asterisk -n 50"
+            echo "  - Firewall rules for port $DEFAULT_AMI_PORT"
+            echo "  - SELinux/AppArmor policies"
+            echo ""
+            return 1
+        fi
     fi
 }
 

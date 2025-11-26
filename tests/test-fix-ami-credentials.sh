@@ -301,6 +301,129 @@ test_cli_fix_ami_exists() {
     fi
 }
 
+# Test 11: Test automated Asterisk status check
+test_automated_asterisk_check() {
+    print_test "Testing automated Asterisk status check"
+    
+    # Create test manager.conf
+    cat > "$TEST_TMP_DIR/manager.conf" << 'EOF'
+[general]
+enabled = yes
+port = 5038
+
+[admin]
+secret = test_secret
+read = all
+write = all
+EOF
+    
+    # Run fix command and check for automated check output
+    local output
+    output=$(MANAGER_CONF="$TEST_TMP_DIR/manager.conf" bash "$REPO_ROOT/scripts/fix-ami-credentials.sh" fix --no-reload 2>&1) || true
+    
+    # Should show automated diagnostics
+    if echo "$output" | grep -q "Checking if Asterisk is running"; then
+        print_pass "Automated Asterisk status check is present"
+    else
+        print_fail "Automated Asterisk status check missing"
+    fi
+    
+    # Clean up
+    rm -f "$REPO_ROOT/.env" "$REPO_ROOT/.env.backup."* 2>/dev/null || true
+}
+
+# Test 12: Test automated AMI enabled check
+test_automated_ami_enabled_check() {
+    print_test "Testing automated AMI enabled check"
+    
+    # Create test manager.conf with AMI enabled
+    cat > "$TEST_TMP_DIR/manager.conf" << 'EOF'
+[general]
+enabled = yes
+port = 5038
+
+[admin]
+secret = test_secret
+read = all
+write = all
+EOF
+    
+    # Run fix command
+    local output
+    output=$(MANAGER_CONF="$TEST_TMP_DIR/manager.conf" bash "$REPO_ROOT/scripts/fix-ami-credentials.sh" fix --no-reload 2>&1) || true
+    
+    # Should show AMI enabled check
+    if echo "$output" | grep -q "Checking if AMI is enabled in manager.conf"; then
+        print_pass "Automated AMI enabled check is present"
+    else
+        print_fail "Automated AMI enabled check missing"
+    fi
+    
+    # Clean up
+    rm -f "$REPO_ROOT/.env" "$REPO_ROOT/.env.backup."* 2>/dev/null || true
+}
+
+# Test 13: Test AMI not enabled detection
+test_ami_not_enabled_detection() {
+    print_test "Testing AMI not enabled detection"
+    
+    # Create test manager.conf WITHOUT enabled = yes
+    cat > "$TEST_TMP_DIR/manager.conf" << 'EOF'
+[general]
+port = 5038
+
+[admin]
+secret = test_secret
+read = all
+write = all
+EOF
+    
+    # Run fix command
+    local output
+    output=$(MANAGER_CONF="$TEST_TMP_DIR/manager.conf" bash "$REPO_ROOT/scripts/fix-ami-credentials.sh" fix --no-reload 2>&1) || true
+    
+    # Should detect that AMI is not enabled and attempt to enable it
+    if echo "$output" | grep -q "AMI is not enabled in manager.conf\|Enabling AMI"; then
+        print_pass "AMI not enabled detection works"
+    else
+        print_fail "AMI not enabled detection failed"
+    fi
+    
+    # Clean up
+    rm -f "$REPO_ROOT/.env" "$REPO_ROOT/.env.backup."* 2>/dev/null || true
+}
+
+# Test 14: Test no manual steps in output
+test_no_manual_steps_message() {
+    print_test "Testing that manual steps message is replaced with automation"
+    
+    # Create test manager.conf
+    cat > "$TEST_TMP_DIR/manager.conf" << 'EOF'
+[general]
+enabled = yes
+port = 5038
+
+[admin]
+secret = test_secret
+read = all
+write = all
+EOF
+    
+    # Run fix command
+    local output
+    output=$(MANAGER_CONF="$TEST_TMP_DIR/manager.conf" bash "$REPO_ROOT/scripts/fix-ami-credentials.sh" fix --no-reload 2>&1) || true
+    
+    # Should NOT show the old manual steps message
+    if echo "$output" | grep -q "Please check:" && echo "$output" | grep -q "systemctl status asterisk"; then
+        print_fail "Old manual steps message still present"
+    else
+        print_pass "Manual steps message replaced with automated diagnostics"
+    fi
+    
+    # Clean up
+    rm -f "$REPO_ROOT/.env" "$REPO_ROOT/.env.backup."* 2>/dev/null || true
+}
+
 # Run all tests
 main() {
     print_header
@@ -316,6 +439,10 @@ main() {
     test_env_add_new_var
     test_cli_integration
     test_cli_fix_ami_exists
+    test_automated_asterisk_check
+    test_automated_ami_enabled_check
+    test_ami_not_enabled_detection
+    test_no_manual_steps_message
     
     print_summary
 }
