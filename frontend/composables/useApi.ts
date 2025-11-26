@@ -222,5 +222,15 @@ export const useApi = () => {
     async getLldpNeighbors() {
       return apiFetch('/phones/lldp/neighbors')
     },
+    
+    // ARP Neighbors
+    async getArpNeighbors() {
+      return apiFetch('/phones/arp/neighbors')
+    },
+    
+    // Discover all phones (LLDP + ARP + nmap)
+    async discoverPhones() {
+      return apiFetch('/phones/discover')
+    },
   }
 }

@@ -296,6 +296,35 @@ class PhoneController extends Controller
     }
 
     /**
+     * Discover all phones (returns LLDP + ARP + nmap discovered devices)
+     */
+    public function discover(Request $request)
+    {
+        try {
+            $result = $this->grandstreamService->discoverPhones();
+            
+            return response()->json([
+                'success' => true,
+                'devices' => $result['devices'] ?? [],
+                'phones' => $result['phones'] ?? [],
+                'total' => count($result['devices'] ?? []),
+                'message' => 'Discovery completed successfully',
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('Phone discovery failed', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'devices' => [],
+                'phones' => [],
+                'total' => 0,
+                'error' => $e->getMessage(),
+                'message' => 'Discovery failed.',
+            ]);
+        }
+    }
+
+    /**
      * Resolve phone IP from identifier (IP, MAC, or extension)
      */
     protected function resolvePhoneIP($identifier)
