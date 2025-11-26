@@ -870,6 +870,9 @@ func viewConfigManagement(m model) string {
 		s.WriteString("\n")
 	}
 	
+	// Track if we're at the very first item (right after header) to avoid duplicate separator
+	isFirstVisibleItem := true
+	
 	// Display exactly visibleRows lines for configs
 	displayedRows := 0
 	for i := startIdx; i < configCount && displayedRows < visibleRows; i++ {
@@ -877,11 +880,14 @@ func viewConfigManagement(m model) string {
 		
 		if config.IsSection {
 			// Section header - display with proper table borders
-			// Top border of section spanning full width with proper T-junction
-			sectionTopBorder := fmt.Sprintf("──%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))
-			s.WriteString(headerStyle.Render(sectionTopBorder))
-			s.WriteString("\n")
-			displayedRows++
+			// Skip the top border if this is the first item (right after header separator)
+			if !isFirstVisibleItem {
+				// Top border of section spanning full width with proper T-junction
+				sectionTopBorder := fmt.Sprintf("──%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))
+				s.WriteString(headerStyle.Render(sectionTopBorder))
+				s.WriteString("\n")
+				displayedRows++
+			}
 			
 			// Section name row - spans both columns with proper │ at edges
 			sectionName := "# " + config.SectionName
@@ -981,6 +987,7 @@ func viewConfigManagement(m model) string {
 				displayedRows++
 			}
 		}
+		isFirstVisibleItem = false
 	}
 	
 	// Show scroll indicator at bottom - always reserve space to prevent flashing
