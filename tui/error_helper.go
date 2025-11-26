@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ type ErrorDetails struct {
 	Message     string
 	FullOutput  string
 	Suggestion  string
+	LogFile     string // Path to the log file containing full output
 }
 
 // ParseCommandError extracts detailed error information from command execution
@@ -60,6 +62,38 @@ func ParseCommandError(err error, output []byte) ErrorDetails {
 	return details
 }
 
+// truncateByLines truncates output to a maximum number of lines
+// Returns the truncated output and whether truncation occurred
+func truncateByLines(output string, maxLines int) (string, bool) {
+	lines := strings.Split(output, "\n")
+	if len(lines) <= maxLines {
+		return output, false
+	}
+	return strings.Join(lines[:maxLines], "\n"), true
+}
+
+// saveOutputToTempFile saves the full output to a temporary file
+// Returns the file path or empty string on error
+func saveOutputToTempFile(output string) string {
+	// Create temp file with secure permissions (0600)
+	tmpFile, err := os.CreateTemp("", "rayanpbx-error-*.log")
+	if err != nil {
+		return ""
+	}
+	defer tmpFile.Close()
+	
+	// Set restrictive permissions
+	os.Chmod(tmpFile.Name(), 0600)
+	
+	// Write the full output
+	if _, err := tmpFile.WriteString(output); err != nil {
+		os.Remove(tmpFile.Name())
+		return ""
+	}
+	
+	return tmpFile.Name()
+}
+
 // FormatVerboseError creates a user-friendly error message with suggestions
 func FormatVerboseError(details ErrorDetails) string {
 	var result strings.Builder
@@ -67,14 +101,27 @@ func FormatVerboseError(details ErrorDetails) string {
 	result.WriteString(fmt.Sprintf("❌ Error: %s (Exit Code: %d)\n\n", details.ErrorType, details.ExitCode))
 	
 	if details.FullOutput != "" {
-		// Limit output to first 500 chars to avoid overwhelming the UI
-		output := details.FullOutput
-		if len(output) > 500 {
-			output = output[:500] + "...\n(truncated)"
-		}
-		result.WriteString("📋 Output:\n")
+		// Use line-based truncation (max 30 lines to avoid cutting mid-line)
+		const maxLines = 30
+		output, wasTruncated := truncateByLines(details.FullOutput, maxLines)
+		
+		result.WriteString("📋 Command Output:\n")
+		result.WriteString("─────────────────────────────────────\n")
 		result.WriteString(output)
-		result.WriteString("\n\n")
+		
+		if wasTruncated {
+			// Save full output to temp file
+			logFile := saveOutputToTempFile(details.FullOutput)
+			if logFile != "" {
+				details.LogFile = logFile
+				result.WriteString("\n...\n")
+				result.WriteString(fmt.Sprintf("(output truncated)\n"))
+				result.WriteString(fmt.Sprintf("To view full output, use:\nless %s\n", logFile))
+			} else {
+				result.WriteString("\n...\n(output truncated)\n")
+			}
+		}
+		result.WriteString("─────────────────────────────────────\n\n")
 	}
 	
 	result.WriteString("💡 Suggestion: ")

@@ -90,10 +90,18 @@ const (
 	DefaultSIPPort = "5060"
 )
 
-// Default paths
-const (
-	SipTestScriptPath = "../scripts/sip-test-suite.sh"
-)
+// Default paths - these are checked in order of preference
+var sipTestScriptPaths = []string{
+	"/opt/rayanpbx/scripts/sip-test-suite.sh",
+	"../scripts/sip-test-suite.sh",
+	"./scripts/sip-test-suite.sh",
+}
+
+// SIP testing tools that can be installed
+var sipTools = []string{"pjsua", "sipsak", "sipexer", "sipp"}
+
+// Version display constants
+const maxVersionDisplayLength = 50
 
 // Default extension values
 const (
@@ -2876,6 +2884,187 @@ func (m *model) handleDiagnosticsMenuSelection() {
 	}
 }
 
+// getSipTestScriptPath finds the SIP test suite script in available locations
+func getSipTestScriptPath() string {
+	for _, path := range sipTestScriptPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return "" // Not found
+}
+
+// isValidToolName checks if the tool name is in the allowed list
+func isValidToolName(tool string) bool {
+	for _, t := range sipTools {
+		if t == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// checkToolInstalled checks if a tool is installed using which command
+// Only checks tools that are in the predefined sipTools list for security
+func checkToolInstalled(tool string) bool {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return false
+	}
+	// Use 'which' directly with the tool as a separate argument (safe from injection)
+	cmd := exec.Command("which", tool)
+	return cmd.Run() == nil
+}
+
+// getToolPath returns the path of an installed tool, or empty string if not found
+func getToolPath(tool string) string {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return ""
+	}
+	cmd := exec.Command("which", tool)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// getToolVersion returns the version string of an installed tool
+func getToolVersion(tool string) string {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return ""
+	}
+	
+	var cmd *exec.Cmd
+	switch tool {
+	case "pjsua":
+		// pjsua uses --version
+		cmd = exec.Command("pjsua", "--version")
+	case "sipsak":
+		// sipsak uses -V (version flag)
+		cmd = exec.Command("sipsak", "-V")
+	case "sipexer":
+		// sipexer uses -version
+		cmd = exec.Command("sipexer", "-version")
+	case "sipp":
+		// sipp uses -v
+		cmd = exec.Command("sipp", "-v")
+	default:
+		return ""
+	}
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Tool exists but version command failed - return empty to trigger fallback
+		return ""
+	}
+	
+	// Extract first line and trim
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > 0 {
+		version := strings.TrimSpace(lines[0])
+		// Limit version string length for display
+		if len(version) > maxVersionDisplayLength {
+			version = version[:maxVersionDisplayLength-3] + "..."
+		}
+		return version
+	}
+	return ""
+}
+
+// isValidExtension validates an extension number (alphanumeric only)
+func isValidExtension(ext string) bool {
+	if ext == "" || len(ext) > 20 {
+		return false
+	}
+	for _, c := range ext {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidPassword validates a password (printable ASCII, no shell metacharacters)
+func isValidPassword(pass string) bool {
+	if pass == "" || len(pass) > 128 {
+		return false
+	}
+	// Reject shell metacharacters that could be used for injection
+	dangerousChars := "`$(){}[]|;<>&\\\"'"
+	for _, c := range pass {
+		if c < 32 || c > 126 { // Non-printable ASCII
+			return false
+		}
+		if strings.ContainsRune(dangerousChars, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidServer validates a server address (IP or hostname)
+func isValidServer(server string) bool {
+	if server == "" || len(server) > 255 {
+		return false
+	}
+	// Allow alphanumeric, dots, hyphens (for hostnames and IPs)
+	for _, c := range server {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// formatScriptNotFoundError generates an error message listing all script paths
+func formatScriptNotFoundError() string {
+	var paths strings.Builder
+	paths.WriteString("❌ SIP test suite script not found.\n\nLooking in:\n")
+	for _, path := range sipTestScriptPaths {
+		paths.WriteString(fmt.Sprintf("  • %s\n", path))
+	}
+	paths.WriteString("\nPlease ensure the script is installed in one of these locations.")
+	return paths.String()
+}
+
+// getSipToolsStatus returns a formatted status of all SIP testing tools
+func getSipToolsStatus() string {
+	var output strings.Builder
+	
+	output.WriteString("🔧 SIP Testing Tools Status:\n")
+	output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	
+	installedCount := 0
+	for _, tool := range sipTools {
+		if checkToolInstalled(tool) {
+			version := getToolVersion(tool)
+			if version != "" {
+				output.WriteString(fmt.Sprintf("✅ %s: %s\n", tool, version))
+			} else {
+				// Fallback to showing "Installed" with path if version not available
+				path := getToolPath(tool)
+				output.WriteString(fmt.Sprintf("✅ %s: Installed (%s)\n", tool, path))
+			}
+			installedCount++
+		} else {
+			output.WriteString(fmt.Sprintf("❌ %s: Not installed\n", tool))
+		}
+	}
+	
+	output.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	output.WriteString(fmt.Sprintf("Installed: %d/%d tools\n", installedCount, len(sipTools)))
+	
+	if installedCount == 0 {
+		output.WriteString("\n💡 No SIP testing tools found.\n")
+		output.WriteString("   Use 'Install SIP Tool' option to install them.\n")
+	}
+	
+	return output.String()
+}
+
 // handleSipTestMenuSelection handles SIP test menu selection
 func (m *model) handleSipTestMenuSelection() {
 	m.errorMsg = ""
@@ -2885,18 +3074,55 @@ func (m *model) handleSipTestMenuSelection() {
 	switch m.cursor {
 	case 0: // Check Available Tools
 		m.currentScreen = sipTestToolsScreen
-		// Run the tools check command
-		cmd := exec.Command("bash", SipTestScriptPath, "tools")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			details := ParseCommandError(err, output)
-			m.sipTestOutput = FormatVerboseError(details)
-		} else {
-			m.sipTestOutput = string(output)
-		}
+		// Use our built-in tool detection (more reliable than script)
+		m.sipTestOutput = getSipToolsStatus()
 	case 1: // Install SIP Tool
-		// This would require an input screen, for now show a message
-		m.sipTestOutput = "To install a tool, use CLI:\nrayanpbx-cli sip-test install <tool>\n\nAvailable tools: pjsua, sipsak, sipp"
+		// Automatically detect which tools are missing and offer to install them
+		var missingTools []string
+		var installedTools []string
+		
+		for _, tool := range sipTools {
+			if checkToolInstalled(tool) {
+				installedTools = append(installedTools, tool)
+			} else {
+				missingTools = append(missingTools, tool)
+			}
+		}
+		
+		var output strings.Builder
+		output.WriteString("📦 SIP Tool Installation\n")
+		output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+		
+		if len(installedTools) > 0 {
+			output.WriteString("✅ Already installed:\n")
+			for _, tool := range installedTools {
+				path := getToolPath(tool)
+				output.WriteString(fmt.Sprintf("   • %s (%s)\n", tool, path))
+			}
+			output.WriteString("\n")
+		}
+		
+		if len(missingTools) > 0 {
+			output.WriteString("📥 Missing tools that can be installed:\n")
+			for _, tool := range missingTools {
+				output.WriteString(fmt.Sprintf("   • %s\n", tool))
+			}
+			output.WriteString("\n")
+			output.WriteString("To install, run in terminal:\n")
+			output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			for _, tool := range missingTools {
+				output.WriteString(fmt.Sprintf("  rayanpbx-cli sip-test install %s\n", tool))
+			}
+			output.WriteString("\nOr install pjsua, sipsak, sipp via apt:\n")
+			output.WriteString("  sudo apt-get update && sudo apt-get install -y pjsua sipsak sipp\n")
+			output.WriteString("\nFor sipexer (requires Go):\n")
+			output.WriteString("  go install github.com/miconda/sipexer@latest\n")
+			output.WriteString("  # Ensure $HOME/go/bin is in your PATH\n")
+		} else {
+			output.WriteString("🎉 All SIP testing tools are installed!\n")
+		}
+		
+		m.sipTestOutput = output.String()
 	case 2: // Test Registration
 		m.currentScreen = sipTestRegisterScreen
 		m.inputMode = true
@@ -3122,7 +3348,29 @@ func (m *model) executeSipTestRegister() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "register", ext, pass, server)
+	// Validate inputs to prevent command injection
+	if !isValidExtension(ext) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(pass) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = formatScriptNotFoundError()
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "register", ext, pass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -3153,7 +3401,29 @@ func (m *model) executeSipTestCall() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "call", fromExt, fromPass, toExt, toPass, server)
+	// Validate inputs to prevent command injection
+	if !isValidExtension(fromExt) || !isValidExtension(toExt) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(fromPass) || !isValidPassword(toPass) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = formatScriptNotFoundError()
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "call", fromExt, fromPass, toExt, toPass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -3184,7 +3454,29 @@ func (m *model) executeSipTestFull() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "full", ext1, pass1, ext2, pass2, server)
+	// Validate inputs to prevent command injection
+	if !isValidExtension(ext1) || !isValidExtension(ext2) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(pass1) || !isValidPassword(pass2) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = formatScriptNotFoundError()
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "full", ext1, pass1, ext2, pass2, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
