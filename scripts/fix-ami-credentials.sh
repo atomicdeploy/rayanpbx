@@ -34,6 +34,9 @@ DEFAULT_AMI_HOST="127.0.0.1"
 DEFAULT_AMI_PORT="5038"
 DEFAULT_AMI_USERNAME="admin"
 
+# Verbose mode flag (default: off)
+VERBOSE="${VERBOSE:-false}"
+
 # Helper functions
 print_success() {
     echo -e "${GREEN}✅ $1${NC}"
@@ -55,6 +58,25 @@ print_header() {
     echo -e "${MAGENTA}═══════════════════════════════════════${NC}"
     echo -e "${CYAN}  $1${NC}"
     echo -e "${MAGENTA}═══════════════════════════════════════${NC}"
+}
+
+# Debug output (only shown when VERBOSE=true)
+print_debug() {
+    if [ "$VERBOSE" = "true" ]; then
+        echo -e "${DIM}[DEBUG] $1${NC}"
+    fi
+}
+
+# Print verbose multi-line content (for responses)
+print_debug_block() {
+    if [ "$VERBOSE" = "true" ]; then
+        local title="$1"
+        local content="$2"
+        echo -e "${DIM}[DEBUG] $title:${NC}"
+        echo -e "${DIM}────────────────────────────────────${NC}"
+        echo -e "${DIM}$content${NC}"
+        echo -e "${DIM}────────────────────────────────────${NC}"
+    fi
 }
 
 # Helper function to find project root by looking for VERSION file
@@ -297,17 +319,28 @@ test_ami_connection() {
     local secret="$4"
     
     print_info "Testing AMI connection to $host:$port..."
+    print_debug "AMI connection parameters: host=$host, port=$port, username=$username, secret=${secret:0:4}****"
     
     # Check if port is listening
     local port_listening=false
     if command -v ss &> /dev/null; then
-        if ss -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
+        print_debug "Using 'ss' to check port status"
+        local ss_output
+        ss_output=$(ss -tuln 2>/dev/null || echo "")
+        print_debug "ss output: $(echo "$ss_output" | grep -E ":${port}([[:space:]]|$)" || echo "port not found")"
+        if echo "$ss_output" | grep -qE ":${port}([[:space:]]|$)"; then
             port_listening=true
         fi
     elif command -v netstat &> /dev/null; then
-        if netstat -tuln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)"; then
+        print_debug "Using 'netstat' to check port status"
+        local netstat_output
+        netstat_output=$(netstat -tuln 2>/dev/null || echo "")
+        print_debug "netstat output: $(echo "$netstat_output" | grep -E ":${port}([[:space:]]|$)" || echo "port not found")"
+        if echo "$netstat_output" | grep -qE ":${port}([[:space:]]|$)"; then
             port_listening=true
         fi
+    else
+        print_debug "Neither 'ss' nor 'netstat' available for port check"
     fi
     
     if [ "$port_listening" = false ]; then
@@ -319,13 +352,16 @@ test_ami_connection() {
     print_success "AMI port $port is listening"
     
     # Test authentication
-    # Use printf with here-doc style to avoid credentials in process list
+    # Test authentication using netcat
     if command -v nc &> /dev/null; then
         local ami_response
-        local ami_request
-        # Build request in variable to avoid credential exposure in process args
-        ami_request="$(printf 'Action: Login\r\nUsername: %s\r\nSecret: %s\r\n\r\n' "$username" "$secret")"
-        ami_response=$(printf '%s' "$ami_request" | timeout 5 nc "$host" "$port" 2>/dev/null | head -20)
+        print_debug "Sending AMI login request to $host:$port"
+        print_debug_block "AMI Request (secret masked)" "$(echo -e "Action: Login\r\nUsername: $username\r\nSecret: ****\r\n")"
+        
+        # Use echo -e for proper CRLF handling, nc with -w for timeout
+        # The trailing \r after the final \r\n is important for AMI protocol
+        ami_response=$(echo -e "Action: Login\r\nUsername: $username\r\nSecret: $secret\r\n\r" | nc -w 3 "$host" "$port" 2>/dev/null | head -20)
+        print_debug_block "AMI Response" "$ami_response"
         
         if echo "$ami_response" | grep -qi "Success"; then
             print_success "AMI authentication successful!"
@@ -342,6 +378,7 @@ test_ami_connection() {
     else
         print_warn "netcat (nc) not available for connection testing"
         print_info "Install with: apt install netcat-openbsd"
+        print_debug "Consider installing netcat for full AMI testing capability"
         return 1
     fi
 }
@@ -416,11 +453,15 @@ check_ami_enabled() {
     local manager_conf="$1"
     
     if [ ! -f "$manager_conf" ]; then
+        print_debug "manager.conf not found at: $manager_conf"
         return 1
     fi
     
+    print_debug "Checking AMI enabled status in: $manager_conf"
+    
     # Look for "enabled = yes" in [general] section
     local in_general=false
+    local section=""
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         line=$(echo "$line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -435,20 +476,23 @@ check_ami_enabled() {
             section="${BASH_REMATCH[1]}"
             if [ "$section" = "general" ]; then
                 in_general=true
+                print_debug "Found [general] section"
             else
                 in_general=false
             fi
             continue
         fi
         
-        # Check for enabled = yes in [general] section
+        # Check for enabled = yes in [general] section (with optional trailing content)
         if [ "$in_general" = true ]; then
-            if [[ "$line" =~ ^enabled[[:space:]]*=[[:space:]]*yes ]]; then
+            if [[ "$line" =~ ^enabled[[:space:]]*=[[:space:]]*yes([[:space:]]|$|;|#) ]] || [[ "$line" == "enabled"*"="*"yes" ]]; then
+                print_debug "Found 'enabled = yes' in [general] section"
                 return 0
             fi
         fi
     done < "$manager_conf"
     
+    print_debug "AMI not enabled in [general] section"
     return 1
 }
 
@@ -462,33 +506,75 @@ enable_ami_in_manager_conf() {
     fi
     
     print_info "Enabling AMI in manager.conf..."
+    print_debug "Target file: $manager_conf"
     
-    # Use ini-helper if available
+    # Use ini-helper if available (preferred method - creates complete configuration)
     if type set_ini_value &> /dev/null; then
+        print_debug "Using ini-helper to configure AMI"
         ensure_ini_section "$manager_conf" "general"
         set_ini_value "$manager_conf" "general" "enabled" "yes"
+        set_ini_value "$manager_conf" "general" "port" "5038"
+        set_ini_value "$manager_conf" "general" "bindaddr" "127.0.0.1"
+        
+        # Ensure admin user exists with proper permissions
+        ensure_ini_section "$manager_conf" "admin"
+        set_ini_value "$manager_conf" "admin" "read" "all"
+        set_ini_value "$manager_conf" "admin" "write" "all"
+        set_ini_value "$manager_conf" "admin" "deny" "0.0.0.0/0.0.0.0"
+        set_ini_value "$manager_conf" "admin" "permit" "127.0.0.1/255.255.255.255"
+        
         print_success "AMI enabled in manager.conf using ini-helper"
         return 0
     fi
     
+    print_debug "ini-helper not available, using sed fallback"
+    
     # Fallback: manual sed-based update
     # Check if [general] section exists
     if grep -q "^\[general\]" "$manager_conf"; then
-        # Check if enabled line exists (commented or not)
-        if grep -q "^[;#]*[[:space:]]*enabled[[:space:]]*=" "$manager_conf"; then
-            # Update existing enabled line
-            sed -i 's/^[;#]*[[:space:]]*enabled[[:space:]]*=.*/enabled = yes/' "$manager_conf"
+        print_debug "Found [general] section"
+        # Check if enabled line exists (commented or uncommented)
+        # Match lines starting with optional whitespace, then optional comment chars, then 'enabled'
+        if grep -E "^[[:space:]]*(;|#)?[[:space:]]*enabled[[:space:]]*=" "$manager_conf" > /dev/null 2>&1; then
+            print_debug "Found existing 'enabled' line, updating it"
+            # Update existing enabled line (remove comments and set to yes)
+            sed -i 's/^[[:space:]]*[;#]*[[:space:]]*enabled[[:space:]]*=.*/enabled = yes/' "$manager_conf"
         else
+            print_debug "No existing 'enabled' line, adding after [general]"
             # Add enabled = yes after [general]
             sed -i '/^\[general\]/a enabled = yes' "$manager_conf"
         fi
     else
+        print_debug "No [general] section found, adding it"
         # Add [general] section with enabled = yes
         {
             echo ""
             echo "[general]"
             echo "enabled = yes"
+            echo "port = 5038"
+            echo "bindaddr = 127.0.0.1"
         } >> "$manager_conf"
+    fi
+    
+    # Ensure admin user section exists with proper permissions (fallback method)
+    if ! grep -q "^\[admin\]" "$manager_conf"; then
+        print_debug "Adding [admin] section with default permissions"
+        {
+            echo ""
+            echo "[admin]"
+            echo "read = all"
+            echo "write = all"
+            echo "deny = 0.0.0.0/0.0.0.0"
+            echo "permit = 127.0.0.1/255.255.255.255"
+        } >> "$manager_conf"
+    else
+        # Ensure read/write permissions are set
+        if ! grep -A10 "^\[admin\]" "$manager_conf" | grep -q "^read[[:space:]]*="; then
+            sed -i '/^\[admin\]/a read = all' "$manager_conf"
+        fi
+        if ! grep -A10 "^\[admin\]" "$manager_conf" | grep -q "^write[[:space:]]*="; then
+            sed -i '/^\[admin\]/a write = all' "$manager_conf"
+        fi
     fi
     
     print_success "AMI enabled in manager.conf"
@@ -770,12 +856,14 @@ show_usage() {
     echo ""
     echo -e "${YELLOW}Options:${NC}"
     echo "  --no-reload  Don't reload Asterisk after updating credentials"
+    echo "  --verbose    Enable verbose output for debugging"
     echo "  --manager-conf PATH  Specify custom manager.conf path"
     echo ""
     echo -e "${YELLOW}Examples:${NC}"
     echo "  $0 fix                    # Fix and sync credentials"
     echo "  $0 check                  # Check current status"
     echo "  $0 fix --no-reload        # Fix without reloading Asterisk"
+    echo "  $0 fix --verbose          # Fix with detailed debug output"
     echo ""
 }
 
@@ -790,12 +878,23 @@ main() {
         exit 0
     fi
     
+    # Handle verbose flag as first argument
+    if [[ "$command" == "--verbose" ]]; then
+        VERBOSE="true"
+        command="${2:-help}"
+        shift || true
+    fi
+    
     # Parse options
     shift || true
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --no-reload)
                 auto_reload="false"
+                shift
+                ;;
+            --verbose)
+                VERBOSE="true"
                 shift
                 ;;
             --manager-conf)
@@ -811,6 +910,14 @@ main() {
                 ;;
         esac
     done
+    
+    # Show verbose mode status
+    if [ "$VERBOSE" = "true" ]; then
+        print_debug "Verbose mode enabled"
+        print_debug "Command: $command"
+        print_debug "Auto-reload: $auto_reload"
+        print_debug "Manager conf: $MANAGER_CONF"
+    fi
     
     case "$command" in
         fix)

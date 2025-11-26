@@ -383,7 +383,7 @@ EOF
     output=$(MANAGER_CONF="$TEST_TMP_DIR/manager.conf" bash "$REPO_ROOT/scripts/fix-ami-credentials.sh" fix --no-reload 2>&1) || true
     
     # Should detect that AMI is not enabled and attempt to enable it
-    if echo "$output" | grep -q "AMI is not enabled in manager.conf\|Enabling AMI"; then
+    if echo "$output" | grep -E -q "AMI is not enabled in manager.conf|Enabling AMI"; then
         print_pass "AMI not enabled detection works"
     else
         print_fail "AMI not enabled detection failed"
