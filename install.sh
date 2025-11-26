@@ -2810,13 +2810,13 @@ fi
 if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
     print_info "Configuring Asterisk Manager Interface..."
 
-    # Source AMI helper script (preferred) or INI helper as fallback
-    local ami_configured=false
+    # Source AMI tools script (preferred) or INI helper as fallback
+    ami_configured=false
     
     if [ -f "/opt/rayanpbx/scripts/ami-tools.sh" ]; then
         source /opt/rayanpbx/scripts/ami-tools.sh
         if configure_ami "/etc/asterisk/manager.conf" "rayanpbx_ami_secret" "admin"; then
-            print_success "AMI configured via ami-helper"
+            print_success "AMI configured via ami-tools"
             ami_configured=true
         fi
     elif [ -f "/opt/rayanpbx/scripts/ini-helper.sh" ]; then
@@ -2846,7 +2846,7 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
         print_info "Active channels: $(asterisk -rx 'core show channels' 2>/dev/null | grep 'active channel' || echo '0 active channels')"
         
         # Verify AMI connection if configured
-        if [ "$ami_configured" = true ] && type test_ami_connection &> /dev/null; then
+        if [ "$ami_configured" = "true" ] && type test_ami_connection &> /dev/null; then
             if test_ami_connection "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret"; then
                 print_success "AMI connection verified"
             else

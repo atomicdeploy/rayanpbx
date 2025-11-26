@@ -271,6 +271,8 @@ check_ami_enabled() {
 }
 
 # Configure AMI in manager.conf
+# Tries ini-helper.sh with normalization first (preserves custom settings)
+# Falls back to clean config if ini-helper fails
 configure_ami() {
     local manager_conf="${1:-$MANAGER_CONF}"
     local ami_secret="${2:-$DEFAULT_AMI_SECRET}"
@@ -278,12 +280,22 @@ configure_ami() {
     
     ami_debug "Configuring AMI: conf=$manager_conf, user=$ami_username"
     
-    # Try using ini-helper.sh if available
+    # Backup existing config
+    if [ -f "$manager_conf" ]; then
+        cp "$manager_conf" "${manager_conf}.backup.$(date +%Y%m%d_%H%M%S)"
+        ami_debug "Backed up existing manager.conf"
+    fi
+    
+    # Try ini-helper.sh first (preserves custom settings)
     if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
-        ami_debug "Using ini-helper.sh"
+        ami_debug "Using ini-helper.sh with normalization"
         source "$SCRIPT_DIR/ini-helper.sh"
         
-        [ -f "$manager_conf" ] && backup_config "$manager_conf" 2>/dev/null || true
+        # Ensure file exists with minimal content
+        if [ ! -f "$manager_conf" ]; then
+            mkdir -p "$(dirname "$manager_conf")"
+            echo "[general]" > "$manager_conf"
+        fi
         
         ensure_ini_section "$manager_conf" "general"
         set_ini_value "$manager_conf" "general" "enabled" "yes"
@@ -297,12 +309,21 @@ configure_ami() {
         set_ini_value "$manager_conf" "$ami_username" "read" "all"
         set_ini_value "$manager_conf" "$ami_username" "write" "all"
         
+        # Normalize sections to ensure correct key order
+        # Critical: deny must come before permit for ACL to work correctly
+        normalize_ini_section "$manager_conf" "general" "enabled port bindaddr"
+        normalize_ini_section "$manager_conf" "$ami_username" "secret deny permit read write"
+        
+        chown asterisk:asterisk "$manager_conf" 2>/dev/null || true
+        chmod 640 "$manager_conf" 2>/dev/null || true
+        
+        ami_debug "Configured via ini-helper with normalization"
         return 0
     fi
     
     # Fallback: create clean manager.conf
-    ami_debug "Creating clean manager.conf"
-    [ -f "$manager_conf" ] && cp "$manager_conf" "${manager_conf}.backup.$(date +%Y%m%d_%H%M%S)"
+    ami_debug "Creating clean manager.conf (ini-helper not available)"
+    mkdir -p "$(dirname "$manager_conf")"
     
     cat > "$manager_conf" << EOF
 ; Asterisk Manager Interface (AMI) Configuration
@@ -324,6 +345,7 @@ EOF
     chown asterisk:asterisk "$manager_conf" 2>/dev/null || true
     chmod 640 "$manager_conf" 2>/dev/null || true
     
+    ami_debug "Created clean manager.conf"
     return 0
 }
 
