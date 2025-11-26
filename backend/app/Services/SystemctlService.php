@@ -7,11 +7,27 @@ use Exception;
 class SystemctlService
 {
     /**
+     * Unified HTTP client for making outbound requests (e.g., AI solutions)
+     */
+    private HttpClientService $httpClient;
+
+    /**
+     * Create a new SystemctlService instance
+     *
+     * @param  HttpClientService|null  $httpClient  Optional HTTP client for dependency injection/testing
+     */
+    public function __construct(?HttpClientService $httpClient = null)
+    {
+        $this->httpClient = $httpClient ?? new HttpClientService;
+    }
+
+    /**
      * Check if a service is running
      */
     public function isRunning(string $service): bool
     {
         $output = $this->executeCommand("systemctl is-active {$service}");
+
         return trim($output) === 'active';
     }
 
@@ -39,10 +55,10 @@ class SystemctlService
 
         // Get detailed status
         $detailOutput = $this->executeCommand("systemctl status {$service}");
-        
+
         // Parse PID
         if (preg_match('/Main PID:\s+(\d+)/', $detailOutput, $matches)) {
-            $status['pid'] = (int)$matches[1];
+            $status['pid'] = (int) $matches[1];
         }
 
         // Parse memory usage
@@ -67,10 +83,10 @@ class SystemctlService
     /**
      * Get service logs
      */
-    public function getLogs(string $service, int $lines = 50, string $priority = null): array
+    public function getLogs(string $service, int $lines = 50, ?string $priority = null): array
     {
         $command = "journalctl -u {$service} -n {$lines} --no-pager";
-        
+
         if ($priority) {
             $command .= " -p {$priority}";
         }
@@ -114,7 +130,7 @@ class SystemctlService
     public function getAsteriskStatus(): array
     {
         $status = $this->getStatus('asterisk');
-        
+
         // Get Asterisk CLI output
         try {
             $coreShow = $this->executeCommand('asterisk -rx "core show version"');
@@ -125,7 +141,7 @@ class SystemctlService
             // Get active calls
             $calls = $this->executeCommand('asterisk -rx "core show calls"');
             if (preg_match('/(\d+)\s+active call/', $calls, $matches)) {
-                $status['active_calls'] = (int)$matches[1];
+                $status['active_calls'] = (int) $matches[1];
             } else {
                 $status['active_calls'] = 0;
             }
@@ -133,7 +149,7 @@ class SystemctlService
             // Get channels
             $channels = $this->executeCommand('asterisk -rx "core show channels"');
             if (preg_match('/(\d+)\s+active channel/', $channels, $matches)) {
-                $status['active_channels'] = (int)$matches[1];
+                $status['active_channels'] = (int) $matches[1];
             } else {
                 $status['active_channels'] = 0;
             }
@@ -153,6 +169,7 @@ class SystemctlService
         try {
             $this->executeCommand("systemctl restart {$service}");
             sleep(2); // Wait for service to restart
+
             return $this->isRunning($service);
         } catch (Exception $e) {
             return false;
@@ -166,6 +183,7 @@ class SystemctlService
     {
         try {
             $this->executeCommand("systemctl reload {$service}");
+
             return true;
         } catch (Exception $e) {
             return false;
@@ -180,6 +198,7 @@ class SystemctlService
         try {
             $this->executeCommand("systemctl start {$service}");
             sleep(1);
+
             return $this->isRunning($service);
         } catch (Exception $e) {
             return false;
@@ -194,7 +213,8 @@ class SystemctlService
         try {
             $this->executeCommand("systemctl stop {$service}");
             sleep(1);
-            return !$this->isRunning($service);
+
+            return ! $this->isRunning($service);
         } catch (Exception $e) {
             return false;
         }
@@ -207,6 +227,7 @@ class SystemctlService
     {
         try {
             $this->executeCommand('asterisk -rx "core reload"');
+
             return true;
         } catch (Exception $e) {
             return false;
@@ -227,18 +248,18 @@ class SystemctlService
     private function executeCommand(string $command): string
     {
         $escapedCommand = escapeshellcmd($command);
-        
+
         $output = [];
         $returnCode = 0;
-        
-        exec($escapedCommand . ' 2>&1', $output, $returnCode);
-        
+
+        exec($escapedCommand.' 2>&1', $output, $returnCode);
+
         if ($returnCode !== 0 && $returnCode !== 3) { // 3 = inactive service
             $outputStr = implode("\n", $output);
             $errorDetails = $this->getErrorDetails($returnCode, $outputStr);
             throw new Exception("Command failed with code {$returnCode}: {$command}\n{$errorDetails}");
         }
-        
+
         return implode("\n", $output);
     }
 
@@ -250,35 +271,35 @@ class SystemctlService
         $details = [];
 
         // Add output if available
-        if (!empty(trim($output))) {
-            $details[] = "Output: " . $output;
+        if (! empty(trim($output))) {
+            $details[] = 'Output: '.$output;
         }
 
         // Common exit code explanations
         $exitCodeHelp = match ($exitCode) {
-            1 => "General error - The command may not exist, Asterisk may not be running, or permission was denied.",
-            2 => "Misuse of shell command - Invalid command syntax.",
-            126 => "Permission denied - Cannot execute the command. Try running with sudo.",
+            1 => 'General error - The command may not exist, Asterisk may not be running, or permission was denied.',
+            2 => 'Misuse of shell command - Invalid command syntax.',
+            126 => 'Permission denied - Cannot execute the command. Try running with sudo.',
             127 => "Command not found - The 'asterisk' binary may not be in PATH.",
-            130 => "Script terminated by Ctrl+C.",
+            130 => 'Script terminated by Ctrl+C.',
             default => null,
         };
 
         if ($exitCodeHelp) {
-            $details[] = "Possible cause: " . $exitCodeHelp;
+            $details[] = 'Possible cause: '.$exitCodeHelp;
         }
 
         // Get AI-powered solution from pollinations.ai
         $aiSolution = $this->getAISolution($exitCode, $output);
         if ($aiSolution) {
-            $details[] = "\nAI-Suggested Solution:\n" . $aiSolution;
+            $details[] = "\nAI-Suggested Solution:\n".$aiSolution;
         }
 
         // Add troubleshooting tips
         $details[] = "\nTroubleshooting:";
-        $details[] = "  - Check if Asterisk is running: systemctl status asterisk";
-        $details[] = "  - Verify user has permission to run Asterisk CLI commands";
-        $details[] = "  - Check Asterisk logs: /var/log/asterisk/full";
+        $details[] = '  - Check if Asterisk is running: systemctl status asterisk';
+        $details[] = '  - Verify user has permission to run Asterisk CLI commands';
+        $details[] = '  - Check Asterisk logs: /var/log/asterisk/full';
 
         return implode("\n", $details);
     }
@@ -290,33 +311,27 @@ class SystemctlService
     {
         try {
             $query = "Brief fix for Asterisk CLI exit code {$exitCode}";
-            if (!empty(trim($output))) {
+            if (! empty(trim($output))) {
                 // Limit output length for the query
                 $truncatedOutput = substr(trim($output), 0, 100);
                 $query .= " with output: {$truncatedOutput}";
             }
-            
-            $url = "https://text.pollinations.ai/" . rawurlencode($query);
-            
-            $context = stream_context_create([
-                'http' => [
-                    'timeout' => 5, // 5 second timeout
-                    'ignore_errors' => true,
-                ]
-            ]);
-            
-            $response = @file_get_contents($url, false, $context);
-            
-            if ($response !== false && !empty(trim($response))) {
+
+            $url = 'https://text.pollinations.ai/'.rawurlencode($query);
+
+            $response = $this->httpClient->get($url, [], ['timeout' => 5]);
+
+            if ($response->successful() && ! empty(trim($response->body()))) {
                 // Limit response length and format it
-                $lines = explode("\n", trim($response));
+                $lines = explode("\n", trim($response->body()));
                 $limitedLines = array_slice($lines, 0, 5);
-                return "  " . implode("\n  ", $limitedLines);
+
+                return '  '.implode("\n  ", $limitedLines);
             }
         } catch (\Throwable $e) {
             // Silently fail - AI solution is optional
         }
-        
+
         return null;
     }
 }

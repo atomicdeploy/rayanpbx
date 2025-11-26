@@ -126,7 +126,8 @@
     "close": "Close",
     "search": "Search",
     "filter": "Filter",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "retry": "Retry"
   },
   "phones": {
     "title": "VoIP Phones Management",
