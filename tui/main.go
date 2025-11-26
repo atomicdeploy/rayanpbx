@@ -90,10 +90,18 @@ const (
 	DefaultSIPPort = "5060"
 )
 
-// Default paths
-const (
-	SipTestScriptPath = "../scripts/sip-test-suite.sh"
-)
+// Default paths - these are checked in order of preference
+var sipTestScriptPaths = []string{
+	"/opt/rayanpbx/scripts/sip-test-suite.sh",
+	"../scripts/sip-test-suite.sh",
+	"./scripts/sip-test-suite.sh",
+}
+
+// SIP testing tools that can be installed
+var sipTools = []string{"pjsua", "sipsak", "sipexer", "sipp"}
+
+// Version display constants
+const maxVersionDisplayLength = 50
 
 // Default extension values
 const (
@@ -147,6 +155,9 @@ const (
 	voipManualIPScreen
 	voipDiscoveryScreen
 	helloWorldScreen
+	extensionSyncScreen
+	extensionSyncDetailScreen
+	usageInputScreen
 )
 
 type model struct {
@@ -173,6 +184,7 @@ type model struct {
 	usageCursor      int
 	usageOutput      string // Output from executed command
 	pendingCommand   string // Command waiting to be executed externally
+	usageCommandTemplate string // Command template with placeholders for parameter input
 
 	// Diagnostics
 	diagnosticsManager *DiagnosticsManager
@@ -221,12 +233,20 @@ type model struct {
 	helloWorldStatus HelloWorldStatus
 	helloWorldMenu   []string
 
+	// Extension Sync
+	extensionSyncManager *ExtensionSyncManager
+	extensionSyncInfos   []ExtensionSyncInfo
+	extensionSyncMenu    []string
+	selectedSyncIdx      int
+
 	// Configuration Management scrolling state
 	configScrollOffset  int          // Current scroll offset for config list
 	configVisibleRows   int          // Number of visible rows in viewport
 	configItems         []EnvConfig  // Cached config items
 	configCursor        int          // Cursor position within config items
 	configSearchQuery   string       // Search/filter query
+	configInlineEdit    bool         // Whether inline editing mode is active
+	configInlineValue   string       // Current inline edit value
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -245,6 +265,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
 	configManager := NewAsteriskConfigManager(verbose)
 	helloWorldSetup := NewHelloWorldSetup(configManager, asteriskManager, verbose)
+	extensionSyncManager := NewExtensionSyncManager(db, asteriskManager, configManager)
 	
 	return model{
 		currentScreen: mainMenu,
@@ -262,14 +283,15 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"⚙️  System Settings",
 			"❌ Exit",
 		},
-		cursor:             0,
-		db:                 db,
-		config:             config,
-		asteriskManager:    asteriskManager,
-		diagnosticsManager: diagnosticsManager,
-		configManager:      configManager,
-		helloWorldSetup:    helloWorldSetup,
-		verbose:            verbose,
+		cursor:                0,
+		db:                    db,
+		config:                config,
+		asteriskManager:       asteriskManager,
+		diagnosticsManager:    diagnosticsManager,
+		configManager:         configManager,
+		helloWorldSetup:       helloWorldSetup,
+		extensionSyncManager:  extensionSyncManager,
+		verbose:               verbose,
 		asteriskMenu: []string{
 			"🟢 Start Asterisk Service",
 			"🔴 Stop Asterisk Service",
@@ -310,6 +332,14 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📊 Check Status",
 			"🗑️  Remove Setup",
 			"🔙 Back to Main Menu",
+		},
+		extensionSyncMenu: []string{
+			"🔄 Sync Database → Asterisk (selected)",
+			"🔄 Sync Asterisk → Database (selected)",
+			"📥 Sync All DB → Asterisk",
+			"📤 Sync All Asterisk → DB",
+			"🔍 Refresh Sync Status",
+			"🔙 Back to Extensions",
 		},
 	}
 }
@@ -430,11 +460,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = 5
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list with rollover
-				if m.selectedExtensionIdx > 0 {
+				// Navigate extensions list with rollover (use sync infos if available)
+				if len(m.extensionSyncInfos) > 0 {
+					if m.selectedExtensionIdx > 0 {
+						m.selectedExtensionIdx--
+					} else if len(m.extensionSyncInfos) > 0 {
+            m.selectedExtensionIdx = len(m.extensionSyncInfos) - 1
+          }
+				} else if m.selectedExtensionIdx > 0 {
 					m.selectedExtensionIdx--
 				} else if len(m.extensions) > 0 {
 					m.selectedExtensionIdx = len(m.extensions) - 1
+				}
+			} else if m.currentScreen == extensionSyncScreen {
+				// Navigate sync screen (extensions + menu) with rollover
+				maxIdx := len(m.extensionSyncInfos) + len(m.extensionSyncMenu) - 1
+				if m.cursor > 0 {
+					m.cursor--
+				} else if maxIdx >= 0 {
+					m.cursor = maxIdx
+				}
+				if m.cursor < len(m.extensionSyncInfos) {
+					m.selectedSyncIdx = m.cursor
 				}
 			} else if m.currentScreen == docsListScreen {
 				// Navigate docs list with rollover
@@ -497,11 +544,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = 0
 				}
 			} else if m.currentScreen == extensionsScreen {
-				// Navigate extensions list with rollover
-				if m.selectedExtensionIdx < len(m.extensions)-1 {
+				// Navigate extensions list with rollover (use sync infos if available)
+				if len(m.extensionSyncInfos) > 0 {
+					if m.selectedExtensionIdx < len(m.extensionSyncInfos)-1 {
+						m.selectedExtensionIdx++
+					} else if len(m.extensionSyncInfos) > 0 {
+            m.selectedExtensionIdx = 0
+          }
+				} else if m.selectedExtensionIdx < len(m.extensions)-1 {
 					m.selectedExtensionIdx++
 				} else if len(m.extensions) > 0 {
 					m.selectedExtensionIdx = 0
+				}
+			} else if m.currentScreen == extensionSyncScreen {
+				// Navigate sync screen (extensions + menu) with rollover
+				maxIdx := len(m.extensionSyncInfos) + len(m.extensionSyncMenu) - 1
+				if m.cursor < maxIdx {
+					m.cursor++
+				} else if maxIdx >= 0 {
+					m.cursor = 0
+				}
+				if m.cursor < len(m.extensionSyncInfos) {
+					m.selectedSyncIdx = m.cursor
 				}
 			} else if m.currentScreen == docsListScreen {
 				// Navigate docs list with rollover
@@ -674,6 +738,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		
+		case "S":
+			// Open Sync Screen (uppercase S to avoid conflict with 's' for SIP debug)
+			if m.currentScreen == extensionsScreen {
+				m.loadExtensionSyncInfo()
+				m.currentScreen = extensionSyncScreen
+				m.cursor = 0
+				m.selectedSyncIdx = 0
+				m.errorMsg = ""
+				m.successMsg = ""
+			}
+		
 		case "y":
 			// Confirm deletion
 			if m.currentScreen == deleteExtensionScreen {
@@ -692,10 +767,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 				case 1:
-					// Load extensions
+					// Load extensions with sync info
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if exts, err := GetExtensions(m.db); err == nil {
 						m.extensions = exts
+						m.loadExtensionSyncInfo()
 						m.currentScreen = extensionsScreen
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
@@ -794,6 +870,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == helloWorldScreen {
 				// Handle Hello World setup menu selection
 				m.handleHelloWorldMenuSelection()
+			} else if m.currentScreen == extensionSyncScreen {
+				// Handle extension sync menu selection
+				m.handleExtensionSyncSelection()
 			}
 
 		case "esc":
@@ -805,6 +884,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
+				} else if m.currentScreen == extensionSyncScreen {
+					m.currentScreen = extensionsScreen
+					m.cursor = 0
+					m.errorMsg = ""
+					m.successMsg = ""
 				} else if m.currentScreen == helloWorldScreen {
 					m.currentScreen = mainMenu
 					m.cursor = m.mainMenuCursor
@@ -971,6 +1055,8 @@ func (m model) View() string {
 		s += m.renderLogs()
 	case usageScreen:
 		s += m.renderUsage()
+	case usageInputScreen:
+		s += m.renderUsageInput()
 	case createExtensionScreen:
 		s += m.renderCreateExtension()
 	case editExtensionScreen:
@@ -1009,6 +1095,8 @@ func (m model) View() string {
 		s += m.renderVoIPDiscovery()
 	case helloWorldScreen:
 		s += m.renderHelloWorld()
+	case extensionSyncScreen:
+		s += m.renderExtensionSync()
 	}
 
 	// Footer with emojis
@@ -1018,7 +1106,9 @@ func (m model) View() string {
 	} else if m.currentScreen == helloWorldScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute • ESC: Back • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
-		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • h: Help • ESC: Back • q: Quit")
+		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • S: Sync • h: Help • ESC: Back")
+	} else if m.currentScreen == extensionSyncScreen {
+		s += helpStyle.Render("↑/↓: Navigate • Enter: Select/Execute • ESC: Back to Extensions • q: Quit")
 	} else if m.currentScreen == extensionInfoScreen {
 		s += helpStyle.Render("r: Reload PJSIP • t: Test Suite • s: SIP Debug • h: Help Guide • ESC: Back • q: Quit")
 	} else if m.currentScreen == sipHelpScreen {
@@ -1031,6 +1121,8 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add Trunk • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
+	} else if m.currentScreen == usageInputScreen {
+		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
 	} else if m.currentScreen == systemSettingsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
 	} else if m.currentScreen == diagnosticsMenuScreen {
@@ -1072,29 +1164,112 @@ func (m model) renderMainMenu() string {
 func (m model) renderExtensions() string {
 	content := infoStyle.Render("📱 Extensions Management") + "\n\n"
 
-	if len(m.extensions) == 0 {
+	// Get sync summary and show if there are mismatches
+	if m.extensionSyncManager != nil {
+		total, matched, dbOnly, astOnly, mismatched, err := m.extensionSyncManager.GetSyncSummary()
+		if err == nil && total > 0 {
+			if dbOnly > 0 || astOnly > 0 || mismatched > 0 {
+				content += errorStyle.Render("⚠️  Sync Issues Detected") + "\n"
+				if dbOnly > 0 {
+					content += fmt.Sprintf("   • %d extension(s) in DB only\n", dbOnly)
+				}
+				if astOnly > 0 {
+					content += fmt.Sprintf("   • %d extension(s) in Asterisk only\n", astOnly)
+				}
+				if mismatched > 0 {
+					content += fmt.Sprintf("   • %d extension(s) with mismatched config\n", mismatched)
+				}
+				content += helpStyle.Render("   Press 'S' to open Sync Manager\n")
+				content += "\n"
+			} else if matched > 0 {
+				content += successStyle.Render(fmt.Sprintf("✅ All %d extensions synced", matched)) + "\n\n"
+			}
+		}
+	}
+
+	if len(m.extensions) == 0 && len(m.extensionSyncInfos) == 0 {
 		content += "📭 No extensions configured\n\n"
 	} else {
-		content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
+		// Show combined list from both sources if available
+		if len(m.extensionSyncInfos) > 0 {
+			content += fmt.Sprintf("Total Extensions: %s (from DB and Asterisk)\n\n", 
+				successStyle.Render(fmt.Sprintf("%d", len(m.extensionSyncInfos))))
 
-		for i, ext := range m.extensions {
-			status := "🔴 Disabled"
-			if ext.Enabled {
-				status = "🟢 Enabled"
+			for i, syncInfo := range m.extensionSyncInfos {
+				cursor := " "
+				if i == m.selectedExtensionIdx {
+					cursor = "▶"
+				}
+				
+				// Build status indicators
+				var statusParts []string
+				
+				// Source indicator
+				switch syncInfo.Source {
+				case SourceBoth:
+					if syncInfo.SyncStatus == SyncStatusMatch {
+						statusParts = append(statusParts, "✅")
+					} else {
+						statusParts = append(statusParts, "⚠️")
+					}
+				case SourceDatabase:
+					statusParts = append(statusParts, "📦 DB only")
+				case SourceAsterisk:
+					statusParts = append(statusParts, "⚡ Asterisk only")
+				}
+				
+				// Enabled/disabled status (from DB if available)
+				if syncInfo.DBExtension != nil {
+					if syncInfo.DBExtension.Enabled {
+						statusParts = append(statusParts, "🟢")
+					} else {
+						statusParts = append(statusParts, "🔴")
+					}
+				}
+				
+				// Live registration status (from Asterisk if available)
+				if syncInfo.AsteriskConfig != nil && syncInfo.AsteriskConfig.Registered {
+					statusParts = append(statusParts, "📞 Registered")
+				}
+				
+				// Get name
+				name := fmt.Sprintf("Extension %s", syncInfo.ExtensionNumber)
+				if syncInfo.DBExtension != nil && syncInfo.DBExtension.Name != "" {
+					name = syncInfo.DBExtension.Name
+				}
+				
+				status := strings.Join(statusParts, " ")
+				line := fmt.Sprintf("%s %s - %s (%s)\n",
+					cursor,
+					successStyle.Render(syncInfo.ExtensionNumber),
+					name,
+					status,
+				)
+				content += line
 			}
+		} else {
+			// Fallback to DB-only list
+			content += fmt.Sprintf("Total Extensions: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.extensions))))
 
-			cursor := " "
-			if i == m.selectedExtensionIdx {
-				cursor = "▶"
+			for i, ext := range m.extensions {
+				status := "🔴 Disabled"
+				if ext.Enabled {
+					status = "🟢 Enabled"
+				}
+
+				cursor := " "
+				if i == m.selectedExtensionIdx {
+					cursor = "▶"
+				}
+				
+				line := fmt.Sprintf("%s %s - %s (%s)\n",
+					cursor,
+					successStyle.Render(ext.ExtensionNumber),
+					ext.Name,
+					status,
+				)
+				content += line
 			}
-			
-			line := fmt.Sprintf("%s %s - %s (%s)\n",
-				cursor,
-				successStyle.Render(ext.ExtensionNumber),
-				ext.Name,
-				status,
-			)
-			content += line
 		}
 	}
 
@@ -1144,21 +1319,76 @@ func (m model) renderStatus() string {
 		content += errorStyle.Render("❌ Database: Disconnected") + "\n"
 	}
 
-	// Get statistics
+	// Check Asterisk service
+	am := NewAsteriskManager()
+	asteriskStatus, _ := am.GetServiceStatus()
+	if asteriskStatus == "running" {
+		content += successStyle.Render("✅ Asterisk: Running") + "\n"
+	} else {
+		content += errorStyle.Render("❌ Asterisk: Stopped") + "\n"
+	}
+
+	// Get database statistics
 	var extTotal, extActive, trunkTotal, trunkActive int
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions").Scan(&extTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM extensions WHERE enabled = 1").Scan(&extActive)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks").Scan(&trunkTotal)
 	m.db.QueryRow("SELECT COUNT(*) FROM trunks WHERE enabled = 1").Scan(&trunkActive)
 
+	// Get Asterisk live endpoints
+	var asteriskEndpoints int
+	var registeredEndpoints int
+	asteriskEndpointsList, err := am.ListAllEndpoints()
+	if err == nil {
+		// Filter to only count numeric extensions (not trunks)
+		for _, ep := range asteriskEndpointsList {
+			if matched, _ := regexp.MatchString(`^\d+$`, ep); matched {
+				asteriskEndpoints++
+			}
+		}
+	}
+
+	// Get registered extensions from Asterisk
+	if m.extensionSyncManager != nil {
+		liveStatus, _ := m.extensionSyncManager.GetLiveAsteriskEndpoints()
+		for _, registered := range liveStatus {
+			if registered {
+				registeredEndpoints++
+			}
+		}
+	}
+
 	content += "\n📈 Statistics:\n"
-	content += fmt.Sprintf("  📱 Extensions: %s active / %d total\n",
+	
+	// Extensions - show both DB and Asterisk
+	content += "  📱 Extensions:\n"
+	content += fmt.Sprintf("     Database: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", extActive)), extTotal)
+	if asteriskStatus == "running" {
+		content += fmt.Sprintf("     Asterisk: %s configured, %s registered\n",
+			successStyle.Render(fmt.Sprintf("%d", asteriskEndpoints)),
+			successStyle.Render(fmt.Sprintf("%d", registeredEndpoints)))
+		
+		// Show sync status
+		if m.extensionSyncManager != nil {
+			total, matched, dbOnly, astOnly, mismatched, _ := m.extensionSyncManager.GetSyncSummary()
+			if total > 0 {
+				if dbOnly > 0 || astOnly > 0 || mismatched > 0 {
+					content += errorStyle.Render(fmt.Sprintf("     ⚠️  Sync Issues: %d DB-only, %d Asterisk-only, %d mismatched\n", dbOnly, astOnly, mismatched))
+				} else {
+					content += successStyle.Render(fmt.Sprintf("     ✅ Synced: %d extensions in sync\n", matched))
+				}
+			}
+		}
+	} else {
+		content += helpStyle.Render("     Asterisk: Not running\n")
+	}
+	
 	content += fmt.Sprintf("  🔗 Trunks: %s active / %d total\n",
 		successStyle.Render(fmt.Sprintf("%d", trunkActive)), trunkTotal)
 	content += "  📞 Active Calls: 0\n"
 
-	content += "\n" + helpStyle.Render("🔄 Status updates in real-time")
+	content += "\n" + helpStyle.Render("🔄 Status updates in real-time • Press 'S' in Extensions to sync")
 
 	return menuStyle.Render(content)
 }
@@ -1598,6 +1828,36 @@ func (m model) renderUsage() string {
 	return menuStyle.Render(content)
 }
 
+// renderUsageInput renders the parameter input screen for parameterized CLI commands
+func (m model) renderUsageInput() string {
+	content := infoStyle.Render("📝 Enter Command Parameters") + "\n\n"
+	
+	// Display the command template with highlighted parameters
+	content += "Command: " + successStyle.Render(m.usageCommandTemplate) + "\n\n"
+	content += "Please fill in the required parameters:\n\n"
+
+	for i, field := range m.inputFields {
+		cursor := "  "
+		fieldStyle := lipgloss.NewStyle()
+		if i == m.inputCursor {
+			cursor = "▶ "
+			fieldStyle = selectedItemStyle
+		}
+
+		value := m.inputValues[i]
+		if value == "" {
+			value = helpStyle.Render("<enter " + field + ">")
+		}
+
+		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldStyle.Render(field), value)
+	}
+
+	content += "\n" + helpStyle.Render("💡 Press Enter to move to next field, or submit when on last field")
+	content += "\n" + helpStyle.Render("   Press ESC to cancel")
+
+	return menuStyle.Render(content)
+}
+
 // getUsageCommands returns a list of CLI commands for the usage guide
 func getUsageCommands() []UsageCommand {
 	return []UsageCommand{
@@ -1621,16 +1881,75 @@ func getUsageCommands() []UsageCommand {
 	}
 }
 
+// extractCommandParams extracts parameter placeholders (e.g., <num>, <name>, <pass>) from a command.
+// Returns a slice of parameter names (without angle brackets) and whether any parameters were found.
+func extractCommandParams(command string) ([]string, bool) {
+	paramRegex := regexp.MustCompile(`<([^>]+)>`)
+	matches := paramRegex.FindAllStringSubmatch(command, -1)
+	
+	if len(matches) == 0 {
+		return nil, false
+	}
+	
+	params := make([]string, len(matches))
+	for i, match := range matches {
+		params[i] = match[1]
+	}
+	
+	return params, true
+}
+
+// substituteCommandParams replaces parameter placeholders in a command with actual values.
+// The placeholders are expected to match the order of values in inputValues.
+func substituteCommandParams(commandTemplate string, inputValues []string) string {
+	result := commandTemplate
+	paramRegex := regexp.MustCompile(`<([^>]+)>`)
+	
+	valueIdx := 0
+	result = paramRegex.ReplaceAllStringFunc(result, func(match string) string {
+		if valueIdx < len(inputValues) {
+			value := inputValues[valueIdx]
+			valueIdx++
+			// Quote the value if it contains spaces
+			if strings.Contains(value, " ") {
+				return fmt.Sprintf("\"%s\"", value)
+			}
+			return value
+		}
+		return match
+	})
+	
+	return result
+}
+
 // executeCommand executes a CLI command and captures its output.
 // For most commands, output is captured and displayed in the TUI.
 // For long-running commands (start, stop, restart, update), the command
 // is run outside the TUI so the user can see the output.
+// For commands with parameters (e.g., <num>, <name>), switches to input mode.
 // Returns a tea.Cmd if the command should be run externally, nil otherwise.
 func (m *model) executeCommand(command string) tea.Cmd {
 	// Clear previous output
 	m.usageOutput = ""
 	m.errorMsg = ""
 	m.successMsg = ""
+	
+	// Check if the command has parameter placeholders
+	params, hasParams := extractCommandParams(command)
+	if hasParams {
+		// Switch to parameter input mode
+		m.usageCommandTemplate = command
+		m.inputMode = true
+		m.inputFields = make([]string, len(params))
+		m.inputValues = make([]string, len(params))
+		for i, param := range params {
+			m.inputFields[i] = param
+			m.inputValues[i] = ""
+		}
+		m.inputCursor = 0
+		m.currentScreen = usageInputScreen
+		return nil
+	}
 	
 	// Check if this is a long-running or interactive command that needs to run outside TUI
 	// We check for specific command patterns to avoid false positives
@@ -1650,6 +1969,43 @@ func (m *model) executeCommand(command string) tea.Cmd {
 	}
 	
 	m.successMsg = "Command executed successfully"
+	m.usageOutput = output
+	return nil
+}
+
+// executeParameterizedCommand executes a CLI command after parameter values have been provided.
+// It substitutes the template placeholders with actual values and runs the command.
+func (m *model) executeParameterizedCommand() tea.Cmd {
+	// Validate that all required parameters are provided
+	for i, value := range m.inputValues {
+		if value == "" {
+			m.errorMsg = fmt.Sprintf("Parameter '%s' is required", m.inputFields[i])
+			return nil
+		}
+	}
+	
+	// Substitute parameters in the command template
+	command := substituteCommandParams(m.usageCommandTemplate, m.inputValues)
+	
+	// Clear input mode state
+	m.inputMode = false
+	m.currentScreen = usageScreen
+	m.usageCommandTemplate = ""
+	
+	// Check if this is a long-running command
+	if isLongRunningCommand(command) {
+		m.pendingCommand = command
+		return m.runCommandExternally(command)
+	}
+	
+	// Execute and capture output
+	output, err := m.runCommandCapture(command)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to execute command: %v", err)
+		return nil
+	}
+	
+	m.successMsg = fmt.Sprintf("Command executed successfully")
 	m.usageOutput = output
 	return nil
 }
@@ -1878,6 +2234,9 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.currentScreen = extensionsScreen
 		} else if m.currentScreen == createTrunkScreen {
 			m.currentScreen = trunksScreen
+		} else if m.currentScreen == usageInputScreen {
+			m.currentScreen = usageScreen
+			m.usageCommandTemplate = ""
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
@@ -1934,6 +2293,8 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeManualIPAdd()
 			} else if m.currentScreen == voipPhoneProvisionScreen {
 				m.executeVoIPProvision()
+			} else if m.currentScreen == usageInputScreen {
+				return m, m.executeParameterizedCommand()
 			}
 		}
 
@@ -2739,6 +3100,187 @@ func (m *model) handleDiagnosticsMenuSelection() {
 	}
 }
 
+// getSipTestScriptPath finds the SIP test suite script in available locations
+func getSipTestScriptPath() string {
+	for _, path := range sipTestScriptPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return "" // Not found
+}
+
+// isValidToolName checks if the tool name is in the allowed list
+func isValidToolName(tool string) bool {
+	for _, t := range sipTools {
+		if t == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// checkToolInstalled checks if a tool is installed using which command
+// Only checks tools that are in the predefined sipTools list for security
+func checkToolInstalled(tool string) bool {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return false
+	}
+	// Use 'which' directly with the tool as a separate argument (safe from injection)
+	cmd := exec.Command("which", tool)
+	return cmd.Run() == nil
+}
+
+// getToolPath returns the path of an installed tool, or empty string if not found
+func getToolPath(tool string) string {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return ""
+	}
+	cmd := exec.Command("which", tool)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// getToolVersion returns the version string of an installed tool
+func getToolVersion(tool string) string {
+	// Security: Only check tools in our predefined list
+	if !isValidToolName(tool) {
+		return ""
+	}
+	
+	var cmd *exec.Cmd
+	switch tool {
+	case "pjsua":
+		// pjsua uses --version
+		cmd = exec.Command("pjsua", "--version")
+	case "sipsak":
+		// sipsak uses -V (version flag)
+		cmd = exec.Command("sipsak", "-V")
+	case "sipexer":
+		// sipexer uses -version
+		cmd = exec.Command("sipexer", "-version")
+	case "sipp":
+		// sipp uses -v
+		cmd = exec.Command("sipp", "-v")
+	default:
+		return ""
+	}
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Tool exists but version command failed - return empty to trigger fallback
+		return ""
+	}
+	
+	// Extract first line and trim
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > 0 {
+		version := strings.TrimSpace(lines[0])
+		// Limit version string length for display
+		if len(version) > maxVersionDisplayLength {
+			version = version[:maxVersionDisplayLength-3] + "..."
+		}
+		return version
+	}
+	return ""
+}
+
+// isValidExtension validates an extension number (alphanumeric only)
+func isValidExtension(ext string) bool {
+	if ext == "" || len(ext) > 20 {
+		return false
+	}
+	for _, c := range ext {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidPassword validates a password (printable ASCII, no shell metacharacters)
+func isValidPassword(pass string) bool {
+	if pass == "" || len(pass) > 128 {
+		return false
+	}
+	// Reject shell metacharacters that could be used for injection
+	dangerousChars := "`$(){}[]|;<>&\\\"'"
+	for _, c := range pass {
+		if c < 32 || c > 126 { // Non-printable ASCII
+			return false
+		}
+		if strings.ContainsRune(dangerousChars, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidServer validates a server address (IP or hostname)
+func isValidServer(server string) bool {
+	if server == "" || len(server) > 255 {
+		return false
+	}
+	// Allow alphanumeric, dots, hyphens (for hostnames and IPs)
+	for _, c := range server {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// formatScriptNotFoundError generates an error message listing all script paths
+func formatScriptNotFoundError() string {
+	var paths strings.Builder
+	paths.WriteString("❌ SIP test suite script not found.\n\nLooking in:\n")
+	for _, path := range sipTestScriptPaths {
+		paths.WriteString(fmt.Sprintf("  • %s\n", path))
+	}
+	paths.WriteString("\nPlease ensure the script is installed in one of these locations.")
+	return paths.String()
+}
+
+// getSipToolsStatus returns a formatted status of all SIP testing tools
+func getSipToolsStatus() string {
+	var output strings.Builder
+	
+	output.WriteString("🔧 SIP Testing Tools Status:\n")
+	output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	
+	installedCount := 0
+	for _, tool := range sipTools {
+		if checkToolInstalled(tool) {
+			version := getToolVersion(tool)
+			if version != "" {
+				output.WriteString(fmt.Sprintf("✅ %s: %s\n", tool, version))
+			} else {
+				// Fallback to showing "Installed" with path if version not available
+				path := getToolPath(tool)
+				output.WriteString(fmt.Sprintf("✅ %s: Installed (%s)\n", tool, path))
+			}
+			installedCount++
+		} else {
+			output.WriteString(fmt.Sprintf("❌ %s: Not installed\n", tool))
+		}
+	}
+	
+	output.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	output.WriteString(fmt.Sprintf("Installed: %d/%d tools\n", installedCount, len(sipTools)))
+	
+	if installedCount == 0 {
+		output.WriteString("\n💡 No SIP testing tools found.\n")
+		output.WriteString("   Use 'Install SIP Tool' option to install them.\n")
+	}
+	
+	return output.String()
+}
+
 // handleSipTestMenuSelection handles SIP test menu selection
 func (m *model) handleSipTestMenuSelection() {
 	m.errorMsg = ""
@@ -2748,18 +3290,55 @@ func (m *model) handleSipTestMenuSelection() {
 	switch m.cursor {
 	case 0: // Check Available Tools
 		m.currentScreen = sipTestToolsScreen
-		// Run the tools check command
-		cmd := exec.Command("bash", SipTestScriptPath, "tools")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			details := ParseCommandError(err, output)
-			m.sipTestOutput = FormatVerboseError(details)
-		} else {
-			m.sipTestOutput = string(output)
-		}
+		// Use our built-in tool detection (more reliable than script)
+		m.sipTestOutput = getSipToolsStatus()
 	case 1: // Install SIP Tool
-		// This would require an input screen, for now show a message
-		m.sipTestOutput = "To install a tool, use CLI:\nrayanpbx-cli sip-test install <tool>\n\nAvailable tools: pjsua, sipsak, sipp"
+		// Automatically detect which tools are missing and offer to install them
+		var missingTools []string
+		var installedTools []string
+		
+		for _, tool := range sipTools {
+			if checkToolInstalled(tool) {
+				installedTools = append(installedTools, tool)
+			} else {
+				missingTools = append(missingTools, tool)
+			}
+		}
+		
+		var output strings.Builder
+		output.WriteString("📦 SIP Tool Installation\n")
+		output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+		
+		if len(installedTools) > 0 {
+			output.WriteString("✅ Already installed:\n")
+			for _, tool := range installedTools {
+				path := getToolPath(tool)
+				output.WriteString(fmt.Sprintf("   • %s (%s)\n", tool, path))
+			}
+			output.WriteString("\n")
+		}
+		
+		if len(missingTools) > 0 {
+			output.WriteString("📥 Missing tools that can be installed:\n")
+			for _, tool := range missingTools {
+				output.WriteString(fmt.Sprintf("   • %s\n", tool))
+			}
+			output.WriteString("\n")
+			output.WriteString("To install, run in terminal:\n")
+			output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			for _, tool := range missingTools {
+				output.WriteString(fmt.Sprintf("  rayanpbx-cli sip-test install %s\n", tool))
+			}
+			output.WriteString("\nOr install pjsua, sipsak, sipp via apt:\n")
+			output.WriteString("  sudo apt-get update && sudo apt-get install -y pjsua sipsak sipp\n")
+			output.WriteString("\nFor sipexer (requires Go):\n")
+			output.WriteString("  go install github.com/miconda/sipexer@latest\n")
+			output.WriteString("  # Ensure $HOME/go/bin is in your PATH\n")
+		} else {
+			output.WriteString("🎉 All SIP testing tools are installed!\n")
+		}
+		
+		m.sipTestOutput = output.String()
 	case 2: // Test Registration
 		m.currentScreen = sipTestRegisterScreen
 		m.inputMode = true
@@ -2985,7 +3564,29 @@ func (m *model) executeSipTestRegister() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "register", ext, pass, server)
+	// Validate inputs to prevent command injection
+	if !isValidExtension(ext) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(pass) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = formatScriptNotFoundError()
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "register", ext, pass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -3016,7 +3617,29 @@ func (m *model) executeSipTestCall() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "call", fromExt, fromPass, toExt, toPass, server)
+	// Validate inputs to prevent command injection
+	if !isValidExtension(fromExt) || !isValidExtension(toExt) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(fromPass) || !isValidPassword(toPass) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = formatScriptNotFoundError()
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "call", fromExt, fromPass, toExt, toPass, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -3047,7 +3670,29 @@ func (m *model) executeSipTestFull() {
 		server = "127.0.0.1"
 	}
 
-	cmd := exec.Command("bash", SipTestScriptPath, "full", ext1, pass1, ext2, pass2, server)
+	// Validate inputs to prevent command injection
+	if !isValidExtension(ext1) || !isValidExtension(ext2) {
+		m.errorMsg = "Invalid extension number (only alphanumeric characters allowed)"
+		return
+	}
+	if !isValidPassword(pass1) || !isValidPassword(pass2) {
+		m.errorMsg = "Invalid password (special shell characters not allowed)"
+		return
+	}
+	if !isValidServer(server) {
+		m.errorMsg = "Invalid server address (only alphanumeric, dots, and hyphens allowed)"
+		return
+	}
+
+	scriptPath := getSipTestScriptPath()
+	if scriptPath == "" {
+		m.errorMsg = "SIP test script not found"
+		m.sipTestOutput = formatScriptNotFoundError()
+		m.inputMode = false
+		return
+	}
+
+	cmd := exec.Command("bash", scriptPath, "full", ext1, pass1, ext2, pass2, server)
 	output, err := cmd.CombinedOutput()
 	
 	if err != nil {
@@ -3465,6 +4110,207 @@ func (m *model) handleHelloWorldMenuSelection() {
 	}
 }
 
+// loadExtensionSyncInfo loads sync information for all extensions
+func (m *model) loadExtensionSyncInfo() {
+	if m.extensionSyncManager == nil {
+		return
+	}
+	
+	syncInfos, err := m.extensionSyncManager.CompareExtensions()
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to load sync info: %v", err)
+		return
+	}
+	
+	m.extensionSyncInfos = syncInfos
+}
+
+// renderExtensionSync renders the extension sync management screen
+func (m model) renderExtensionSync() string {
+	content := titleStyle.Render("🔄 Extension Sync Manager") + "\n\n"
+	
+	// Show sync summary
+	if m.extensionSyncManager != nil {
+		total, matched, dbOnly, astOnly, mismatched, err := m.extensionSyncManager.GetSyncSummary()
+		if err != nil {
+			content += errorStyle.Render(fmt.Sprintf("Error: %v", err)) + "\n\n"
+		} else {
+			content += infoStyle.Render("📊 Sync Summary:") + "\n"
+			content += fmt.Sprintf("   Total: %d extension(s)\n", total)
+			if matched > 0 {
+				content += successStyle.Render(fmt.Sprintf("   ✅ Synced: %d", matched)) + "\n"
+			}
+			if dbOnly > 0 {
+				content += errorStyle.Render(fmt.Sprintf("   📦 DB Only: %d (not in Asterisk)", dbOnly)) + "\n"
+			}
+			if astOnly > 0 {
+				content += errorStyle.Render(fmt.Sprintf("   ⚡ Asterisk Only: %d (not in DB)", astOnly)) + "\n"
+			}
+			if mismatched > 0 {
+				content += errorStyle.Render(fmt.Sprintf("   ⚠️  Mismatched: %d", mismatched)) + "\n"
+			}
+			content += "\n"
+		}
+	}
+	
+	// Show extension list with sync status
+	content += infoStyle.Render("📋 Extensions Status:") + "\n\n"
+	
+	if len(m.extensionSyncInfos) == 0 {
+		content += "📭 No extensions found\n\n"
+	} else {
+		for i, info := range m.extensionSyncInfos {
+			cursor := " "
+			if i == m.selectedSyncIdx {
+				cursor = "▶"
+			}
+			
+			// Build status indicator
+			var statusIcon string
+			var statusText string
+			switch info.SyncStatus {
+			case SyncStatusMatch:
+				statusIcon = "✅"
+				statusText = "Synced"
+			case SyncStatusDBOnly:
+				statusIcon = "📦"
+				statusText = "DB Only"
+			case SyncStatusAsteriskOnly:
+				statusIcon = "⚡"
+				statusText = "Asterisk Only"
+			case SyncStatusMismatch:
+				statusIcon = "⚠️"
+				statusText = "Mismatch"
+			}
+			
+			// Get name
+			name := fmt.Sprintf("Extension %s", info.ExtensionNumber)
+			if info.DBExtension != nil && info.DBExtension.Name != "" {
+				name = info.DBExtension.Name
+			}
+			
+			line := fmt.Sprintf("%s %s %s - %s (%s)\n",
+				cursor,
+				statusIcon,
+				successStyle.Render(info.ExtensionNumber),
+				name,
+				statusText,
+			)
+			
+			if i == m.selectedSyncIdx {
+				content += selectedItemStyle.Render(line)
+				// Show differences if there are any
+				if len(info.Differences) > 0 {
+					for _, diff := range info.Differences {
+						content += helpStyle.Render(fmt.Sprintf("   └─ %s", diff)) + "\n"
+					}
+				}
+			} else {
+				content += line
+			}
+		}
+	}
+	
+	content += "\n"
+	
+	// Menu options
+	content += infoStyle.Render("⚡ Actions:") + "\n\n"
+	for i, item := range m.extensionSyncMenu {
+		cursor := " "
+		menuIdx := len(m.extensionSyncInfos) + i
+		if m.cursor == menuIdx {
+			cursor = "▶"
+			item = selectedItemStyle.Render(item)
+		}
+		content += fmt.Sprintf("%s %s\n", cursor, item)
+	}
+	
+	return menuStyle.Render(content)
+}
+
+// handleExtensionSyncSelection handles menu selection on the sync screen
+func (m *model) handleExtensionSyncSelection() {
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	// Calculate menu index (cursor position relative to menu)
+	menuIdx := m.cursor - len(m.extensionSyncInfos)
+	
+	// If cursor is on an extension, not a menu item
+	if m.cursor < len(m.extensionSyncInfos) {
+		m.selectedSyncIdx = m.cursor
+		return
+	}
+	
+	switch menuIdx {
+	case 0: // Sync selected DB → Asterisk
+		if m.selectedSyncIdx < len(m.extensionSyncInfos) {
+			info := m.extensionSyncInfos[m.selectedSyncIdx]
+			if info.DBExtension != nil {
+				err := m.extensionSyncManager.SyncDatabaseToAsterisk(info.ExtensionNumber)
+				if err != nil {
+					m.errorMsg = fmt.Sprintf("Sync failed: %v", err)
+				} else {
+					m.successMsg = fmt.Sprintf("Extension %s synced to Asterisk", info.ExtensionNumber)
+					m.loadExtensionSyncInfo()
+				}
+			} else {
+				m.errorMsg = "Selected extension is not in database"
+			}
+		}
+		
+	case 1: // Sync selected Asterisk → DB
+		if m.selectedSyncIdx < len(m.extensionSyncInfos) {
+			info := m.extensionSyncInfos[m.selectedSyncIdx]
+			if info.AsteriskConfig != nil {
+				err := m.extensionSyncManager.SyncAsteriskToDatabase(info.ExtensionNumber)
+				if err != nil {
+					m.errorMsg = fmt.Sprintf("Sync failed: %v", err)
+				} else {
+					m.successMsg = fmt.Sprintf("Extension %s synced to database", info.ExtensionNumber)
+					m.loadExtensionSyncInfo()
+					// Reload extensions from DB
+					if exts, err := GetExtensions(m.db); err == nil {
+						m.extensions = exts
+					}
+				}
+			} else {
+				m.errorMsg = "Selected extension is not in Asterisk config"
+			}
+		}
+		
+	case 2: // Sync all DB → Asterisk
+		synced, errors := m.extensionSyncManager.SyncAllDatabaseToAsterisk()
+		if len(errors) > 0 {
+			m.errorMsg = fmt.Sprintf("Synced %d, %d errors", synced, len(errors))
+		} else {
+			m.successMsg = fmt.Sprintf("All %d extensions synced to Asterisk", synced)
+		}
+		m.loadExtensionSyncInfo()
+		
+	case 3: // Sync all Asterisk → DB
+		synced, errors := m.extensionSyncManager.SyncAllAsteriskToDatabase()
+		if len(errors) > 0 {
+			m.errorMsg = fmt.Sprintf("Synced %d, %d errors", synced, len(errors))
+		} else {
+			m.successMsg = fmt.Sprintf("All %d extensions synced to database", synced)
+		}
+		m.loadExtensionSyncInfo()
+		// Reload extensions from DB
+		if exts, err := GetExtensions(m.db); err == nil {
+			m.extensions = exts
+		}
+		
+	case 4: // Refresh
+		m.loadExtensionSyncInfo()
+		m.successMsg = "Sync status refreshed"
+		
+	case 5: // Back to Extensions
+		m.currentScreen = extensionsScreen
+		m.cursor = m.selectedExtensionIdx
+	}
+}
+
 func main() {
 	// Parse flags
 	verbose := false
@@ -3538,6 +4384,34 @@ func main() {
 	}
 	defer db.Close()
 	green.Println("✅ Database connected")
+
+	// Perform automatic extension sync on startup
+	cyan.Println("🔄 Performing automatic extension sync...")
+	asteriskMgr := NewAsteriskManager()
+	configMgr := NewAsteriskConfigManager(verbose)
+	syncManager := NewExtensionSyncManager(db, asteriskMgr, configMgr)
+	
+	syncResult, err := syncManager.PerformAutoSync()
+	if err != nil {
+		yellow := color.New(color.FgYellow)
+		yellow.Printf("⚠️  Auto-sync failed: %v\n", err)
+	} else {
+		if syncResult.DBToAsteriskSynced > 0 || syncResult.AsteriskToDBSynced > 0 {
+			green.Printf("✅ Synced: %d DB→Asterisk, %d Asterisk→DB\n", 
+				syncResult.DBToAsteriskSynced, syncResult.AsteriskToDBSynced)
+		} else if syncResult.AlreadyInSync > 0 {
+			green.Printf("✅ All %d extensions already in sync\n", syncResult.AlreadyInSync)
+		}
+		
+		if syncResult.HasConflicts() {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("⚠️  %d conflict(s) require attention - use Extensions Sync Manager to resolve\n", 
+				len(syncResult.Conflicts))
+			for _, c := range syncResult.Conflicts {
+				fmt.Printf("   • Extension %s: %s\n", c.ExtensionNumber, strings.Join(c.Differences, ", "))
+			}
+		}
+	}
 
 	fmt.Println()
 	cyan.Println("🚀 Starting TUI interface...")

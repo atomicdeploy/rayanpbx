@@ -23,17 +23,38 @@
         <p class="text-gray-600 dark:text-gray-400">{{ $t('auth.checkingBackend') }}</p>
       </div>
 
-      <!-- Backend info display -->
-      <div v-else-if="backendInfo && !error" class="mb-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-sm">
-        <div class="flex items-center gap-2 text-green-700 dark:text-green-400">
-          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <!-- Backend connection failed - show retry button -->
+      <div v-else-if="!backendInfo" class="flex flex-col items-center justify-center space-y-4 py-8">
+        <svg class="w-16 h-16 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p class="text-red-600 dark:text-red-400 text-center font-medium">{{ $t('auth.backendUnreachable') }}</p>
+        <button
+          type="button"
+          @click="retryBackendCheck"
+          class="btn btn-primary flex items-center gap-2"
+          :disabled="checkingBackend"
+        >
+          <svg class="w-5 h-5" :class="{ 'animate-spin': checkingBackend }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          <span>{{ $t('auth.backendConnected') }}: {{ backendInfo.app?.name || 'RayanPBX' }}</span>
-        </div>
+          {{ $t('common.retry') }}
+        </button>
       </div>
 
-      <form v-if="!checkingBackend" @submit.prevent="handleLogin" class="space-y-6">
+      <!-- Backend connected - show login form -->
+      <template v-else>
+        <!-- Backend info display -->
+        <div class="mb-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-sm">
+          <div class="flex items-center gap-2 text-green-700 dark:text-green-400">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{{ $t('auth.backendConnected') }}: {{ backendInfo.app?.name || 'RayanPBX' }}</span>
+          </div>
+        </div>
+
+        <form @submit.prevent="handleLogin" class="space-y-6">
         <div>
           <label class="label flex items-center">
             <svg class="w-4 h-4 me-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,14 +144,15 @@
         </button>
       </form>
 
-      <div class="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
-        <p class="flex items-center justify-center gap-1">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          {{ $t('auth.pamInfo') }}
-        </p>
-      </div>
+        <div class="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
+          <p class="flex items-center justify-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {{ $t('auth.pamInfo') }}
+          </p>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -173,6 +195,19 @@ const handleLogin = async () => {
   loading.value = false
 }
 
+const retryBackendCheck = async () => {
+  checkingBackend.value = true
+  error.value = ''
+  backendInfo.value = null
+
+  const health = await authStore.checkBackendHealth()
+  checkingBackend.value = false
+
+  if (health.available) {
+    backendInfo.value = health.data
+  }
+}
+
 // Check backend health and redirect if already authenticated
 onMounted(async () => {
   await authStore.checkAuth()
@@ -187,8 +222,6 @@ onMounted(async () => {
   
   if (health.available) {
     backendInfo.value = health.data
-  } else {
-    error.value = t('auth.backendUnreachable')
   }
 })
 </script>

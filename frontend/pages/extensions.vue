@@ -24,6 +24,43 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="card">
+        <!-- Sync Status Banner -->
+        <div v-if="syncStatus && (syncStatus.summary.db_only > 0 || syncStatus.summary.asterisk_only > 0 || syncStatus.summary.mismatched > 0)" 
+             class="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-amber-600 dark:text-amber-400 text-xl">⚠️</span>
+              <div>
+                <h3 class="font-semibold text-amber-700 dark:text-amber-300">Sync Issues Detected</h3>
+                <p class="text-sm text-amber-600 dark:text-amber-400">
+                  <span v-if="syncStatus.summary.db_only > 0">{{ syncStatus.summary.db_only }} DB only • </span>
+                  <span v-if="syncStatus.summary.asterisk_only > 0">{{ syncStatus.summary.asterisk_only }} Asterisk only • </span>
+                  <span v-if="syncStatus.summary.mismatched > 0">{{ syncStatus.summary.mismatched }} mismatched</span>
+                </p>
+              </div>
+            </div>
+            <button @click="showSyncModal = true" class="btn bg-amber-600 hover:bg-amber-700 text-white">
+              🔄 Open Sync Manager
+            </button>
+          </div>
+        </div>
+
+        <!-- All Synced Banner -->
+        <div v-else-if="syncStatus && syncStatus.summary.matched > 0 && !loading" 
+             class="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-green-600 dark:text-green-400">✅</span>
+              <span class="text-green-700 dark:text-green-300 text-sm">
+                All {{ syncStatus.summary.matched }} extensions synced between database and Asterisk
+              </span>
+            </div>
+            <button @click="refreshSyncStatus" class="text-green-600 hover:text-green-800 text-sm">
+              🔄 Refresh
+            </button>
+          </div>
+        </div>
+
         <!-- Search and Filter Controls -->
         <div v-if="!loading && extensions.length > 0" class="mb-4 flex gap-4">
           <input
@@ -37,6 +74,9 @@
             <option value="registered">{{ $t('status.registered') }}</option>
             <option value="offline">{{ $t('status.offline') }}</option>
           </select>
+          <button @click="showSyncModal = true" class="btn btn-secondary" title="Open Sync Manager">
+            🔄 Sync
+          </button>
         </div>
 
         <div v-if="loading" class="text-center py-8">
@@ -474,6 +514,151 @@
         </div>
       </div>
     </div>
+
+    <!-- Sync Manager Modal -->
+    <div v-if="showSyncModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="showSyncModal = false">
+      <div class="flex items-center justify-center min-h-screen px-4">
+        <div class="fixed inset-0 bg-black opacity-50"></div>
+        <div class="relative card max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+          <div class="flex justify-between items-start mb-4">
+            <h2 class="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              🔄 Extension Sync Manager
+            </h2>
+            <button @click="showSyncModal = false" class="text-gray-500 hover:text-gray-700">
+              ✕
+            </button>
+          </div>
+
+          <!-- Sync Summary -->
+          <div v-if="syncStatus" class="grid grid-cols-5 gap-4 mb-6">
+            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-gray-700 dark:text-gray-300">{{ syncStatus.summary.total }}</div>
+              <div class="text-xs text-gray-500">Total</div>
+            </div>
+            <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-green-600">{{ syncStatus.summary.matched }}</div>
+              <div class="text-xs text-green-600">✅ Synced</div>
+            </div>
+            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-blue-600">{{ syncStatus.summary.db_only }}</div>
+              <div class="text-xs text-blue-600">📦 DB Only</div>
+            </div>
+            <div class="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-purple-600">{{ syncStatus.summary.asterisk_only }}</div>
+              <div class="text-xs text-purple-600">⚡ Asterisk Only</div>
+            </div>
+            <div class="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-amber-600">{{ syncStatus.summary.mismatched }}</div>
+              <div class="text-xs text-amber-600">⚠️ Mismatch</div>
+            </div>
+          </div>
+
+          <!-- Bulk Sync Actions -->
+          <div class="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <h3 class="font-semibold mb-3 text-gray-700 dark:text-gray-300">⚡ Bulk Sync Actions</h3>
+            <div class="flex gap-4">
+              <button 
+                @click="syncAllDbToAsterisk" 
+                :disabled="syncing"
+                class="btn bg-blue-600 hover:bg-blue-700 text-white flex-1"
+              >
+                📥 Sync All DB → Asterisk
+              </button>
+              <button 
+                @click="syncAllAsteriskToDb" 
+                :disabled="syncing"
+                class="btn bg-purple-600 hover:bg-purple-700 text-white flex-1"
+              >
+                📤 Sync All Asterisk → DB
+              </button>
+              <button 
+                @click="refreshSyncStatus" 
+                :disabled="syncing"
+                class="btn btn-secondary"
+              >
+                🔄 Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- Extensions List -->
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Extension</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Differences</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                <tr v-for="ext in syncStatus?.extensions" :key="ext.extension_number" 
+                    class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <span v-if="ext.sync_status === 'match'" class="text-green-600">✅</span>
+                    <span v-else-if="ext.sync_status === 'db_only'" class="text-blue-600">📦</span>
+                    <span v-else-if="ext.sync_status === 'asterisk_only'" class="text-purple-600">⚡</span>
+                    <span v-else class="text-amber-600">⚠️</span>
+                    <span v-if="ext.registered" class="ml-1 text-green-500" title="Registered">📞</span>
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap font-medium">{{ ext.extension_number }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                    {{ ext.db_extension?.name || `Extension ${ext.extension_number}` }}
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm">
+                    <span v-if="ext.source === 'both'" class="text-green-600">DB + Asterisk</span>
+                    <span v-else-if="ext.source === 'database'" class="text-blue-600">Database</span>
+                    <span v-else class="text-purple-600">Asterisk</span>
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-500">
+                    <ul v-if="ext.differences?.length > 0" class="list-disc list-inside text-xs">
+                      <li v-for="diff in ext.differences" :key="diff" class="text-amber-600">{{ diff }}</li>
+                    </ul>
+                    <span v-else class="text-green-600 text-xs">No differences</span>
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap text-right text-sm">
+                    <button 
+                      v-if="ext.source === 'database' || ext.sync_status === 'mismatch'"
+                      @click="syncSingleDbToAsterisk(ext.extension_number)"
+                      :disabled="syncing"
+                      class="text-blue-600 hover:text-blue-800 mr-2"
+                      title="Sync DB → Asterisk"
+                    >
+                      📥
+                    </button>
+                    <button 
+                      v-if="ext.source === 'asterisk' || ext.sync_status === 'mismatch'"
+                      @click="syncSingleAsteriskToDb(ext.extension_number)"
+                      :disabled="syncing"
+                      class="text-purple-600 hover:text-purple-800"
+                      title="Sync Asterisk → DB"
+                    >
+                      📤
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Sync Status Message -->
+          <div v-if="syncMessage" 
+               :class="['mt-4 p-3 rounded-lg text-sm', 
+                       syncError ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-green-50 text-green-600 border border-green-200']">
+            {{ syncMessage }}
+          </div>
+
+          <div class="flex justify-end mt-6">
+            <button @click="showSyncModal = false" class="btn btn-secondary">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -490,6 +675,13 @@ const editMode = ref(false)
 const saving = ref(false)
 const showAdvanced = ref(false)
 const togglingExtension = ref<number | null>(null)
+
+// Sync status
+const showSyncModal = ref(false)
+const syncStatus = ref<any>(null)
+const syncing = ref(false)
+const syncMessage = ref('')
+const syncError = ref(false)
 
 // Sorting and filtering state
 const searchQuery = ref('')
@@ -814,6 +1006,113 @@ const resetForm = () => {
   showAdvanced.value = false
 }
 
+// Sync functions
+const refreshSyncStatus = async () => {
+  try {
+    syncing.value = true
+    syncMessage.value = ''
+    syncError.value = false
+    const response = await api.apiFetch('/extensions/sync/status')
+    syncStatus.value = response
+  } catch (error) {
+    console.error('Error fetching sync status:', error)
+    syncError.value = true
+    syncMessage.value = 'Failed to fetch sync status'
+  } finally {
+    syncing.value = false
+  }
+}
+
+const syncSingleDbToAsterisk = async (extensionNumber: string) => {
+  try {
+    syncing.value = true
+    syncMessage.value = ''
+    syncError.value = false
+    const response = await api.apiFetch('/extensions/sync/db-to-asterisk', {
+      method: 'POST',
+      body: { extension_number: extensionNumber }
+    })
+    syncMessage.value = response.message || `Extension ${extensionNumber} synced to Asterisk`
+    await refreshSyncStatus()
+    await fetchExtensions()
+  } catch (error: any) {
+    console.error('Error syncing to Asterisk:', error)
+    syncError.value = true
+    syncMessage.value = error.message || 'Failed to sync to Asterisk'
+  } finally {
+    syncing.value = false
+  }
+}
+
+const syncSingleAsteriskToDb = async (extensionNumber: string) => {
+  try {
+    syncing.value = true
+    syncMessage.value = ''
+    syncError.value = false
+    const response = await api.apiFetch('/extensions/sync/asterisk-to-db', {
+      method: 'POST',
+      body: { extension_number: extensionNumber }
+    })
+    syncMessage.value = response.message || `Extension ${extensionNumber} synced to database`
+    await refreshSyncStatus()
+    await fetchExtensions()
+  } catch (error: any) {
+    console.error('Error syncing to database:', error)
+    syncError.value = true
+    syncMessage.value = error.message || 'Failed to sync to database'
+  } finally {
+    syncing.value = false
+  }
+}
+
+const syncAllDbToAsterisk = async () => {
+  try {
+    syncing.value = true
+    syncMessage.value = ''
+    syncError.value = false
+    const response = await api.apiFetch('/extensions/sync/all-db-to-asterisk', {
+      method: 'POST'
+    })
+    syncMessage.value = response.message || `Synced ${response.synced} extensions to Asterisk`
+    if (response.errors?.length > 0) {
+      syncError.value = true
+      syncMessage.value += ` (${response.errors.length} errors)`
+    }
+    await refreshSyncStatus()
+    await fetchExtensions()
+  } catch (error: any) {
+    console.error('Error syncing all to Asterisk:', error)
+    syncError.value = true
+    syncMessage.value = error.message || 'Failed to sync all to Asterisk'
+  } finally {
+    syncing.value = false
+  }
+}
+
+const syncAllAsteriskToDb = async () => {
+  try {
+    syncing.value = true
+    syncMessage.value = ''
+    syncError.value = false
+    const response = await api.apiFetch('/extensions/sync/all-asterisk-to-db', {
+      method: 'POST'
+    })
+    syncMessage.value = response.message || `Synced ${response.synced} extensions to database`
+    if (response.errors?.length > 0) {
+      syncError.value = true
+      syncMessage.value += ` (${response.errors.length} errors)`
+    }
+    await refreshSyncStatus()
+    await fetchExtensions()
+  } catch (error: any) {
+    console.error('Error syncing all to database:', error)
+    syncError.value = true
+    syncMessage.value = error.message || 'Failed to sync all to database'
+  } finally {
+    syncing.value = false
+  }
+}
+
 onMounted(async () => {
   await authStore.checkAuth()
   if (!authStore.isAuthenticated) {
@@ -821,6 +1120,9 @@ onMounted(async () => {
     return
   }
   await fetchExtensions()
+  
+  // Fetch sync status
+  await refreshSyncStatus()
   
   // Connect to WebSocket
   const ws = useWebSocket()
@@ -830,17 +1132,20 @@ onMounted(async () => {
   ws.on('extension.created', async (payload) => {
     console.log('Extension created:', payload)
     await fetchExtensions()
+    await refreshSyncStatus()
   })
   
   ws.on('extension.updated', async (payload) => {
     console.log('Extension updated:', payload)
     await fetchExtensions()
+    await refreshSyncStatus()
   })
   
-  ws.on('extension.deleted', (payload) => {
+  ws.on('extension.deleted', async (payload) => {
     console.log('Extension deleted:', payload)
     // Remove from local list
     extensions.value = extensions.value.filter(e => e.id !== payload.id)
+    await refreshSyncStatus()
   })
   
   // Auto-refresh live status every 10 seconds

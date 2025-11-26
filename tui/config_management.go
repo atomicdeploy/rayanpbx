@@ -16,12 +16,14 @@ import (
 
 // EnvConfig represents a single environment variable or section header
 type EnvConfig struct {
-	Key         string
-	Value       string
-	Description string
-	Sensitive   bool
-	IsSection   bool   // True if this is a section header (comment line)
-	SectionName string // Name of the section (for display)
+	Key          string
+	Value        string
+	Description  string
+	Sensitive    bool
+	IsSection    bool     // True if this is a section header (comment line)
+	SectionName  string   // Name of the section (for display)
+	SectionLines []string // All lines in the section comment (for multi-line sections)
+	Expanded     bool     // Whether the section is expanded (for multi-line display)
 }
 
 // ConfigManager handles environment file operations
@@ -80,20 +82,22 @@ func (cm *ConfigManager) LoadConfigs() error {
 	cm.configs = []EnvConfig{}
 	scanner := bufio.NewScanner(file)
 	lastComment := ""
-	pendingSectionComment := ""
+	var pendingSectionLines []string
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		
 		// Skip empty lines - they reset comments but also mark section boundaries
 		if line == "" {
-			// If we had a pending section comment, it was a standalone section header
-			if pendingSectionComment != "" {
+			// If we had pending section lines, create a section entry
+			if len(pendingSectionLines) > 0 {
 				cm.configs = append(cm.configs, EnvConfig{
-					IsSection:   true,
-					SectionName: pendingSectionComment,
+					IsSection:    true,
+					SectionName:  pendingSectionLines[0],
+					SectionLines: pendingSectionLines,
+					Expanded:     false,
 				})
-				pendingSectionComment = ""
+				pendingSectionLines = nil
 			}
 			lastComment = ""
 			continue
@@ -104,17 +108,13 @@ func (cm *ConfigManager) LoadConfigs() error {
 			commentText := strings.TrimPrefix(line, "#")
 			commentText = strings.TrimSpace(commentText)
 			
-			// Check if this is a section header (single-line comment that looks like a title)
-			// Section headers are typically short, capitalized words or phrases
-			if isSectionHeader(commentText) {
-				// If we already had a pending section, save it
-				if pendingSectionComment != "" {
-					cm.configs = append(cm.configs, EnvConfig{
-						IsSection:   true,
-						SectionName: pendingSectionComment,
-					})
-				}
-				pendingSectionComment = commentText
+			// If we already have pending section lines, add this comment as continuation
+			// (consecutive comments without empty lines between them belong to the same section)
+			if len(pendingSectionLines) > 0 {
+				pendingSectionLines = append(pendingSectionLines, commentText)
+			} else if isSectionHeader(commentText) {
+				// Start a new section
+				pendingSectionLines = []string{commentText}
 			} else {
 				// Regular comment - use as description for next variable
 				if lastComment != "" {
@@ -139,13 +139,15 @@ func (cm *ConfigManager) LoadConfigs() error {
 				// Check if sensitive
 				sensitive := cm.isSensitive(key)
 				
-				// If there's a pending section comment, add it first
-				if pendingSectionComment != "" {
+				// If there are pending section lines, add section first
+				if len(pendingSectionLines) > 0 {
 					cm.configs = append(cm.configs, EnvConfig{
-						IsSection:   true,
-						SectionName: pendingSectionComment,
+						IsSection:    true,
+						SectionName:  pendingSectionLines[0],
+						SectionLines: pendingSectionLines,
+						Expanded:     false,
 					})
-					pendingSectionComment = ""
+					pendingSectionLines = nil
 				}
 				
 				config := EnvConfig{
@@ -163,10 +165,12 @@ func (cm *ConfigManager) LoadConfigs() error {
 	}
 	
 	// Add any remaining pending section
-	if pendingSectionComment != "" {
+	if len(pendingSectionLines) > 0 {
 		cm.configs = append(cm.configs, EnvConfig{
-			IsSection:   true,
-			SectionName: pendingSectionComment,
+			IsSection:    true,
+			SectionName:  pendingSectionLines[0],
+			SectionLines: pendingSectionLines,
+			Expanded:     false,
 		})
 	}
 
@@ -450,10 +454,16 @@ func initConfigManagement(m *model) {
 	m.configSearchQuery = ""
 	// Set visible rows based on terminal height, accounting for header/footer/menu
 	// Leave room for: title (2), stats (2), table header (2), menu options (5), help (2), messages (2)
+	// Reduced by 2 more lines to avoid table overflow
 	if m.height > 25 {
-		m.configVisibleRows = m.height - 20
+		m.configVisibleRows = m.height - 22
 	} else {
-		m.configVisibleRows = defaultConfigVisibleRows
+		m.configVisibleRows = defaultConfigVisibleRows - 2
+	}
+	// Skip initial sections to position cursor on first selectable item
+	filteredConfigs := getFilteredConfigs(m.configItems, m.configSearchQuery)
+	for m.configCursor < len(filteredConfigs) && filteredConfigs[m.configCursor].IsSection {
+		m.configCursor++
 	}
 }
 
@@ -495,17 +505,28 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		configCount := len(filteredConfigs)
 		totalItems := configCount + 3 // configs + 3 menu options (add, reload, back)
 		
+		// Handle inline edit mode separately
+		if m.configInlineEdit {
+			return handleInlineEditInput(msg, m, filteredConfigs, configCount)
+		}
+		
 		switch msg.String() {
 		case "q", "esc":
 			m.currentScreen = mainMenu
 			m.cursor = m.mainMenuCursor
 			m.configItems = nil // Clear cached items
 			m.configSearchQuery = ""
+			m.configInlineEdit = false
+			m.configInlineValue = ""
 			return m, nil
 			
 		case "up", "k":
 			if m.configCursor > 0 {
 				m.configCursor--
+				// Skip over section headers (they're not selectable)
+				for m.configCursor > 0 && m.configCursor < configCount && filteredConfigs[m.configCursor].IsSection {
+					m.configCursor--
+				}
 				// Adjust scroll if cursor goes above visible area (only for config items)
 				if m.configCursor < configCount && m.configCursor < m.configScrollOffset {
 					m.configScrollOffset = m.configCursor
@@ -515,6 +536,14 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.configCursor < totalItems-1 {
 				m.configCursor++
+				// Skip over section headers (they're not selectable)
+				for m.configCursor < configCount && filteredConfigs[m.configCursor].IsSection {
+					m.configCursor++
+				}
+				// Clamp to totalItems-1
+				if m.configCursor >= totalItems {
+					m.configCursor = totalItems - 1
+				}
 				// Adjust scroll if cursor goes below visible area (only for config items)
 				if m.configCursor < configCount && m.configCursor >= m.configScrollOffset+m.configVisibleRows {
 					m.configScrollOffset = m.configCursor - m.configVisibleRows + 1
@@ -527,6 +556,10 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			if m.configCursor < 0 {
 				m.configCursor = 0
 			}
+			// Skip section headers
+			for m.configCursor > 0 && m.configCursor < configCount && filteredConfigs[m.configCursor].IsSection {
+				m.configCursor--
+			}
 			// Adjust scroll
 			m.configScrollOffset -= m.configVisibleRows
 			if m.configScrollOffset < 0 {
@@ -536,6 +569,13 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		case "pgdown", "ctrl+f":
 			// Page down - move cursor down by visible rows
 			m.configCursor += m.configVisibleRows
+			if m.configCursor >= totalItems {
+				m.configCursor = totalItems - 1
+			}
+			// Skip section headers
+			for m.configCursor < configCount && filteredConfigs[m.configCursor].IsSection {
+				m.configCursor++
+			}
 			if m.configCursor >= totalItems {
 				m.configCursor = totalItems - 1
 			}
@@ -550,8 +590,11 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			}
 			
 		case "home", "g":
-			// Go to top
+			// Go to top - skip past any leading sections
 			m.configCursor = 0
+			for m.configCursor < configCount && filteredConfigs[m.configCursor].IsSection {
+				m.configCursor++
+			}
 			m.configScrollOffset = 0
 			
 		case "end", "G":
@@ -577,20 +620,30 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 			// Refresh config list
 			initConfigManagement(&m)
 			m.successMsg = "Configuration reloaded"
-			
-		case "enter":
-			if m.configCursor < configCount {
-				// Check if it's a section header (not editable)
-				if filteredConfigs[m.configCursor].IsSection {
-					// Skip - sections are not editable
-					return m, nil
-				}
-				// Edit config
+		
+		case "i":
+			// Full edit mode (key/value editing)
+			if m.configCursor < configCount && !filteredConfigs[m.configCursor].IsSection {
 				m.currentScreen = configEditScreen
 				m.inputMode = true
 				m.inputFields = []string{"Key", "Value"}
 				m.inputValues = []string{filteredConfigs[m.configCursor].Key, filteredConfigs[m.configCursor].Value}
 				m.inputCursor = 0
+			}
+			
+		case "enter":
+			if m.configCursor < configCount {
+				// Check if it's a section header
+				if filteredConfigs[m.configCursor].IsSection {
+					// Toggle expand/collapse for multi-line sections
+					toggleSectionExpand(&m, m.configCursor)
+					return m, nil
+				}
+				// Enter inline edit mode for config value
+				m.configInlineEdit = true
+				m.configInlineValue = filteredConfigs[m.configCursor].Value
+				m.successMsg = ""
+				m.errorMsg = ""
 			} else if m.configCursor == configCount {
 				// Add new config
 				m.currentScreen = configAddScreen
@@ -615,14 +668,104 @@ func updateConfigManagement(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		// Recalculate visible rows based on new terminal size
 		if m.height > 25 {
-			m.configVisibleRows = m.height - 20
+			m.configVisibleRows = m.height - 22 // Reduced by 2 more lines to avoid overflow
 		} else {
-			m.configVisibleRows = defaultConfigVisibleRows
+			m.configVisibleRows = defaultConfigVisibleRows - 2 // Also reduce default
 		}
 	}
 	
 	return m, nil
 }
+
+// handleInlineEditInput handles input when in inline edit mode
+func handleInlineEditInput(msg tea.KeyMsg, m model, filteredConfigs []EnvConfig, configCount int) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Cancel inline edit
+		m.configInlineEdit = false
+		m.configInlineValue = ""
+		return m, nil
+		
+	case "enter":
+		// Save the inline edit
+		if m.configCursor < configCount {
+			key := filteredConfigs[m.configCursor].Key
+			newValue := m.configInlineValue
+			
+			configManager := NewConfigManager(m.verbose)
+			if err := configManager.LoadConfigs(); err != nil {
+				m.errorMsg = fmt.Sprintf("Error loading configs: %v", err)
+				m.configInlineEdit = false
+				m.configInlineValue = ""
+				return m, nil
+			}
+			
+			if err := configManager.UpdateConfig(key, newValue); err != nil {
+				m.errorMsg = fmt.Sprintf("Error saving: %v", err)
+			} else {
+				m.successMsg = fmt.Sprintf("Updated %s", key)
+				// Reload configs to reflect the change
+				initConfigManagement(&m)
+			}
+		}
+		m.configInlineEdit = false
+		m.configInlineValue = ""
+		return m, nil
+		
+	case "i":
+		// Switch to full edit mode
+		if m.configCursor < configCount {
+			m.configInlineEdit = false
+			m.configInlineValue = ""
+			m.currentScreen = configEditScreen
+			m.inputMode = true
+			m.inputFields = []string{"Key", "Value"}
+			m.inputValues = []string{filteredConfigs[m.configCursor].Key, filteredConfigs[m.configCursor].Value}
+			m.inputCursor = 0
+		}
+		return m, nil
+		
+	case "backspace":
+		if len(m.configInlineValue) > 0 {
+			m.configInlineValue = m.configInlineValue[:len(m.configInlineValue)-1]
+		}
+		return m, nil
+		
+	default:
+		// Add character to inline value
+		if len(msg.String()) == 1 {
+			m.configInlineValue += msg.String()
+		}
+		return m, nil
+	}
+}
+
+// toggleSectionExpand toggles the expanded state of a section
+func toggleSectionExpand(m *model, idx int) {
+	filteredConfigs := getFilteredConfigs(m.configItems, m.configSearchQuery)
+	if idx >= len(filteredConfigs) || !filteredConfigs[idx].IsSection {
+		return
+	}
+	
+	// Find the corresponding item in the original configs
+	sectionName := filteredConfigs[idx].SectionName
+	for i := range m.configItems {
+		if m.configItems[i].IsSection && m.configItems[i].SectionName == sectionName {
+			m.configItems[i].Expanded = !m.configItems[i].Expanded
+			break
+		}
+	}
+}
+
+// configSelectedStyle is a style for selected items without underline to avoid table border issues
+var configSelectedStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#7D56F4")).
+	Bold(true)
+
+// configInlineEditStyle uses VT-100 invert code for inline editing
+var configInlineEditStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#000000")).
+	Background(lipgloss.Color("#FFFFFF"))
 
 // View function for config management screen
 func viewConfigManagement(m model) string {
@@ -661,7 +804,7 @@ func viewConfigManagement(m model) string {
 	}
 	s.WriteString("\n")
 	
-	// Show scroll position indicator
+	// Show scroll position indicator - always show placeholder to maintain consistent height
 	if configCount > m.configVisibleRows {
 		percentage := 0
 		if configCount > 1 {
@@ -671,6 +814,9 @@ func viewConfigManagement(m model) string {
 			}
 		}
 		s.WriteString(helpStyle.Render(fmt.Sprintf("[%d/%d] %d%%", m.configCursor+1, totalItems, percentage)))
+	} else {
+		// Empty placeholder to maintain consistent height
+		s.WriteString(" ")
 	}
 	s.WriteString("\n\n")
 	
@@ -695,10 +841,11 @@ func viewConfigManagement(m model) string {
 		Foreground(lipgloss.Color("#FFA500")).
 		Bold(true)
 	
-	// Table header
+	// Table header - fixed alignment: 2 chars for cursor + key width + 3 chars for " │ " + value
 	s.WriteString(headerStyle.Render(fmt.Sprintf("  %-*s │ %s", maxKeyWidth, "KEY", "VALUE")))
 	s.WriteString("\n")
-	s.WriteString(headerStyle.Render(fmt.Sprintf("─%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))))
+	// Fixed separator: 2 dashes for cursor column + maxKeyWidth dashes + 1 dash + cross + 40 dashes
+	s.WriteString(headerStyle.Render(fmt.Sprintf("──%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))))
 	s.WriteString("\n")
 	
 	// Calculate visible range - only for config items, menu is always shown separately
@@ -713,11 +860,18 @@ func viewConfigManagement(m model) string {
 		endIdx = configCount
 	}
 	
-	// Show scroll indicator at top (with proper alignment)
+	// Calculate full line width for section headers
+	// 2 (cursor) + maxKeyWidth (key) + 3 (" │ ") + 40 (value) = maxKeyWidth + 45
+	fullLineWidth := maxKeyWidth + 45
+	
+	// Show scroll indicator at top - always reserve space to prevent flashing
 	if startIdx > 0 {
 		s.WriteString(helpStyle.Render(fmt.Sprintf("  %-*s │ ▲ more above...", maxKeyWidth, "")))
 		s.WriteString("\n")
 	}
+	
+	// Track if we're at the very first item (right after header) to avoid duplicate separator
+	isFirstVisibleItem := true
 	
 	// Display exactly visibleRows lines for configs
 	displayedRows := 0
@@ -725,28 +879,61 @@ func viewConfigManagement(m model) string {
 		config := filteredConfigs[i]
 		
 		if config.IsSection {
-			// Section header - display as a separator row
-			sectionLine := fmt.Sprintf("─%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))
-			s.WriteString(headerStyle.Render(sectionLine))
-			s.WriteString("\n")
-			
-			// Section name row
-			cursor := " "
-			if m.configCursor == i {
-				cursor = "▶"
-			}
-			sectionName := config.SectionName
-			if len(sectionName) > maxKeyWidth-2 {
-				sectionName = sectionName[:maxKeyWidth-5] + "..."
+			// Section header - display with proper table borders
+			// Skip the top border if this is the first item (right after header separator)
+			if !isFirstVisibleItem {
+				// Top border of section spanning full width with proper T-junction
+				sectionTopBorder := fmt.Sprintf("──%s─┼%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))
+				s.WriteString(headerStyle.Render(sectionTopBorder))
+				s.WriteString("\n")
+				displayedRows++
 			}
 			
-			sectionRow := fmt.Sprintf("%s %-*s │ %s", cursor, maxKeyWidth, "# "+sectionName, "(section)")
-			if m.configCursor == i {
-				s.WriteString(selectedItemStyle.Render(sectionRow))
-			} else {
-				s.WriteString(sectionStyle.Render(sectionRow))
+			// Section name row - spans both columns with proper │ at edges
+			sectionName := "# " + config.SectionName
+			// Pad/truncate to fit within the table
+			availableWidth := fullLineWidth - 4 // 2 for "│ " at start and " │" at end conceptually
+			if len(sectionName) > availableWidth {
+				sectionName = sectionName[:availableWidth-3] + "..."
 			}
+			
+			// Section content spans full width
+			sectionRow := fmt.Sprintf("  %-*s", fullLineWidth-2, sectionName)
+			s.WriteString(sectionStyle.Render(sectionRow))
 			s.WriteString("\n")
+			displayedRows++
+			
+			// Show additional section lines for multi-line sections
+			if len(config.SectionLines) > 1 {
+				maxLines := 3 // Show up to 3 lines initially
+				if config.Expanded {
+					maxLines = len(config.SectionLines)
+				}
+				
+				linesToShow := len(config.SectionLines) - 1 // Exclude the first line (already shown)
+				if linesToShow > maxLines-1 {
+					linesToShow = maxLines - 1
+				}
+				
+				for j := 1; j <= linesToShow && displayedRows < visibleRows; j++ {
+					additionalLine := "  # " + config.SectionLines[j]
+					if len(additionalLine) > fullLineWidth-2 {
+						additionalLine = additionalLine[:fullLineWidth-5] + "..."
+					}
+					s.WriteString(helpStyle.Render(additionalLine))
+					s.WriteString("\n")
+					displayedRows++
+				}
+				
+				// Show "... X more lines (press Enter to expand)" if there are more
+				if !config.Expanded && len(config.SectionLines) > maxLines {
+					moreCount := len(config.SectionLines) - maxLines
+					expandHint := fmt.Sprintf("  ... %d more line(s) (Enter to expand)", moreCount)
+					s.WriteString(helpStyle.Render(expandHint))
+					s.WriteString("\n")
+					displayedRows++
+				}
+			}
 		} else {
 			// Regular config item
 			cursor := " "
@@ -762,7 +949,10 @@ func viewConfigManagement(m model) string {
 			
 			// Handle value display
 			displayValue := config.Value
-			if config.Sensitive {
+			if m.configInlineEdit && m.configCursor == i {
+				// In inline edit mode, show the current inline value
+				displayValue = m.configInlineValue
+			} else if config.Sensitive {
 				displayValue = "********"
 			}
 			// Truncate value if too long
@@ -771,32 +961,43 @@ func viewConfigManagement(m model) string {
 				displayValue = displayValue[:maxValueWidth-3] + "..."
 			}
 			
-			line := fmt.Sprintf("%s %-*s │ %s", cursor, maxKeyWidth, displayKey, displayValue)
-			
-			if m.configCursor == i {
-				s.WriteString(selectedItemStyle.Render(line))
+			// Build the line - use different styling based on mode
+			if m.configInlineEdit && m.configCursor == i {
+				// Inline edit mode - use inverted colors for value
+				keyPart := fmt.Sprintf("%s %-*s │ ", cursor, maxKeyWidth, displayKey)
+				s.WriteString(configSelectedStyle.Render(keyPart))
+				s.WriteString(configInlineEditStyle.Render(displayValue + "█"))
+				s.WriteString("\n")
+			} else if m.configCursor == i {
+				// Selected but not editing - use bold without underline
+				line := fmt.Sprintf("%s %-*s │ %s", cursor, maxKeyWidth, displayKey, displayValue)
+				s.WriteString(configSelectedStyle.Render(line))
+				s.WriteString("\n")
 			} else {
+				line := fmt.Sprintf("%s %-*s │ %s", cursor, maxKeyWidth, displayKey, displayValue)
 				s.WriteString(line)
-			}
-			s.WriteString("\n")
-			
-			// Show description for selected item
-			if config.Description != "" && m.configCursor == i {
-				s.WriteString(helpStyle.Render(fmt.Sprintf("  └─ %s", config.Description)))
 				s.WriteString("\n")
 			}
+			displayedRows++
+			
+			// Show description for selected item (only when not in inline edit mode)
+			if config.Description != "" && m.configCursor == i && !m.configInlineEdit {
+				s.WriteString(helpStyle.Render(fmt.Sprintf("  └─ %s", config.Description)))
+				s.WriteString("\n")
+				displayedRows++
+			}
 		}
-		displayedRows++
+		isFirstVisibleItem = false
 	}
 	
-	// Show scroll indicator at bottom (with proper alignment)
+	// Show scroll indicator at bottom - always reserve space to prevent flashing
 	if endIdx < configCount {
 		s.WriteString(helpStyle.Render(fmt.Sprintf("  %-*s │ ▼ more below...", maxKeyWidth, "")))
 		s.WriteString("\n")
 	}
 	
-	// Separator before menu
-	s.WriteString(headerStyle.Render(fmt.Sprintf("─%s─┴%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))))
+	// Separator before menu - fixed alignment to match header
+	s.WriteString(headerStyle.Render(fmt.Sprintf("──%s─┴%s", strings.Repeat("─", maxKeyWidth), strings.Repeat("─", 40))))
 	s.WriteString("\n\n")
 	
 	// Menu options - always visible at the bottom
@@ -811,7 +1012,7 @@ func viewConfigManagement(m model) string {
 		itemIdx := configCount + i
 		if m.configCursor == itemIdx {
 			cursor = "▶"
-			s.WriteString(selectedItemStyle.Render(cursor + " " + option))
+			s.WriteString(configSelectedStyle.Render(cursor + " " + option))
 		} else {
 			s.WriteString(cursor + " " + option)
 		}
@@ -819,7 +1020,11 @@ func viewConfigManagement(m model) string {
 	}
 	
 	s.WriteString("\n")
-	s.WriteString(helpStyle.Render("↑/↓/j/k: Navigate │ PgUp/PgDn: Page │ g/G: Top/Bottom │ Enter: Edit │ r: Refresh │ q/esc: Back"))
+	if m.configInlineEdit {
+		s.WriteString(helpStyle.Render("Type to edit │ Enter: Save │ Esc: Cancel │ i: Full Edit"))
+	} else {
+		s.WriteString(helpStyle.Render("↑/↓/j/k: Navigate │ PgUp/PgDn: Page │ g/G: Top/Bottom │ Enter: Inline Edit │ i: Full Edit │ r: Refresh │ q/esc: Back"))
+	}
 	
 	if m.successMsg != "" {
 		s.WriteString("\n\n")
@@ -950,7 +1155,7 @@ func viewConfigInput(m model, isAdd bool) string {
 		
 		line := fmt.Sprintf("%s %s: %s", cursor, field, value)
 		if m.inputCursor == i {
-			s.WriteString(selectedItemStyle.Render(line + "█"))
+			s.WriteString(configSelectedStyle.Render(line + "█"))
 		} else {
 			s.WriteString(line)
 		}
