@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/md5"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -417,21 +416,6 @@ func backupConfigFile(filePath string) error {
 	timestamp := time.Now().Format("20060102_150405")
 	backupPath := filepath.Join(BackupDir, fmt.Sprintf("%s.%s.backup", basename, timestamp))
 	return os.WriteFile(backupPath, content, 0644)
-}
-
-// calculateFileChecksum computes the MD5 checksum of a file
-func calculateFileChecksum(filePath string) (string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
 // isValidKey checks if a key is valid (uppercase with underscores)

@@ -50,6 +50,8 @@ print_error() {
 }
 
 # Calculate file checksum for deduplication
+# Uses md5sum preferentially for consistency; falls back to shasum if unavailable
+# Note: All checksum comparisons in a single system run use the same algorithm
 calculate_file_checksum() {
     local file="$1"
     
@@ -57,8 +59,12 @@ calculate_file_checksum() {
         return 1
     fi
     
+    # Use md5sum preferentially as it's most common on Linux systems
     if command -v md5sum &> /dev/null; then
         md5sum "$file" | awk '{print $1}'
+    elif command -v md5 &> /dev/null; then
+        # macOS uses 'md5' command
+        md5 -q "$file"
     elif command -v shasum &> /dev/null; then
         shasum -a 256 "$file" | awk '{print $1}'
     else
