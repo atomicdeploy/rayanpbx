@@ -11,6 +11,11 @@ if [ -f "$VERSION_FILE" ]; then
     VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 fi
 
+# Source AMI tools for AMI-related functions
+if [ -f "$SCRIPT_DIR/ami-tools.sh" ]; then
+    source "$SCRIPT_DIR/ami-tools.sh"
+fi
+
 # Colors - only define if not already set (allows sourcing from install.sh)
 if [ -z "${GREEN+x}" ]; then
     readonly GREEN='\033[0;32m'
@@ -376,7 +381,7 @@ check_asterisk_health() {
 }
 
 # Check AMI (Asterisk Manager Interface) socket health
-# This function tests if the AMI socket is working correctly and can be connected to
+# This is a wrapper around ami-helper.sh functions with output formatting
 check_ami_health() {
     local ami_host="${1:-127.0.0.1}"
     local ami_port="${2:-5038}"
@@ -386,80 +391,64 @@ check_ami_health() {
     
     print_info "Checking Asterisk AMI socket health..."
     
-    # Step 1: Check if AMI port is listening
+    # Check if AMI port is listening (use local function for consistent output)
     if ! is_port_listening "$ami_port"; then
         print_error "AMI port $ami_port is not listening"
-        
-        if [ "$try_fix" = "true" ]; then
-            return 1  # Return error to trigger fix attempt
-        fi
         return 1
     fi
     
     print_success "AMI port $ami_port is listening"
     
-    # Step 2: Try to connect and authenticate to AMI
-    # We use timeout and netcat/bash to test the connection
-    local ami_test_result=""
-    local ami_login_success=false
+    # Use ami-helper test_ami_connection if available
+    if type test_ami_connection &> /dev/null; then
+        if test_ami_connection "$ami_host" "$ami_port" "$ami_username" "$ami_secret"; then
+            print_success "AMI authentication successful"
+            return 0
+        else
+            print_error "AMI authentication failed"
+            return 1
+        fi
+    fi
     
-    # Use timeout to prevent hanging
-    if command -v timeout &> /dev/null && command -v nc &> /dev/null; then
-        # Send login command and check response
-        ami_test_result=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" | timeout 5 nc "$ami_host" "$ami_port" 2>/dev/null | head -20)
+    # Fallback: direct netcat test
+    if command -v nc &> /dev/null; then
+        local ami_test_result
+        ami_test_result=$(echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r" | nc -w 3 "$ami_host" "$ami_port" 2>/dev/null | head -20)
         
         if echo "$ami_test_result" | grep -qi "Success"; then
-            ami_login_success=true
+            print_success "AMI authentication successful"
+            return 0
         fi
-    elif [ -e /dev/tcp ] 2>/dev/null || true; then
-        # Fallback: use bash /dev/tcp
-        (
-            exec 3<>/dev/tcp/"$ami_host"/"$ami_port" 2>/dev/null
-            if [ $? -eq 0 ]; then
-                echo -e "Action: Login\r\nUsername: $ami_username\r\nSecret: $ami_secret\r\n\r\n" >&3
-                sleep 2
-                read -t 5 -r response <&3
-                if echo "$response" | grep -qi "Success"; then
-                    echo "SUCCESS"
-                fi
-                exec 3>&-
-            fi
-        ) 2>/dev/null | grep -q "SUCCESS" && ami_login_success=true
     fi
     
-    if [ "$ami_login_success" = true ]; then
-        print_success "AMI authentication successful"
-        return 0
-    else
-        print_error "AMI authentication failed"
-        if [ -n "$ami_test_result" ]; then
-            # Sanitize and show part of the response for debugging
-            local sanitized_response=$(echo "$ami_test_result" | head -5 | tr -d '\r')
-            echo -e "  ${DIM}Response: $sanitized_response${RESET}"
-        fi
-        return 1
-    fi
+    print_error "AMI authentication failed"
+    return 1
 }
 
 # Fix AMI configuration issues
-# This function attempts to fix common AMI problems
+# This is a wrapper around ami-helper.sh configure_ami function
 fix_ami_configuration() {
     local ami_secret="${1:-rayanpbx_ami_secret}"
     local manager_conf="/etc/asterisk/manager.conf"
     
     print_info "Attempting to fix AMI configuration..."
     
-    # Check if manager.conf exists
+    # Use ami-helper configure_ami if available
+    if type configure_ami &> /dev/null; then
+        if configure_ami "$manager_conf" "$ami_secret" "admin"; then
+            print_success "AMI configuration updated"
+            return 0
+        fi
+    fi
+    
+    # Fallback: create clean manager.conf directly
     if [ ! -f "$manager_conf" ]; then
-        print_warning "manager.conf not found, creating minimal configuration..."
-        
-        # Create directory if needed
         mkdir -p /etc/asterisk
-        
-        # Create minimal manager.conf
-        cat > "$manager_conf" << EOF
+    fi
+    
+    cat > "$manager_conf" << EOF
 ; Asterisk Manager Interface (AMI) Configuration
-; Created by RayanPBX installer
+; Managed by RayanPBX
 
 [general]
 enabled = yes
@@ -473,73 +462,16 @@ permit = 127.0.0.1/255.255.255.255
 read = all
 write = all
 EOF
-        
-        chown asterisk:asterisk "$manager_conf" 2>/dev/null || true
-        chmod 640 "$manager_conf" 2>/dev/null || true
-        
-        print_success "Created manager.conf with default configuration"
-        return 0
-    fi
     
-    # manager.conf exists, check if AMI is enabled
-    if ! grep -q "^enabled\s*=\s*yes" "$manager_conf"; then
-        print_info "AMI is disabled, enabling it..."
-        
-        # Backup first
-        cp "$manager_conf" "${manager_conf}.backup.$(date +%Y%m%d_%H%M%S)"
-        
-        # Check if ini-helper.sh is available
-        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
-            source "$SCRIPT_DIR/ini-helper.sh"
-            
-            ensure_ini_section "$manager_conf" "general"
-            set_ini_value "$manager_conf" "general" "enabled" "yes"
-            set_ini_value "$manager_conf" "general" "port" "5038"
-            set_ini_value "$manager_conf" "general" "bindaddr" "127.0.0.1"
-            
-            ensure_ini_section "$manager_conf" "admin"
-            set_ini_value "$manager_conf" "admin" "secret" "$ami_secret"
-            set_ini_value "$manager_conf" "admin" "deny" "0.0.0.0/0.0.0.0"
-            set_ini_value "$manager_conf" "admin" "permit" "127.0.0.1/255.255.255.255"
-            set_ini_value "$manager_conf" "admin" "read" "all"
-            set_ini_value "$manager_conf" "admin" "write" "all"
-            
-            print_success "AMI configuration updated via ini-helper"
-        else
-            # Manual sed-based fix
-            sed -i 's/^[;#]\?\s*enabled\s*=.*/enabled = yes/' "$manager_conf"
-            
-            print_success "AMI enabled in manager.conf"
-        fi
-        
-        return 0
-    fi
+    chown asterisk:asterisk "$manager_conf" 2>/dev/null || true
+    chmod 640 "$manager_conf" 2>/dev/null || true
     
-    # Check if admin section exists with correct credentials
-    if ! grep -q "^\[admin\]" "$manager_conf"; then
-        print_info "Adding admin section to manager.conf..."
-        
-        cat >> "$manager_conf" << EOF
-
-[admin]
-secret = $ami_secret
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.255
-read = all
-write = all
-EOF
-        
-        print_success "Added admin section to manager.conf"
-        return 0
-    fi
-    
-    print_info "manager.conf appears to be configured correctly"
-    print_warning "The issue may be with Asterisk service itself"
-    return 1
+    print_success "Created manager.conf with default configuration"
+    return 0
 }
 
 # Comprehensive AMI health check with auto-fix capability
+# This is a wrapper around ami-helper.sh ami_check_and_fix function
 # Returns: 0 = healthy, 1 = unhealthy but fixable, 2 = unhealthy and unfixable
 check_and_fix_ami() {
     local ami_host="${1:-127.0.0.1}"
@@ -548,45 +480,46 @@ check_and_fix_ami() {
     local ami_secret="${4:-rayanpbx_ami_secret}"
     local auto_fix="${5:-true}"
     
-    # First, check if AMI is healthy
+    # Use ami-helper ami_check_and_fix if available
+    if type ami_check_and_fix &> /dev/null; then
+        local result=0
+        ami_check_and_fix "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "$auto_fix" || result=$?
+        
+        case $result in
+            0) print_success "AMI is healthy"; return 0 ;;
+            1) print_success "AMI was fixed and is now working"; return 0 ;;
+            2) print_error "AMI could not be fixed"; return 2 ;;
+        esac
+    fi
+    
+    # Fallback: use local functions
     if check_ami_health "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "false"; then
         return 0
     fi
     
-    # AMI is not healthy - try to fix if auto_fix is enabled
     if [ "$auto_fix" = "true" ]; then
         print_info "AMI health check failed, attempting automatic fix..."
         
-        # Attempt to fix configuration
         if fix_ami_configuration "$ami_secret"; then
-            # Reload Asterisk to apply changes
-            print_info "Reloading Asterisk to apply AMI configuration..."
-            
+            # Reload Asterisk
             if systemctl reload asterisk 2>/dev/null || asterisk -rx "manager reload" 2>/dev/null; then
-                sleep 3  # Give Asterisk time to reload
-                
-                # Re-check AMI health after fix
+                sleep 3
                 if check_ami_health "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "false"; then
                     print_success "AMI fixed and now working correctly!"
                     return 0
-                else
-                    print_warning "AMI configuration updated but still not responding"
-                    
-                    # Try a full Asterisk restart
-                    print_info "Attempting full Asterisk restart..."
-                    if systemctl restart asterisk 2>/dev/null; then
-                        sleep 5  # Give Asterisk time to fully restart
-                        
-                        if check_ami_health "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "false"; then
-                            print_success "AMI working after Asterisk restart!"
-                            return 0
-                        fi
-                    fi
+                fi
+            fi
+            
+            # Try full restart
+            if systemctl restart asterisk 2>/dev/null; then
+                sleep 5
+                if check_ami_health "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "false"; then
+                    print_success "AMI working after Asterisk restart!"
+                    return 0
                 fi
             fi
         fi
         
-        # Could not fix automatically
         print_error "Unable to automatically fix AMI"
         return 2
     fi
