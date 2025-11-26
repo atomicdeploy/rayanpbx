@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Crypt;
 
 class VoipPhone extends Model
@@ -68,6 +68,7 @@ class VoipPhone extends Model
                 if (empty($value)) {
                     return null;
                 }
+
                 return Crypt::encryptString(json_encode($value));
             },
         );
@@ -114,6 +115,7 @@ class VoipPhone extends Model
             'status' => 'online',
             'last_seen' => now(),
         ]);
+
         return $this;
     }
 
@@ -125,15 +127,26 @@ class VoipPhone extends Model
         $this->update([
             'status' => 'offline',
         ]);
+
         return $this;
     }
 
     /**
-     * Update last seen timestamp.
+     * Update the last_seen timestamp or touch a given attribute.
+     *
+     * When called without arguments, updates the `last_seen` field to the current time.
+     * When an attribute is provided, delegates to the parent's touch method.
+     *
+     * @param  string|null  $attribute  Optional attribute to touch
      */
-    public function touch(): bool
+    public function touch($attribute = null): bool
     {
+        if ($attribute !== null) {
+            return parent::touch($attribute);
+        }
+
         $this->last_seen = now();
+
         return $this->save();
     }
 
@@ -143,6 +156,7 @@ class VoipPhone extends Model
     public function getCredentialsForApi(): array
     {
         $creds = $this->credentials;
+
         return $creds ?? ['username' => 'admin', 'password' => ''];
     }
 
@@ -152,7 +166,8 @@ class VoipPhone extends Model
     public function hasCredentials(): bool
     {
         $creds = $this->credentials;
-        return !empty($creds) && !empty($creds['password'] ?? null);
+
+        return ! empty($creds) && ! empty($creds['password'] ?? null);
     }
 
     /**
@@ -160,15 +175,16 @@ class VoipPhone extends Model
      */
     public function getDisplayName(): string
     {
-        if (!empty($this->name)) {
+        if (! empty($this->name)) {
             return $this->name;
         }
-        if (!empty($this->extension)) {
+        if (! empty($this->extension)) {
             return "Phone {$this->extension}";
         }
-        if (!empty($this->model)) {
+        if (! empty($this->model)) {
             return "{$this->model} ({$this->ip})";
         }
+
         return $this->ip;
     }
 }
