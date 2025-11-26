@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\PjsipConfigController;
 use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\SipTestController;
+use App\Http\Controllers\Api\ExtensionSyncController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -94,6 +95,13 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/extensions/{id}/verify', [ExtensionController::class, 'verify'])->name('api.extensions.verify');
     Route::get('/extensions/{id}/diagnostics', [ExtensionController::class, 'diagnostics']);
     Route::get('/extensions/asterisk/endpoints', [ExtensionController::class, 'asteriskEndpoints'])->name('api.extensions.asterisk.endpoints');
+    
+    // Extension Sync
+    Route::get('/extensions/sync/status', [ExtensionSyncController::class, 'status']);
+    Route::post('/extensions/sync/db-to-asterisk', [ExtensionSyncController::class, 'syncDatabaseToAsterisk']);
+    Route::post('/extensions/sync/asterisk-to-db', [ExtensionSyncController::class, 'syncAsteriskToDatabase']);
+    Route::post('/extensions/sync/all-db-to-asterisk', [ExtensionSyncController::class, 'syncAllDatabaseToAsterisk']);
+    Route::post('/extensions/sync/all-asterisk-to-db', [ExtensionSyncController::class, 'syncAllAsteriskToDatabase']);
     
     // Trunks
     Route::get('/trunks', [TrunkController::class, 'index']);

@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
         App\Providers\RedisServiceProvider::class,
         App\Providers\AuthServiceProvider::class,
         App\Providers\RateLimitServiceProvider::class,
+        App\Providers\ExtensionSyncServiceProvider::class,
     ])
     ->withRouting(
         api: __DIR__.'/../routes/api.php',
