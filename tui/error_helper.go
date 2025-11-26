@@ -115,8 +115,8 @@ func FormatVerboseError(details ErrorDetails) string {
 			if logFile != "" {
 				details.LogFile = logFile
 				result.WriteString("\n...\n")
-				result.WriteString(fmt.Sprintf("(output truncated - full output saved to: %s)\n", logFile))
-				result.WriteString(fmt.Sprintf("View with: cat %s\n", logFile))
+				result.WriteString(fmt.Sprintf("(output truncated)\n"))
+				result.WriteString(fmt.Sprintf("To view full output, use:\nless %s\n", logFile))
 			} else {
 				result.WriteString("\n...\n(output truncated)\n")
 			}
