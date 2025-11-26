@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PjsipConfigController;
 use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\SipTestController;
 use App\Http\Controllers\Api\ExtensionSyncController;
+use App\Http\Controllers\Api\ResetController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -254,6 +255,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/sip-test/call', [SipTestController::class, 'testCall']);
     Route::post('/sip-test/full', [SipTestController::class, 'testFull']);
     Route::post('/sip-test/options', [SipTestController::class, 'testOptions']);
+    
+    // System Reset (destructive - requires confirmation)
+    Route::get('/system/reset/summary', [ResetController::class, 'summary']);
+    Route::post('/system/reset', [ResetController::class, 'reset']);
 });
 
 // Health check endpoint (public)

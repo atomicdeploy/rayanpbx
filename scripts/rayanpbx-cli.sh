@@ -1412,6 +1412,199 @@ cmd_system_toggle_debug() {
     fi
 }
 
+# Reset all configuration (database + Asterisk files)
+cmd_system_reset() {
+    print_header "🗑️  Reset All Configuration"
+    
+    echo -e "${RED}${BOLD}⚠️  DANGER ZONE${NC}"
+    echo ""
+    echo "This will reset ALL configuration to a clean state:"
+    echo ""
+    
+    # Show summary of what will be deleted
+    echo -e "${CYAN}📋 Database:${NC}"
+    
+    # Count database items
+    local db_host="${DB_HOST:-127.0.0.1}"
+    local db_port="${DB_PORT:-3306}"
+    local db_name="${DB_DATABASE:-rayanpbx}"
+    local db_user="${DB_USERNAME:-rayanpbx}"
+    local db_pass="${DB_PASSWORD:-}"
+    
+    # Create a temporary MySQL config file to avoid exposing password in process list
+    local mysql_conf=""
+    if command -v mysql &> /dev/null && [ -n "$db_pass" ]; then
+        mysql_conf=$(mktemp /tmp/mysql_conf.XXXXXX)
+        chmod 600 "$mysql_conf"
+        cat > "$mysql_conf" << EOF
+[client]
+host=$db_host
+port=$db_port
+user=$db_user
+password=$db_pass
+database=$db_name
+EOF
+        
+        local ext_count=$(mysql --defaults-file="$mysql_conf" -N -e "SELECT COUNT(*) FROM extensions" 2>/dev/null || echo "?")
+        local trunk_count=$(mysql --defaults-file="$mysql_conf" -N -e "SELECT COUNT(*) FROM trunks" 2>/dev/null || echo "?")
+        local phone_count=$(mysql --defaults-file="$mysql_conf" -N -e "SELECT COUNT(*) FROM voip_phones" 2>/dev/null || echo "0")
+        rm -f "$mysql_conf"
+        
+        echo "   • $ext_count extension(s) will be deleted"
+        echo "   • $trunk_count trunk(s) will be deleted"
+        if [ "$phone_count" != "0" ]; then
+            echo "   • $phone_count VoIP phone(s) will be deleted"
+        fi
+    else
+        echo "   • Extensions table will be cleared"
+        echo "   • Trunks table will be cleared"
+        echo "   • VoIP phones table will be cleared"
+    fi
+    
+    echo ""
+    echo -e "${CYAN}📁 Asterisk Configuration Files:${NC}"
+    if [ -f "/etc/asterisk/pjsip.conf" ]; then
+        echo "   • /etc/asterisk/pjsip.conf will be reset"
+    fi
+    if [ -f "/etc/asterisk/extensions.conf" ]; then
+        echo "   • /etc/asterisk/extensions.conf will be reset"
+    fi
+    echo ""
+    echo -e "${YELLOW}🔄 Asterisk will be reloaded to apply changes${NC}"
+    echo ""
+    echo -e "${RED}${BOLD}⚠️  THIS ACTION CANNOT BE UNDONE!${NC}"
+    echo ""
+    
+    # Confirmation prompt
+    echo -n -e "${YELLOW}Are you sure you want to reset all configuration? (yes/no): ${NC}"
+    read -r confirm
+    
+    if [ "$confirm" != "yes" ]; then
+        print_info "Reset cancelled"
+        exit 0
+    fi
+    
+    # Second confirmation
+    echo -n -e "${RED}Type 'RESET' to confirm: ${NC}"
+    read -r confirm2
+    
+    if [ "$confirm2" != "RESET" ]; then
+        print_info "Reset cancelled"
+        exit 0
+    fi
+    
+    echo ""
+    print_info "Resetting configuration..."
+    
+    # Clear database tables
+    if command -v mysql &> /dev/null && [ -n "$db_pass" ]; then
+        print_info "Clearing database tables..."
+        
+        # Create a temporary MySQL config file to avoid exposing password in process list
+        local mysql_conf
+        mysql_conf=$(mktemp /tmp/mysql_conf.XXXXXX)
+        chmod 600 "$mysql_conf"
+        cat > "$mysql_conf" << EOF
+[client]
+host=$db_host
+port=$db_port
+user=$db_user
+password=$db_pass
+database=$db_name
+EOF
+        
+        if mysql --defaults-file="$mysql_conf" -e "DELETE FROM extensions" 2>/dev/null; then
+            print_success "Extensions table cleared"
+        else
+            print_warn "Failed to clear extensions table"
+        fi
+        
+        if mysql --defaults-file="$mysql_conf" -e "DELETE FROM trunks" 2>/dev/null; then
+            print_success "Trunks table cleared"
+        else
+            print_warn "Failed to clear trunks table"
+        fi
+        
+        # voip_phones may not exist
+        mysql --defaults-file="$mysql_conf" -e "DELETE FROM voip_phones" 2>/dev/null && \
+            print_success "VoIP phones table cleared"
+        
+        rm -f "$mysql_conf"
+    else
+        print_warn "Could not connect to database - please clear manually"
+    fi
+    
+    # Reset pjsip.conf
+    if [ -f "/etc/asterisk/pjsip.conf" ]; then
+        print_info "Resetting pjsip.conf..."
+        
+        # Backup first
+        cp "/etc/asterisk/pjsip.conf" "/etc/asterisk/pjsip.conf.backup.$(date +%Y%m%d_%H%M%S)"
+        
+        cat > "/etc/asterisk/pjsip.conf" << 'EOF'
+; RayanPBX PJSIP Configuration
+; Reset to clean state by RayanPBX Reset Configuration
+
+; UDP Transport (default)
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:5060
+allow_reload=yes
+
+; TCP Transport
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:5060
+allow_reload=yes
+
+EOF
+        print_success "pjsip.conf reset to clean state"
+    fi
+    
+    # Reset extensions.conf
+    if [ -f "/etc/asterisk/extensions.conf" ]; then
+        print_info "Resetting extensions.conf..."
+        
+        # Backup first
+        cp "/etc/asterisk/extensions.conf" "/etc/asterisk/extensions.conf.backup.$(date +%Y%m%d_%H%M%S)"
+        
+        cat > "/etc/asterisk/extensions.conf" << 'EOF'
+; RayanPBX Dialplan Configuration
+; Reset to clean state by RayanPBX Reset Configuration
+
+[general]
+static=yes
+writeprotect=no
+
+[globals]
+
+[from-internal]
+; Add your extension dialplan rules here
+
+EOF
+        print_success "extensions.conf reset to clean state"
+    fi
+    
+    # Reload Asterisk
+    if systemctl is-active --quiet asterisk; then
+        print_info "Reloading Asterisk configuration..."
+        if asterisk -rx "module reload res_pjsip.so" &>/dev/null; then
+            print_success "PJSIP module reloaded"
+        fi
+        if asterisk -rx "dialplan reload" &>/dev/null; then
+            print_success "Dialplan reloaded"
+        fi
+    fi
+    
+    echo ""
+    print_success "Reset completed successfully!"
+    echo ""
+    echo "Configuration has been reset to a clean state."
+    echo "You can now add new extensions and trunks."
+}
+
 # Config commands for .env file manipulation
 cmd_config_get() {
     local key=$1
@@ -1712,6 +1905,7 @@ cmd_help() {
         echo -e "   ${GREEN}upgrade${NC}                           Run system upgrade (calls upgrade script)"
         echo -e "   ${GREEN}set-mode${NC} <mode>                   Set application mode (production/development/local)"
         echo -e "   ${GREEN}toggle-debug${NC}                      Toggle debug mode on/off"
+        echo -e "   ${GREEN}reset${NC}                             Reset ALL configuration (database + Asterisk files)"
         echo ""
         
         echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
@@ -1739,6 +1933,8 @@ cmd_help() {
         echo -e "  ${YELLOW}rayanpbx-cli sip-test register 1001 mypassword${NC}\n"
         echo -e "  ${DIM}# Test call between extensions${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli sip-test call 1001 pass1 1002 pass2${NC}\n"
+        echo -e "  ${DIM}# Reset all configuration (dangerous!)${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli system reset${NC}\n"
         
         echo -e "${MAGENTA}${BOLD}EXIT CODES:${NC}"
         echo -e "  ${GREEN}0${NC}  Success"
@@ -1925,6 +2121,7 @@ main() {
                 upgrade) shift; shift; cmd_system_upgrade "$@" ;;
                 set-mode) cmd_system_set_mode "${3:-}" ;;
                 toggle-debug) cmd_system_toggle_debug ;;
+                reset) cmd_system_reset ;;
                 *) echo "Unknown system command: ${2:-}"; exit 2 ;;
             esac
             ;;
