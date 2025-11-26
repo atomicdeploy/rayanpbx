@@ -4,16 +4,21 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\GrandStreamProvisioningService;
+use App\Services\GrandStreamCTIService;
 use App\Models\Extension;
 use Illuminate\Http\Request;
 
 class GrandStreamController extends Controller
 {
     protected $provisioningService;
+    protected $ctiService;
 
-    public function __construct(GrandStreamProvisioningService $provisioningService)
-    {
+    public function __construct(
+        GrandStreamProvisioningService $provisioningService,
+        GrandStreamCTIService $ctiService
+    ) {
         $this->provisioningService = $provisioningService;
+        $this->ctiService = $ctiService;
     }
 
     /**
@@ -435,6 +440,334 @@ class GrandStreamController extends Controller
                 'action_urls_result' => $result['action_urls_result'],
             ], 409);
         }
+
+        return response()->json($result);
+    }
+
+    // ========================================================================
+    // CTI/CSTA Operations
+    // ========================================================================
+
+    /**
+     * Get phone CTI status including call states
+     */
+    public function getCTIStatus(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->getPhoneStatus(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Get line/account status
+     */
+    public function getLineStatus(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'line_id' => 'required|integer|min:1|max:6',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->getLineStatus(
+            $request->input('ip'),
+            $request->input('line_id'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Execute CTI phone operation (accept, reject, hold, etc.)
+     */
+    public function executeCTIOperation(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'operation' => 'required|string|in:accept_call,reject_call,end_call,hold,unhold,mute,unmute,dial,redial,dtmf,blind_transfer,attended_transfer,conference,dnd,forward,intercom,paging,park,pickup',
+            'line_id' => 'nullable|integer|min:1|max:6',
+            'credentials' => 'nullable|array',
+            // Operation-specific parameters
+            'number' => 'nullable|string',
+            'target' => 'nullable|string',
+            'digits' => 'nullable|string',
+            'value' => 'nullable|string',
+            'slot' => 'nullable|string',
+            'extension' => 'nullable|string',
+            'forward_type' => 'nullable|string|in:unconditional,busy,noanswer',
+        ]);
+
+        $ip = $request->input('ip');
+        $operation = $request->input('operation');
+        $lineId = $request->input('line_id');
+        $credentials = $request->input('credentials', []);
+
+        $result = match ($operation) {
+            'accept_call' => $this->ctiService->acceptCall($ip, $lineId, $credentials),
+            'reject_call' => $this->ctiService->rejectCall($ip, $lineId, $credentials),
+            'end_call' => $this->ctiService->endCall($ip, $lineId, $credentials),
+            'hold' => $this->ctiService->holdCall($ip, $lineId, $credentials),
+            'unhold' => $this->ctiService->unholdCall($ip, $lineId, $credentials),
+            'mute' => $this->ctiService->mute($ip, $lineId, $credentials),
+            'unmute' => $this->ctiService->unmute($ip, $lineId, $credentials),
+            'dial' => $this->ctiService->dial($ip, $request->input('number'), $lineId, $credentials),
+            'redial' => $this->ctiService->redial($ip, $lineId, $credentials),
+            'dtmf' => $this->ctiService->sendDTMF($ip, $request->input('digits'), $lineId, $credentials),
+            'blind_transfer' => $this->ctiService->blindTransfer($ip, $request->input('target'), $lineId, $credentials),
+            'attended_transfer' => $this->ctiService->attendedTransfer($ip, $request->input('target'), $lineId, $credentials),
+            'conference' => $this->ctiService->conference($ip, $lineId, $credentials),
+            'dnd' => $this->ctiService->setDND($ip, $request->input('value') === '1' || $request->input('value') === 'true', $credentials),
+            'forward' => $this->ctiService->setForward(
+                $ip,
+                $request->input('value') === '1' || $request->input('value') === 'true',
+                $request->input('target'),
+                $request->input('forward_type'),
+                $credentials
+            ),
+            'intercom' => $this->ctiService->intercom($ip, $request->input('number'), $lineId, $credentials),
+            'paging' => $this->ctiService->paging($ip, $request->input('number'), $lineId, $credentials),
+            'park' => $this->ctiService->parkCall($ip, $request->input('slot'), $lineId, $credentials),
+            'pickup' => $this->ctiService->pickupCall($ip, $request->input('extension'), $credentials),
+            default => ['success' => false, 'error' => 'Unknown operation'],
+        };
+
+        return response()->json($result);
+    }
+
+    /**
+     * Display message on phone LCD
+     */
+    public function displayLCDMessage(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'message' => 'required|string|max:128',
+            'duration' => 'nullable|integer|min:1|max:300',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->displayLCDMessage(
+            $request->input('ip'),
+            $request->input('message'),
+            $request->input('duration'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Take screenshot of phone display
+     */
+    public function takeScreenshot(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->takeScreenshot(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Enable CTI features on phone
+     */
+    public function enableCTI(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->enableCTI(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Disable CTI features on phone
+     */
+    public function disableCTI(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->disableCTI(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Enable SNMP monitoring on phone
+     */
+    public function enableSNMP(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+            'snmp_config' => 'nullable|array',
+            'snmp_config.community' => 'nullable|string',
+            'snmp_config.trap_server' => 'nullable|ip',
+            'snmp_config.trap_port' => 'nullable|integer|min:1|max:65535',
+            'snmp_config.version' => 'nullable|string|in:v1,v2c,v3',
+        ]);
+
+        $snmpConfig = $request->input('snmp_config', [
+            'community' => 'public',
+            'version' => 'v2c',
+        ]);
+
+        $result = $this->ctiService->enableSNMP(
+            $request->input('ip'),
+            $snmpConfig,
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Disable SNMP monitoring on phone
+     */
+    public function disableSNMP(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->disableSNMP(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Get SNMP configuration status
+     */
+    public function getSNMPStatus(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->getSNMPStatus(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Provision CTI and SNMP features on phone
+     * This enables CTI API access and optionally SNMP monitoring
+     */
+    public function provisionCTIFeatures(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+            'enable_cti' => 'nullable|boolean',
+            'enable_snmp' => 'nullable|boolean',
+            'snmp_config' => 'nullable|array',
+        ]);
+
+        $options = [
+            'enable_cti' => $request->input('enable_cti', true),
+            'enable_snmp' => $request->input('enable_snmp', true),
+            'snmp_config' => $request->input('snmp_config', [
+                'community' => 'public',
+                'version' => 'v2c',
+            ]),
+        ];
+
+        $result = $this->ctiService->provisionCTIFeatures(
+            $request->input('ip'),
+            $options,
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Test CTI and SNMP features
+     */
+    public function testCTIFeatures(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->testCTIFeatures(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Trigger phone to re-provision
+     */
+    public function triggerProvision(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->triggerProvision(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Trigger firmware upgrade on phone
+     */
+    public function triggerUpgrade(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'firmware_url' => 'nullable|url',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->ctiService->triggerUpgrade(
+            $request->input('ip'),
+            $request->input('firmware_url'),
+            $request->input('credentials', [])
+        );
 
         return response()->json($result);
     }

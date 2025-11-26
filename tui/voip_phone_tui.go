@@ -244,22 +244,64 @@ func (m *model) initVoIPPhonesScreen() {
 	m.loadRegisteredPhones()
 }
 
-// loadRegisteredPhones loads phones from Asterisk registrations
+// loadRegisteredPhones loads phones from Asterisk registrations and database
 func (m *model) loadRegisteredPhones() {
 	if m.phoneManager == nil {
 		m.phoneManager = NewPhoneManager(m.asteriskManager)
 	}
 	
+	// Get phones from Asterisk
 	phones, err := m.phoneManager.GetRegisteredPhones()
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Failed to load phones: %v", err)
-		m.voipPhones = []PhoneInfo{}
-		return
+		m.errorMsg = fmt.Sprintf("Failed to load phones from Asterisk: %v", err)
+		phones = []PhoneInfo{}
+	}
+	
+	// Get phones from database
+	if m.db != nil {
+		dbPhones, err := GetVoIPPhones(m.db)
+		if err == nil && dbPhones != nil {
+			// Merge database phones with Asterisk phones
+			phoneMap := make(map[string]PhoneInfo)
+			
+			// Add Asterisk phones first
+			for _, p := range phones {
+				phoneMap[p.IP] = p
+			}
+			
+			// Add/update with database phones
+			for _, dbp := range dbPhones {
+				if existing, ok := phoneMap[dbp.IP]; ok {
+					// Update existing phone with DB info
+					if dbp.Name != "" && existing.Extension == "" {
+						existing.Extension = dbp.Extension
+					}
+					if dbp.UserAgent != "" {
+						existing.UserAgent = dbp.UserAgent
+					}
+					phoneMap[dbp.IP] = existing
+				} else {
+					// Add database-only phone
+					phoneMap[dbp.IP] = PhoneInfo{
+						Extension: dbp.Extension,
+						IP:        dbp.IP,
+						Status:    dbp.Status,
+						UserAgent: dbp.UserAgent,
+					}
+				}
+			}
+			
+			// Convert map back to slice
+			phones = make([]PhoneInfo, 0, len(phoneMap))
+			for _, p := range phoneMap {
+				phones = append(phones, p)
+			}
+		}
 	}
 	
 	m.voipPhones = phones
 	if len(phones) > 0 {
-		m.successMsg = fmt.Sprintf("Found %d registered phone(s)", len(phones))
+		m.successMsg = fmt.Sprintf("Found %d phone(s)", len(phones))
 	}
 }
 
@@ -348,6 +390,21 @@ func (m *model) initVoIPControlMenu() {
 		"📡 TR-069 Management",
 		"🔗 Webhook Configuration",
 		"📊 Live Monitoring",
+		"────────────────────", // Separator
+		"📞 CTI/CSTA Operations:",
+		"  📱 Get Phone State",
+		"  ✅ Accept Call",
+		"  ❌ Reject Call",
+		"  🔚 End Call",
+		"  ⏸️  Hold Call",
+		"  ▶️  Resume Call",
+		"  📲 Dial Number",
+		"  🔢 Send DTMF",
+		"  ↗️  Blind Transfer",
+		"  🚫 Toggle DND",
+		"────────────────────", // Separator
+		"🔧 Enable CTI Features",
+		"🧪 Test CTI/SNMP",
 		"🔙 Back to Details",
 	}
 }
@@ -575,7 +632,204 @@ func (m *model) executeVoIPControlAction() {
 			m.voipPhoneOutput += "No status data available. Get phone status first."
 		}
 		
-	case 9: // Back to Details
+	case 9: // Separator - do nothing
+		// Separator line
+		
+	case 10: // CTI/CSTA header - do nothing
+		m.voipPhoneOutput = "CTI/CSTA Operations:\n\n"
+		m.voipPhoneOutput += "Computer-Telephony Integration (CTI) and\n"
+		m.voipPhoneOutput += "Computer Supported Telecommunications Applications (CSTA)\n"
+		m.voipPhoneOutput += "provide programmatic control over phone operations.\n\n"
+		m.voipPhoneOutput += "Select an operation from the menu below."
+		
+	case 11: // Get Phone State
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI operations only available for GrandStream phones"
+			return
+		}
+		state, err := gsPhone.GetPhoneState()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to get phone state: %v", err)
+		} else {
+			var output strings.Builder
+			output.WriteString("Phone State:\n\n")
+			output.WriteString(fmt.Sprintf("  DND Enabled: %v\n", state.DNDEnabled))
+			output.WriteString(fmt.Sprintf("  Forward Enabled: %v\n", state.ForwardEnabled))
+			if state.ForwardTarget != "" {
+				output.WriteString(fmt.Sprintf("  Forward Target: %s\n", state.ForwardTarget))
+			}
+			output.WriteString(fmt.Sprintf("  Message Waiting: %v\n", state.MWI))
+			output.WriteString(fmt.Sprintf("  Active Line: %d\n", state.ActiveLine))
+			if len(state.Calls) > 0 {
+				output.WriteString("\nActive Calls:\n")
+				for _, call := range state.Calls {
+					output.WriteString(fmt.Sprintf("  Line %d: %s (%s) - %s\n", 
+						call.LineID, call.RemoteNumber, call.Direction, call.State))
+				}
+			} else {
+				output.WriteString("\nNo active calls\n")
+			}
+			m.voipPhoneOutput = output.String()
+			m.successMsg = "Phone state retrieved successfully"
+		}
+		
+	case 12: // Accept Call
+		err := phoneInstance.AcceptCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to accept call: %v", err)
+		} else {
+			m.successMsg = "Accept call command sent successfully"
+		}
+		
+	case 13: // Reject Call
+		err := phoneInstance.RejectCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reject call: %v", err)
+		} else {
+			m.successMsg = "Reject call command sent successfully"
+		}
+		
+	case 14: // End Call
+		err := phoneInstance.EndCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to end call: %v", err)
+		} else {
+			m.successMsg = "End call command sent successfully"
+		}
+		
+	case 15: // Hold Call
+		err := phoneInstance.HoldCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to hold call: %v", err)
+		} else {
+			m.successMsg = "Hold call command sent successfully"
+		}
+		
+	case 16: // Resume Call
+		err := phoneInstance.ResumeCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to resume call: %v", err)
+		} else {
+			m.successMsg = "Resume call command sent successfully"
+		}
+		
+	case 17: // Dial Number
+		// TODO: Add input mode for phone number
+		m.voipPhoneOutput = "Dial Number:\n\n"
+		m.voipPhoneOutput += "To dial a number programmatically, use the Web API:\n"
+		m.voipPhoneOutput += "POST /api/phones/control\n"
+		m.voipPhoneOutput += "{\n"
+		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
+		m.voipPhoneOutput += "  \"action\": \"dial\",\n"
+		m.voipPhoneOutput += "  \"number\": \"<destination>\"\n"
+		m.voipPhoneOutput += "}"
+		
+	case 18: // Send DTMF
+		m.voipPhoneOutput = "Send DTMF:\n\n"
+		m.voipPhoneOutput += "To send DTMF tones, use the Web API:\n"
+		m.voipPhoneOutput += "POST /api/phones/control\n"
+		m.voipPhoneOutput += "{\n"
+		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
+		m.voipPhoneOutput += "  \"action\": \"dtmf\",\n"
+		m.voipPhoneOutput += "  \"digits\": \"<dtmf-digits>\"\n"
+		m.voipPhoneOutput += "}"
+		
+	case 19: // Blind Transfer
+		m.voipPhoneOutput = "Blind Transfer:\n\n"
+		m.voipPhoneOutput += "To perform blind transfer, use the Web API:\n"
+		m.voipPhoneOutput += "POST /api/phones/control\n"
+		m.voipPhoneOutput += "{\n"
+		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
+		m.voipPhoneOutput += "  \"action\": \"blind_transfer\",\n"
+		m.voipPhoneOutput += "  \"target\": \"<extension>\"\n"
+		m.voipPhoneOutput += "}"
+		
+	case 20: // Toggle DND
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "DND toggle only available for GrandStream phones"
+			return
+		}
+		// Get current state first
+		state, err := gsPhone.GetPhoneState()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to get phone state: %v", err)
+			return
+		}
+		// Toggle DND
+		newDND := !state.DNDEnabled
+		err = gsPhone.SetDND(newDND)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to toggle DND: %v", err)
+		} else {
+			if newDND {
+				m.successMsg = "DND enabled successfully"
+			} else {
+				m.successMsg = "DND disabled successfully"
+			}
+		}
+		
+	case 21: // Separator - do nothing
+		// Separator line
+		
+	case 22: // Enable CTI Features
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI features only available for GrandStream phones"
+			return
+		}
+		// Enable CTI with SNMP
+		snmpConfig := &SNMPConfig{
+			Enabled:   true,
+			Community: "public",
+			Version:   "v2c",
+		}
+		err := gsPhone.EnableCTIFeatures(true, snmpConfig)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to enable CTI features: %v", err)
+		} else {
+			m.successMsg = "CTI and SNMP features enabled successfully"
+			m.voipPhoneOutput = "CTI Features Enabled:\n\n"
+			m.voipPhoneOutput += "✅ CTI API access enabled\n"
+			m.voipPhoneOutput += "✅ SNMP monitoring enabled\n"
+			m.voipPhoneOutput += "✅ Community: public\n"
+			m.voipPhoneOutput += "✅ Version: v2c\n\n"
+			m.voipPhoneOutput += "You may need to reboot the phone for all changes to take effect."
+		}
+		
+	case 23: // Test CTI/SNMP
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI test only available for GrandStream phones"
+			return
+		}
+		ctiOK, snmpOK, err := gsPhone.TestCTIFeatures()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("CTI test error: %v", err)
+		}
+		
+		var output strings.Builder
+		output.WriteString("CTI/SNMP Test Results:\n\n")
+		if ctiOK {
+			output.WriteString("✅ CTI API: Working\n")
+		} else {
+			output.WriteString("❌ CTI API: Not working or not enabled\n")
+		}
+		if snmpOK {
+			output.WriteString("✅ SNMP: Enabled\n")
+		} else {
+			output.WriteString("❌ SNMP: Not enabled\n")
+		}
+		
+		if !ctiOK || !snmpOK {
+			output.WriteString("\n💡 Use 'Enable CTI Features' to enable these features.\n")
+		}
+		
+		m.voipPhoneOutput = output.String()
+		m.successMsg = "CTI/SNMP test completed"
+		
+	case 24: // Back to Details
 		m.currentScreen = voipPhoneDetailsScreen
 	}
 }
@@ -623,6 +877,21 @@ func (m *model) executeManualIPAdd() {
 	m.phoneCredentials[ip] = map[string]string{
 		"username": username,
 		"password": password,
+	}
+	
+	// Save to database if available
+	if m.db != nil {
+		dbPhone := &VoIPPhoneDB{
+			IP:            ip,
+			Vendor:        vendor,
+			Status:        "discovered",
+			DiscoveryType: "manual",
+			UserAgent:     strings.ToUpper(vendor),
+		}
+		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
+			// Non-fatal error, just log it
+			m.errorMsg = fmt.Sprintf("Phone added but failed to save to database: %v", err)
+		}
 	}
 }
 

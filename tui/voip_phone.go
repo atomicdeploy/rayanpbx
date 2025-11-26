@@ -40,6 +40,28 @@ type VoIPPhone interface {
 	
 	// ProvisionExtension provisions an extension on the phone
 	ProvisionExtension(ext Extension, accountNumber int) error
+
+	// CTI/CSTA Operations
+	// AcceptCall answers an incoming call
+	AcceptCall(lineID int) error
+	// RejectCall rejects an incoming call
+	RejectCall(lineID int) error
+	// EndCall terminates the current call
+	EndCall(lineID int) error
+	// HoldCall places the call on hold
+	HoldCall(lineID int) error
+	// ResumeCall resumes a held call
+	ResumeCall(lineID int) error
+	// Dial initiates an outgoing call
+	Dial(number string, lineID int) error
+	// SendDTMF sends DTMF tones
+	SendDTMF(digits string, lineID int) error
+	// BlindTransfer performs blind transfer
+	BlindTransfer(target string, lineID int) error
+	// SetDND enables/disables Do Not Disturb
+	SetDND(enable bool) error
+	// GetPhoneState returns current phone state including call info
+	GetPhoneState() (*CTIPhoneState, error)
 }
 
 // PhoneStatus represents the status of a VoIP phone
@@ -467,4 +489,97 @@ func (gsp *GrandStreamPhone) ProvisionExtension(ext Extension, accountNumber int
 	}
 	
 	return gsp.SetConfig(config)
+}
+
+// CTI/CSTA Operations - GrandStream Implementation
+
+// getCTI returns the CTI interface for this phone
+func (gsp *GrandStreamPhone) getCTI() *GrandStreamCTI {
+	return NewGrandStreamCTI(gsp)
+}
+
+// AcceptCall answers an incoming call
+func (gsp *GrandStreamPhone) AcceptCall(lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.AcceptCall(lineID)
+	return err
+}
+
+// RejectCall rejects an incoming call
+func (gsp *GrandStreamPhone) RejectCall(lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.RejectCall(lineID)
+	return err
+}
+
+// EndCall terminates the current call
+func (gsp *GrandStreamPhone) EndCall(lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.EndCall(lineID)
+	return err
+}
+
+// HoldCall places the call on hold
+func (gsp *GrandStreamPhone) HoldCall(lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.HoldCall(lineID)
+	return err
+}
+
+// ResumeCall resumes a held call
+func (gsp *GrandStreamPhone) ResumeCall(lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.ResumeCall(lineID)
+	return err
+}
+
+// Dial initiates an outgoing call
+func (gsp *GrandStreamPhone) Dial(number string, lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.Dial(number, lineID)
+	return err
+}
+
+// SendDTMF sends DTMF tones
+func (gsp *GrandStreamPhone) SendDTMF(digits string, lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.SendDTMF(digits, lineID)
+	return err
+}
+
+// BlindTransfer performs blind transfer
+func (gsp *GrandStreamPhone) BlindTransfer(target string, lineID int) error {
+	cti := gsp.getCTI()
+	_, err := cti.BlindTransfer(target, lineID)
+	return err
+}
+
+// SetDND enables/disables Do Not Disturb
+func (gsp *GrandStreamPhone) SetDND(enable bool) error {
+	cti := gsp.getCTI()
+	_, err := cti.SetDND(enable)
+	return err
+}
+
+// GetPhoneState returns current phone state including call info
+func (gsp *GrandStreamPhone) GetPhoneState() (*CTIPhoneState, error) {
+	cti := gsp.getCTI()
+	return cti.GetPhoneStatus()
+}
+
+// EnableCTIFeatures enables CTI/CSTA and optionally SNMP on the phone
+func (gsp *GrandStreamPhone) EnableCTIFeatures(enableSNMP bool, snmpConfig *SNMPConfig) error {
+	cti := gsp.getCTI()
+	config := &CTIProvisioningConfig{
+		EnableCTI:  true,
+		EnableSNMP: enableSNMP,
+		SNMPConfig: snmpConfig,
+	}
+	return cti.ProvisionCTIFeatures(config)
+}
+
+// TestCTIFeatures tests if CTI and SNMP are working
+func (gsp *GrandStreamPhone) TestCTIFeatures() (ctiOK bool, snmpOK bool, err error) {
+	cti := gsp.getCTI()
+	return cti.TestCTIAndSNMP()
 }
