@@ -236,12 +236,9 @@ is_valid_json() {
     return $?
 }
 
-# Temp file for API response (used to work around subshell variable scoping)
-API_RESPONSE_FILE=""
-
 # API call helper with robust error handling
-# Writes JSON response to API_RESPONSE_FILE
-# Sets global API_CALL_STATUS and API_CALL_ERROR directly (not in subshell)
+# Returns JSON response on stdout
+# Sets global API_CALL_STATUS and API_CALL_ERROR
 api_call() {
     local method=$1
     local endpoint=$2
@@ -265,7 +262,6 @@ api_call() {
         echo '{"error": "Internal error: failed to create temp file"}'
         return 1
     }
-    API_RESPONSE_FILE="$tmp_body"
     
     # Make the request and capture status code and content type
     local http_code content_type
@@ -286,7 +282,6 @@ api_call() {
     # Check if curl failed
     if [ $curl_exit -ne 0 ]; then
         rm -f "$tmp_body"
-        API_RESPONSE_FILE=""
         API_CALL_STATUS=$curl_exit
         API_CALL_ERROR="Failed to connect to API (curl exit code: $curl_exit)"
         print_verbose "API Error: $API_CALL_ERROR"
@@ -298,7 +293,6 @@ api_call() {
     local response
     response=$(cat "$tmp_body" 2>/dev/null)
     rm -f "$tmp_body"
-    API_RESPONSE_FILE=""
     
     print_verbose "HTTP Status: $http_code"
     print_verbose "Response: $response"
