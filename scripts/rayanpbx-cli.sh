@@ -612,6 +612,19 @@ cmd_diag_check_ami() {
     bash "$script_path" check-ami "$ami_host" "$ami_port" "$ami_username" "$ami_secret" "$auto_fix"
 }
 
+# Fix AMI credentials - extract from manager.conf and update .env
+cmd_diag_fix_ami() {
+    local script_path="$SCRIPT_DIR/fix-ami-credentials.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "AMI credential fix script not found at $script_path"
+        exit 1
+    fi
+    
+    # Pass through to the dedicated fix script
+    bash "$script_path" fix "$@"
+}
+
 # Reapply AMI credentials - parse manager.conf and fix any misconfigurations
 cmd_diag_reapply_ami() {
     print_header "🔧 Reapply AMI Credentials"
@@ -1363,6 +1376,7 @@ cmd_help() {
         echo -e "   ${GREEN}health-check${NC}                      Run system health check"
         echo -e "   ${GREEN}check-sip${NC} [port] [auto-fix]       Check SIP port is listening (validates connection)"
         echo -e "   ${GREEN}check-ami${NC} [auto-fix]              Check AMI socket health and optionally auto-fix"
+        echo -e "   ${GREEN}fix-ami${NC}                           Fix AMI credentials (extract from manager.conf → .env)"
         echo -e "   ${GREEN}reapply-ami${NC}                       Reapply AMI credentials from .env to manager.conf"
         echo ""
         
@@ -1569,6 +1583,7 @@ main() {
                 health-check) cmd_diag_health_check ;;
                 check-sip) cmd_diag_check_sip "${3:-}" "${4:-}" ;;
                 check-ami) cmd_diag_check_ami "${3:-true}" ;;
+                fix-ami) shift 2; cmd_diag_fix_ami "$@" ;;
                 reapply-ami) cmd_diag_reapply_ami ;;
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
             esac
