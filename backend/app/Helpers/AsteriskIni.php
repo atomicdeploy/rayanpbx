@@ -6,6 +6,10 @@ namespace App\Helpers;
  * AsteriskSection represents a section in an Asterisk configuration file
  * In Asterisk configs, multiple sections can have the same name but different types
  * (e.g., [101] for endpoint, auth, and aor)
+ * 
+ * NOTE: Comments within a section body (between the section header and the next section)
+ * are not preserved during parsing. Only comments that appear immediately before a section
+ * header are captured in the $comments property.
  */
 class AsteriskSection
 {
