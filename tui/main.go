@@ -163,6 +163,7 @@ const (
 	extensionSyncScreen
 	extensionSyncDetailScreen
 	usageInputScreen
+	quickSetupScreen
 	resetConfigurationScreen
 	resetConfirmScreen
 )
@@ -254,6 +255,15 @@ type model struct {
 	resetConfiguration *ResetConfiguration
 	resetSummary       string
 	resetMenu          []string
+
+	// Quick Setup wizard
+	quickSetupStep        int      // Current step in the wizard (0-3)
+	quickSetupExtStart    string   // Starting extension number
+	quickSetupExtEnd      string   // Ending extension number
+	quickSetupPassword    string   // Common password for all extensions
+	quickSetupComplete    bool     // Whether setup is complete
+	quickSetupError       string   // Error message during setup
+	quickSetupResult      string   // Result message after setup
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -277,6 +287,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
+			"🚀 Quick Setup",
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
@@ -364,6 +375,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return updateConfigAdd(msg, m)
 		} else if m.currentScreen == configEditScreen {
 			return updateConfigEdit(msg, m)
+		}
+		
+		// Handle Quick Setup screen
+		if m.currentScreen == quickSetupScreen {
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "esc":
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				m.inputMode = false
+				return m, nil
+			case "up", "k":
+				m.handleQuickSetupInput("up")
+				return m, nil
+			case "down", "j":
+				m.handleQuickSetupInput("down")
+				return m, nil
+			case "backspace":
+				m.handleQuickSetupInput("backspace")
+				return m, nil
+			case "enter":
+				m.handleQuickSetupInput("enter")
+				return m, nil
+			default:
+				// Handle character input
+				key := msg.String()
+				if len(key) == 1 && (key[0] >= '0' && key[0] <= '9' || key[0] >= 'a' && key[0] <= 'z' || key[0] >= 'A' && key[0] <= 'Z' || key[0] == '-' || key[0] == '_') {
+					m.handleQuickSetupInput(key)
+				}
+				return m, nil
+			}
 		}
 		
 		// Handle VoIP phone screens
@@ -768,6 +811,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentScreen == mainMenu {
 				switch m.cursor {
 				case 0:
+					// Quick Setup wizard
+					m.mainMenuCursor = m.cursor
+					m.initQuickSetup()
+				case 1:
 					// Load extensions with sync info
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if exts, err := GetExtensions(m.db); err == nil {
@@ -777,7 +824,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
 					}
-				case 1:
+				case 2:
 					// Load trunks
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if trunks, err := GetTrunks(m.db); err == nil {
@@ -786,11 +833,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
-				case 2:
+				case 3:
 					// VoIP Phones Management
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
-				case 3:
+				case 4:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -798,7 +845,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 4:
+				case 5:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -806,28 +853,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 5:
-					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = statusScreen
 				case 6:
 					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 7:
+					m.mainMenuCursor = m.cursor // Save main menu position
+					m.currentScreen = logsScreen
+				case 8:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 8:
+				case 9:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 9:
+				case 10:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 10:
+				case 11:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -1104,6 +1151,8 @@ func (m model) View() string {
 		s += m.renderResetConfiguration()
 	case resetConfirmScreen:
 		s += m.renderResetConfirm()
+	case quickSetupScreen:
+		s += m.renderQuickSetup()
 	}
 
 	// Footer with emojis
@@ -1128,6 +1177,12 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageInputScreen {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
+	} else if m.currentScreen == quickSetupScreen {
+		if m.quickSetupComplete || m.quickSetupError != "" {
+			s += helpStyle.Render("ESC: Back to Main Menu • q: Quit")
+		} else {
+			s += helpStyle.Render("↑/↓: Navigate • Type to enter values • Enter: Execute Setup • ESC: Cancel")
+		}
 	} else if m.currentScreen == systemSettingsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
 	} else if m.currentScreen == resetConfigurationScreen {
@@ -4365,6 +4420,264 @@ func (m *model) executeResetConfiguration() {
 		m.extensions = exts
 	}
 	m.loadExtensionSyncInfo()
+}
+
+// initQuickSetup initializes the Quick Setup wizard
+func (m *model) initQuickSetup() {
+	m.currentScreen = quickSetupScreen
+	m.quickSetupStep = 0
+	m.quickSetupExtStart = "100"
+	m.quickSetupExtEnd = "105"
+	m.quickSetupPassword = ""
+	m.quickSetupComplete = false
+	m.quickSetupError = ""
+	m.quickSetupResult = ""
+	m.inputMode = true
+	m.inputCursor = 0
+	m.inputFields = []string{
+		"Starting Extension Number",
+		"Ending Extension Number",
+		"Password for all extensions",
+	}
+	m.inputValues = []string{m.quickSetupExtStart, m.quickSetupExtEnd, ""}
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
+// renderQuickSetup renders the Quick Setup wizard screen
+func (m model) renderQuickSetup() string {
+	var sb strings.Builder
+	
+	sb.WriteString(titleStyle.Render("🚀 Quick Setup Wizard") + "\n\n")
+	
+	if m.quickSetupComplete {
+		// Show completion screen
+		sb.WriteString(successStyle.Render("✅ Quick Setup Complete!") + "\n\n")
+		sb.WriteString(m.quickSetupResult + "\n\n")
+		sb.WriteString(helpStyle.Render("Press ESC to return to main menu") + "\n")
+		return menuStyle.Render(sb.String())
+	}
+	
+	if m.quickSetupError != "" {
+		sb.WriteString(errorStyle.Render("❌ Error: " + m.quickSetupError) + "\n\n")
+		sb.WriteString(helpStyle.Render("Press ESC to return to main menu and try again") + "\n")
+		return menuStyle.Render(sb.String())
+	}
+	
+	sb.WriteString(infoStyle.Render("This wizard will help you set up a basic PBX configuration:") + "\n")
+	sb.WriteString("  • Configure PJSIP transports (UDP/TCP)\n")
+	sb.WriteString("  • Create a range of extensions\n")
+	sb.WriteString("  • Set up dialplan for extension-to-extension calls\n")
+	sb.WriteString("  • Reload Asterisk configuration\n\n")
+	
+	// Show input fields
+	for i, field := range m.inputFields {
+		cursor := "  "
+		if i == m.inputCursor {
+			cursor = "▶ "
+		}
+		
+		value := m.inputValues[i]
+		if field == "Password for all extensions" && value != "" && i != m.inputCursor {
+			value = strings.Repeat("*", len(value))
+		}
+		
+		fieldStr := fmt.Sprintf("%s%s: ", cursor, field)
+		if i == m.inputCursor {
+			sb.WriteString(selectedItemStyle.Render(fieldStr) + value + "█\n")
+		} else {
+			sb.WriteString(fieldStr + value + "\n")
+		}
+	}
+	
+	sb.WriteString("\n")
+	sb.WriteString(helpStyle.Render("↑/↓: Navigate • Type to enter values • Enter: Submit • ESC: Cancel") + "\n")
+	
+	// Show validation hints
+	if len(m.inputValues[0]) > 0 && len(m.inputValues[1]) > 0 {
+		startNum := 0
+		endNum := 0
+		fmt.Sscanf(m.inputValues[0], "%d", &startNum)
+		fmt.Sscanf(m.inputValues[1], "%d", &endNum)
+		
+		if startNum > 0 && endNum > 0 && endNum >= startNum {
+			count := endNum - startNum + 1
+			sb.WriteString(fmt.Sprintf("\n📊 Will create %d extensions (%s - %s)\n", count, m.inputValues[0], m.inputValues[1]))
+		}
+	}
+	
+	return menuStyle.Render(sb.String())
+}
+
+// handleQuickSetupInput handles keyboard input for Quick Setup wizard
+func (m *model) handleQuickSetupInput(key string) {
+	switch key {
+	case "up":
+		if m.inputCursor > 0 {
+			m.inputCursor--
+		}
+	case "down":
+		if m.inputCursor < len(m.inputFields)-1 {
+			m.inputCursor++
+		}
+	case "backspace":
+		if len(m.inputValues[m.inputCursor]) > 0 {
+			m.inputValues[m.inputCursor] = m.inputValues[m.inputCursor][:len(m.inputValues[m.inputCursor])-1]
+		}
+	case "enter":
+		// Validate and execute setup
+		m.executeQuickSetup()
+	default:
+		// Add character to current field
+		if len(key) == 1 {
+			m.inputValues[m.inputCursor] += key
+		}
+	}
+}
+
+// executeQuickSetup performs the Quick Setup
+func (m *model) executeQuickSetup() {
+	// Validate inputs
+	startNum := 0
+	endNum := 0
+	
+	if _, err := fmt.Sscanf(m.inputValues[0], "%d", &startNum); err != nil || startNum <= 0 {
+		m.quickSetupError = "Invalid starting extension number"
+		return
+	}
+	
+	if _, err := fmt.Sscanf(m.inputValues[1], "%d", &endNum); err != nil || endNum <= 0 {
+		m.quickSetupError = "Invalid ending extension number"
+		return
+	}
+	
+	if endNum < startNum {
+		m.quickSetupError = "Ending extension must be >= starting extension"
+		return
+	}
+	
+	password := m.inputValues[2]
+	if password == "" {
+		m.quickSetupError = "Password is required"
+		return
+	}
+	
+	if len(password) < 4 {
+		m.quickSetupError = "Password must be at least 4 characters"
+		return
+	}
+	
+	// Execute setup steps
+	var result strings.Builder
+	result.WriteString("📋 Setup Results:\n\n")
+	
+	// Step 1: Configure transports
+	result.WriteString("1️⃣  Configuring PJSIP Transports... ")
+	if err := m.configManager.EnsureTransportConfig(); err != nil {
+		m.quickSetupError = fmt.Sprintf("Failed to configure transports: %v", err)
+		return
+	}
+	result.WriteString("✅\n")
+	
+	// Step 2: Create extensions
+	count := endNum - startNum + 1
+	result.WriteString(fmt.Sprintf("2️⃣  Creating %d extensions... ", count))
+	
+	extensions := make([]Extension, 0, count)
+	for extNum := startNum; extNum <= endNum; extNum++ {
+		extNumStr := fmt.Sprintf("%d", extNum)
+		
+		// Create extension in database
+		ext := Extension{
+			ExtensionNumber:  extNumStr,
+			Name:             fmt.Sprintf("Extension %d", extNum),
+			Secret:           password,
+			Context:          DefaultExtensionContext,
+			Transport:        DefaultExtensionTransport,
+			Codecs:           DefaultCodecs,
+			Enabled:          true,
+			MaxContacts:      DefaultMaxContacts,
+			QualifyFrequency: DefaultQualifyFrequency,
+			DirectMedia:      DefaultDirectMedia,
+		}
+		
+		// Insert into database
+		if m.db != nil {
+			_, err := m.db.Exec(`
+				INSERT INTO extensions (extension_number, name, secret, context, transport, codecs, enabled, max_contacts, qualify_frequency, direct_media)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON DUPLICATE KEY UPDATE name=VALUES(name), secret=VALUES(secret), enabled=VALUES(enabled)
+			`, ext.ExtensionNumber, ext.Name, ext.Secret, ext.Context, ext.Transport, ext.Codecs, ext.Enabled, ext.MaxContacts, ext.QualifyFrequency, ext.DirectMedia)
+			
+			if err != nil {
+				m.quickSetupError = fmt.Sprintf("Failed to create extension %s: %v", extNumStr, err)
+				return
+			}
+		}
+		
+		extensions = append(extensions, ext)
+		
+		// Create PJSIP config for this extension
+		sections := CreatePjsipEndpointSections(
+			ext.ExtensionNumber,
+			ext.Secret,
+			ext.Context,
+			ext.Transport,
+			strings.Split(ext.Codecs, ","),
+			ext.DirectMedia,
+			ext.CallerID,
+			ext.MaxContacts,
+			ext.QualifyFrequency,
+			ext.VoicemailEnabled,
+		)
+		
+		if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", extNumStr)); err != nil {
+			m.quickSetupError = fmt.Sprintf("Failed to write PJSIP config for %s: %v", extNumStr, err)
+			return
+		}
+	}
+	result.WriteString("✅\n")
+	
+	// Step 3: Generate dialplan
+	result.WriteString("3️⃣  Generating dialplan... ")
+	dialplanConfig := m.configManager.GenerateInternalDialplan(extensions)
+	if err := m.configManager.WriteDialplanConfig(dialplanConfig, "Quick Setup"); err != nil {
+		m.quickSetupError = fmt.Sprintf("Failed to write dialplan: %v", err)
+		return
+	}
+	result.WriteString("✅\n")
+	
+	// Step 4: Reload Asterisk
+	result.WriteString("4️⃣  Reloading Asterisk... ")
+	if _, err := m.asteriskManager.ReloadPJSIPQuiet(); err != nil {
+		result.WriteString("⚠️ (may need manual reload)\n")
+	} else {
+		result.WriteString("✅\n")
+	}
+	
+	if _, err := m.asteriskManager.ReloadDialplanQuiet(); err != nil {
+		result.WriteString("   Dialplan reload: ⚠️ (may need manual reload)\n")
+	}
+	
+	result.WriteString("\n")
+	result.WriteString("📱 SIP Phone Configuration:\n")
+	result.WriteString(fmt.Sprintf("   • Extensions: %d - %d\n", startNum, endNum))
+	result.WriteString(fmt.Sprintf("   • Password: %s\n", password))
+	result.WriteString("   • Server: <your-server-ip>\n")
+	result.WriteString("   • Port: 5060\n")
+	result.WriteString("   • Transport: UDP\n\n")
+	
+	result.WriteString("💡 Next Steps:\n")
+	result.WriteString("   1. Configure your SIP phones with the above credentials\n")
+	result.WriteString("   2. Dial between extensions to test calls\n")
+	
+	m.quickSetupResult = result.String()
+	m.quickSetupComplete = true
+	
+	// Refresh extensions list
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+	}
 }
 
 func main() {

@@ -407,16 +407,17 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 		cursorPosition    int
 		expectedMenuSave  bool
 	}{
-		{"Extensions Management", 0, true},
-		{"Trunks Management", 1, true},
-		{"VoIP Phones Management", 2, true},
-		{"Asterisk Management", 3, true},
-		{"Diagnostics & Debugging", 4, true},
-		{"System Status", 5, true},
-		{"Logs Viewer", 6, true},
-		{"CLI Usage Guide", 7, true},
-		{"Configuration Management", 8, true},
-		{"System Settings", 9, true},
+		{"Quick Setup", 0, true},
+		{"Extensions Management", 1, true},
+		{"Trunks Management", 2, true},
+		{"VoIP Phones Management", 3, true},
+		{"Asterisk Management", 4, true},
+		{"Diagnostics & Debugging", 5, true},
+		{"System Status", 6, true},
+		{"Logs Viewer", 7, true},
+		{"CLI Usage Guide", 8, true},
+		{"Configuration Management", 9, true},
+		{"System Settings", 10, true},
 	}
 	
 	for _, tc := range testCases {
@@ -448,14 +449,15 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 func TestMenuItemsCount(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	
-	// We expect 11 menu items (including Exit)
-	expectedItems := 11
+	// We expect 12 menu items (including Quick Setup and Exit)
+	expectedItems := 12
 	if len(m.menuItems) != expectedItems {
 		t.Errorf("Expected %d menu items, got %d", expectedItems, len(m.menuItems))
 	}
 	
 	// Verify specific items exist
 	expectedTexts := []string{
+		"Quick Setup",
 		"Extensions",
 		"Trunks",
 		"VoIP Phones",
@@ -1098,4 +1100,92 @@ func TestUsageInputScreenNavigation(t *testing.T) {
 	if newModel.usageCommandTemplate != "" {
 		t.Error("Expected usageCommandTemplate to be cleared after ESC")
 	}
+}
+
+// TestQuickSetupInit tests the Quick Setup wizard initialization
+func TestQuickSetupInit(t *testing.T) {
+m := initialModel(nil, nil, false)
+
+// Initialize Quick Setup
+m.initQuickSetup()
+
+// Verify initial state
+if m.currentScreen != quickSetupScreen {
+t.Errorf("Expected currentScreen to be quickSetupScreen, got %v", m.currentScreen)
+}
+
+if m.quickSetupStep != 0 {
+t.Errorf("Expected quickSetupStep to be 0, got %d", m.quickSetupStep)
+}
+
+if m.quickSetupExtStart != "100" {
+t.Errorf("Expected quickSetupExtStart to be '100', got '%s'", m.quickSetupExtStart)
+}
+
+if m.quickSetupExtEnd != "105" {
+t.Errorf("Expected quickSetupExtEnd to be '105', got '%s'", m.quickSetupExtEnd)
+}
+
+if len(m.inputFields) != 3 {
+t.Errorf("Expected 3 input fields, got %d", len(m.inputFields))
+}
+
+if !m.inputMode {
+t.Error("Expected inputMode to be true")
+}
+}
+
+// TestQuickSetupRender tests that Quick Setup renders correctly
+func TestQuickSetupRender(t *testing.T) {
+m := initialModel(nil, nil, false)
+m.initQuickSetup()
+
+output := m.renderQuickSetup()
+
+// Check for expected content
+if !strings.Contains(output, "Quick Setup Wizard") {
+t.Error("Expected output to contain 'Quick Setup Wizard'")
+}
+
+if !strings.Contains(output, "Starting Extension Number") {
+t.Error("Expected output to contain 'Starting Extension Number'")
+}
+
+if !strings.Contains(output, "Ending Extension Number") {
+t.Error("Expected output to contain 'Ending Extension Number'")
+}
+
+if !strings.Contains(output, "Password for all extensions") {
+t.Error("Expected output to contain 'Password for all extensions'")
+}
+}
+
+// TestQuickSetupInputHandling tests input handling in Quick Setup
+func TestQuickSetupInputHandling(t *testing.T) {
+m := initialModel(nil, nil, false)
+m.initQuickSetup()
+
+// Test navigation
+m.handleQuickSetupInput("down")
+if m.inputCursor != 1 {
+t.Errorf("Expected inputCursor to be 1 after down, got %d", m.inputCursor)
+}
+
+m.handleQuickSetupInput("up")
+if m.inputCursor != 0 {
+t.Errorf("Expected inputCursor to be 0 after up, got %d", m.inputCursor)
+}
+
+// Test character input
+m.handleQuickSetupInput("1")
+if !strings.HasSuffix(m.inputValues[0], "1") {
+t.Errorf("Expected first input to end with '1', got '%s'", m.inputValues[0])
+}
+
+// Test backspace
+originalLen := len(m.inputValues[0])
+m.handleQuickSetupInput("backspace")
+if len(m.inputValues[0]) != originalLen-1 {
+t.Errorf("Expected input length to decrease after backspace")
+}
 }

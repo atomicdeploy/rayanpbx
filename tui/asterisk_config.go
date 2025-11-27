@@ -397,10 +397,11 @@ func (acm *AsteriskConfigManager) EnsureTransportConfig() error {
 }
 
 // GenerateInternalDialplan generates dialplan configuration for internal extensions
+// Uses [from-internal] context to match the endpoint context configuration
 func (acm *AsteriskConfigManager) GenerateInternalDialplan(extensions []Extension) string {
 	var config strings.Builder
 
-	config.WriteString("\n[internal]\n")
+	config.WriteString("\n[from-internal]\n")
 	
 	// Add individual extension rules
 	for _, ext := range extensions {
@@ -460,9 +461,9 @@ func (acm *AsteriskConfigManager) WriteDialplanConfig(content, identifier string
 		}
 	}
 
-	// For dialplan, we replace the [internal] context with the new content
-	// Remove existing internal context
-	config.RemoveSectionsByName("internal")
+	// For dialplan, we replace the [from-internal] context with the new content
+	// Remove existing from-internal context
+	config.RemoveSectionsByName("from-internal")
 
 	// Parse the new content and add it
 	newConfig, err := ParseAsteriskConfigContent(content, "")

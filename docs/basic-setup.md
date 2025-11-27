@@ -2,50 +2,70 @@
 
 > 🚀 Get your first phone call working in minutes using the RayanPBX TUI!
 
-This guide explains how to set up a basic working PBX configuration using RayanPBX's TUI (Text User Interface) menu options, following the [Asterisk Hello World](https://docs.asterisk.org/Getting-Started/Hello-World/) pattern.
+This guide explains how to set up a basic working PBX configuration using RayanPBX's TUI (Text User Interface) menu options.
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Prerequisites](#prerequisites)
-3. [Step-by-Step Setup](#step-by-step-setup)
-4. [Configure Your SIP Phone](#configure-your-sip-phone)
-5. [Make the Call](#make-the-call)
-6. [Troubleshooting](#troubleshooting)
-7. [Manual Configuration (Reference)](#manual-configuration-reference)
+1. [Quick Setup (Recommended)](#quick-setup-recommended)
+2. [Manual Step-by-Step Setup](#manual-step-by-step-setup)
+3. [Configure Your SIP Phone](#configure-your-sip-phone)
+4. [Make the Call](#make-the-call)
+5. [Troubleshooting](#troubleshooting)
+6. [Manual Configuration (Reference)](#manual-configuration-reference)
 
 ---
 
-## Overview
+## Quick Setup (Recommended)
 
-To create a basic working PBX setup, you'll configure:
+The fastest way to get started is using the **🚀 Quick Setup** wizard:
 
-1. **PJSIP Transports** - UDP and TCP transports on port 5060
-2. **Extension** - A SIP endpoint for your phone to register
-3. **Dialplan** - Extension dial rules
-4. **Asterisk Reload** - Apply all changes
+### Step 1: Launch RayanPBX TUI
 
-Each of these can be configured through the TUI menus.
+```bash
+sudo rayanpbx-tui
+```
+
+### Step 2: Run Quick Setup
+
+1. Select **🚀 Quick Setup** (first menu item)
+2. Enter the starting extension number (e.g., `100`)
+3. Enter the ending extension number (e.g., `105`)
+4. Enter a password for all extensions
+5. Press **Enter** to execute the setup
+
+The wizard will automatically:
+- ✅ Configure PJSIP transports (UDP and TCP on port 5060)
+- ✅ Create extensions in the specified range
+- ✅ Set up dialplan for extension-to-extension calls
+- ✅ Reload Asterisk configuration
+
+### Step 3: Configure SIP Phones
+
+Use the displayed credentials to configure your SIP phones, then dial between extensions to test calls.
 
 ---
 
-## Prerequisites
+## Manual Step-by-Step Setup
+
+If you prefer manual setup, follow these steps:
+
+### Prerequisites
 
 Before starting the setup, ensure:
 
-### Network Requirements
+#### Network Requirements
 
 - ✅ Your **SIP phone** is on the same LAN as the Asterisk server, OR you can install a softphone (MicroSIP recommended)
 - ✅ If using a hardware phone, both the phone and Asterisk can reach each other on the same subnet
 - ✅ Port **5060/UDP** is open on any firewall between the phone and server
 
-### Software Requirements
+#### Software Requirements
 
 - ✅ **RayanPBX installed** with Asterisk from source (`make samples` was run during installation)
-- ✅ **chan_pjsip** channel driver is available (included if you followed the [Installing pjproject](https://docs.asterisk.org/Getting-Started/Installing-Asterisk/Installing-Asterisk-From-Source/PJSIP-pjproject/) guide)
+- ✅ **chan_pjsip** channel driver is available
 - ✅ **Sound files** installed in `/var/lib/asterisk/sounds/en/`
 
-### Required Configuration Files
+#### Required Configuration Files
 
 The installer should have created these files in `/etc/asterisk/`:
 
