@@ -60,7 +60,16 @@ class GrandStreamSessionService
     }
 
     /**
+     * Check if a phone is a temporary/transient object (not persisted to DB).
+     */
+    protected function isTemporaryPhone(VoipPhone $phone): bool
+    {
+        return $phone->id <= 0 || ! $phone->exists;
+    }
+
+    /**
      * Perform login to a GrandStream phone and store the session.
+     * For temporary phones (id <= 0), session is not stored in the database.
      */
     public function login(VoipPhone $phone, ?array $credentials = null): array
     {
@@ -72,11 +81,28 @@ class GrandStreamSessionService
             return ['success' => false, 'error' => 'No password provided for authentication'];
         }
 
-        PhoneSession::revokeAllForPhone($phone->id);
+        // Only revoke existing sessions for persisted phones
+        if (! $this->isTemporaryPhone($phone)) {
+            PhoneSession::revokeAllForPhone($phone->id);
+        }
 
         $result = $this->performDologin($phone->ip, $username, $password);
 
         if ($result['success']) {
+            // For temporary phones, return a transient session without DB storage
+            if ($this->isTemporaryPhone($phone)) {
+                return [
+                    'success' => true,
+                    'session_id' => null,
+                    'sid' => $result['sid'],
+                    'role' => $result['role'],
+                    'cookies' => $result['cookies'] ?? [],
+                    'expires_at' => now()->addSeconds(self::DEFAULT_SESSION_TTL)->toIso8601String(),
+                    'message' => 'Successfully authenticated with phone (transient session)',
+                    'transient' => true,
+                ];
+            }
+
             $session = $this->storeSession($phone, $result);
 
             return [
@@ -184,6 +210,11 @@ class GrandStreamSessionService
 
     public function getSession(VoipPhone $phone): ?PhoneSession
     {
+        // Temporary phones don't have stored sessions
+        if ($this->isTemporaryPhone($phone)) {
+            return null;
+        }
+
         $session = PhoneSession::getValidSession($phone->id);
         if ($session) {
             $session->markUsed();
@@ -196,13 +227,34 @@ class GrandStreamSessionService
 
     public function getOrCreateSession(VoipPhone $phone, ?array $credentials = null): array
     {
-        $session = $this->getSession($phone);
-        if ($session) {
-            return ['success' => true, 'session' => $session, 'reused' => true];
+        // For temporary phones, skip session lookup and always login
+        if (! $this->isTemporaryPhone($phone)) {
+            $session = $this->getSession($phone);
+            if ($session) {
+                return ['success' => true, 'session' => $session, 'reused' => true];
+            }
         }
 
         $loginResult = $this->login($phone, $credentials);
         if ($loginResult['success']) {
+            // For transient sessions, create an in-memory PhoneSession object
+            if (! empty($loginResult['transient'])) {
+                $session = new PhoneSession([
+                    'voip_phone_id' => 0,
+                    'session_id' => $loginResult['sid'],
+                    'token' => $loginResult['role'],
+                    'is_active' => true,
+                    'authenticated_at' => now(),
+                    'expires_at' => now()->addSeconds(self::DEFAULT_SESSION_TTL),
+                    'last_used_at' => now(),
+                ]);
+                if (! empty($loginResult['cookies'])) {
+                    $session->setCookiesFromArray($loginResult['cookies']);
+                }
+
+                return ['success' => true, 'session' => $session, 'reused' => false, 'transient' => true];
+            }
+
             $session = PhoneSession::find($loginResult['session_id']);
 
             return ['success' => true, 'session' => $session, 'reused' => false];
@@ -213,6 +265,11 @@ class GrandStreamSessionService
 
     public function logout(VoipPhone $phone): bool
     {
+        // Temporary phones don't have stored sessions to revoke
+        if ($this->isTemporaryPhone($phone)) {
+            return true;
+        }
+
         return PhoneSession::revokeAllForPhone($phone->id) > 0;
     }
 
@@ -327,9 +384,9 @@ class GrandStreamSessionService
         }
     }
 
-    public function getDeviceInfo(VoipPhone $phone): array
+    public function getDeviceInfo(VoipPhone $phone, ?array $credentials = null): array
     {
-        $sessionResult = $this->getOrCreateSession($phone);
+        $sessionResult = $this->getOrCreateSession($phone, $credentials);
         if (! $sessionResult['success']) {
             return ['success' => false, 'error' => 'Failed to establish session: '.($sessionResult['error'] ?? 'Unknown error')];
         }
@@ -357,9 +414,9 @@ class GrandStreamSessionService
         ];
     }
 
-    public function getTR069Config(VoipPhone $phone): array
+    public function getTR069Config(VoipPhone $phone, ?array $credentials = null): array
     {
-        $sessionResult = $this->getOrCreateSession($phone);
+        $sessionResult = $this->getOrCreateSession($phone, $credentials);
         if (! $sessionResult['success']) {
             return ['success' => false, 'error' => 'Failed to establish session'];
         }
@@ -385,9 +442,9 @@ class GrandStreamSessionService
         ];
     }
 
-    public function syncPhoneInfo(VoipPhone $phone): array
+    public function syncPhoneInfo(VoipPhone $phone, ?array $credentials = null): array
     {
-        $deviceInfo = $this->getDeviceInfo($phone);
+        $deviceInfo = $this->getDeviceInfo($phone, $credentials);
         if (! $deviceInfo['success']) {
             return $deviceInfo;
         }
@@ -404,9 +461,9 @@ class GrandStreamSessionService
         return ['success' => true, 'phone' => $phone->fresh(), 'device_info' => $info];
     }
 
-    public function getSipAccount(VoipPhone $phone, int $accountNumber = 1): array
+    public function getSipAccount(VoipPhone $phone, int $accountNumber = 1, ?array $credentials = null): array
     {
-        $sessionResult = $this->getOrCreateSession($phone);
+        $sessionResult = $this->getOrCreateSession($phone, $credentials);
         if (! $sessionResult['success']) {
             return ['success' => false, 'error' => 'Failed to establish session: '.($sessionResult['error'] ?? 'Unknown')];
         }
@@ -439,9 +496,9 @@ class GrandStreamSessionService
         ];
     }
 
-    public function setSipAccount(VoipPhone $phone, array $config, int $accountNumber = 1): array
+    public function setSipAccount(VoipPhone $phone, array $config, int $accountNumber = 1, ?array $credentials = null): array
     {
-        $sessionResult = $this->getOrCreateSession($phone);
+        $sessionResult = $this->getOrCreateSession($phone, $credentials);
         if (! $sessionResult['success']) {
             return ['success' => false, 'error' => 'Failed to establish session: '.($sessionResult['error'] ?? 'Unknown')];
         }
@@ -483,13 +540,13 @@ class GrandStreamSessionService
 
     public function provisionExtension(
         VoipPhone $phone, string $extension, string $password, string $server,
-        ?string $displayName = null, int $accountNumber = 1
+        ?string $displayName = null, int $accountNumber = 1, ?array $credentials = null
     ): array {
         return $this->setSipAccount($phone, [
             'account_active' => true, 'account_name' => 'SIP', 'sip_server' => $server,
             'sip_user_id' => $extension, 'auth_id' => $extension, 'auth_password' => $password,
             'display_name' => $displayName ?? "Extension {$extension}",
-        ], $accountNumber);
+        ], $accountNumber, $credentials);
     }
 
     public function testAuthentication(string $ip, string $username, string $password): array

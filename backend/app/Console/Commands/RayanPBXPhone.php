@@ -257,7 +257,7 @@ class RayanPBXPhone extends Command
         // Update stored credentials if authentication succeeded
         $this->updateStoredCredentials($phone, $credentials);
 
-        $result = $this->grandstream->getDeviceInfo($phone);
+        $result = $this->grandstream->getDeviceInfo($phone, $credentials);
 
         if (! $result['success']) {
             $this->error('Failed: '.($result['error'] ?? 'Unknown error'));
@@ -329,7 +329,7 @@ class RayanPBXPhone extends Command
         // Update stored credentials if authentication succeeded
         $this->updateStoredCredentials($phone, $credentials);
 
-        $result = $this->grandstream->getSipAccount($phone);
+        $result = $this->grandstream->getSipAccount($phone, 1, $credentials);
 
         if (! $result['success']) {
             $this->error('Failed: '.($result['error'] ?? 'Unknown error'));
@@ -421,7 +421,9 @@ class RayanPBXPhone extends Command
             $extension,
             $sipPassword,
             $sipServer,
-            $displayName
+            $displayName,
+            1,
+            $credentials
         );
 
         if (! $result['success']) {
