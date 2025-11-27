@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -238,6 +239,149 @@ func (pm *PhoneManager) DetectPhoneVendor(ip string) (string, error) {
 	}
 	
 	return "unknown", nil
+}
+
+// PhoneVendorAndModel contains detected vendor and model information
+type PhoneVendorAndModel struct {
+	Vendor string
+	Model  string
+}
+
+// UserAgent returns a formatted user agent string from vendor and model
+func (vm *PhoneVendorAndModel) UserAgent() string {
+	if vm.Model != "" {
+		return fmt.Sprintf("%s %s", strings.ToUpper(vm.Vendor), vm.Model)
+	}
+	return strings.ToUpper(vm.Vendor)
+}
+
+// Pre-compiled regular expressions for model detection (same as phone_discovery.go)
+var (
+	// GrandStream model patterns: GXP, GRP, GXV, DP, WP, GAC, HT series
+	grandstreamModelPattern = regexp.MustCompile(`(?i)\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*`)
+	// Other vendor model patterns
+	yealinkModelPattern   = regexp.MustCompile(`(?i)sip-t\d+[a-z]*`)
+	polycomModelPattern   = regexp.MustCompile(`(?i)(soundpoint|vvx\d+[a-z]*)`)
+	ciscoModelPattern     = regexp.MustCompile(`(?i)(cp-\d+[a-z]*|spa\d+[a-z]*)`)
+	snomModelPattern      = regexp.MustCompile(`(?i)snom\d+[a-z]*`)
+	panasonicModelPattern = regexp.MustCompile(`(?i)kx-[\w]+`)
+	fanvilModelPattern    = regexp.MustCompile(`(?i)x\d+[a-z]*`)
+)
+
+// DetectPhoneVendorAndModel attempts to detect both vendor and model of a phone at the given IP
+func (pm *PhoneManager) DetectPhoneVendorAndModel(ip string) (*PhoneVendorAndModel, error) {
+	result := &PhoneVendorAndModel{
+		Vendor: "unknown",
+		Model:  "",
+	}
+
+	// Try to get the web interface and check headers/content
+	resp, err := pm.httpClient.Get(fmt.Sprintf("http://%s/", ip))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to phone: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read body to check for vendor-specific strings
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	bodyStr := string(body)
+	bodyStrLower := strings.ToLower(bodyStr)
+
+	// Check Server header first
+	if server := resp.Header.Get("Server"); server != "" {
+		serverLower := strings.ToLower(server)
+		if strings.Contains(serverLower, "grandstream") {
+			result.Vendor = "grandstream"
+			// Model patterns are case-insensitive ((?i) flag), so use original case
+			if match := grandstreamModelPattern.FindString(server); match != "" {
+				result.Model = strings.ToUpper(match)
+			}
+		} else if strings.Contains(serverLower, "yealink") {
+			result.Vendor = "yealink"
+			if match := yealinkModelPattern.FindString(server); match != "" {
+				result.Model = strings.ToUpper(match)
+			}
+		}
+	}
+
+	// Check body content for vendor and model
+	// Note: All model patterns use (?i) flag for case-insensitive matching
+	
+	// GrandStream - check for model pattern first (model regex includes model prefix like GXP, GRP, etc.)
+	if result.Model == "" {
+		if match := grandstreamModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "grandstream"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "grandstream") {
+			result.Vendor = "grandstream"
+		}
+	}
+
+	// Yealink
+	if result.Model == "" {
+		if match := yealinkModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "yealink"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "yealink") {
+			result.Vendor = "yealink"
+		}
+	}
+
+	// Polycom
+	if result.Model == "" {
+		if match := polycomModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "polycom"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "polycom") {
+			result.Vendor = "polycom"
+		}
+	}
+
+	// Cisco
+	if result.Model == "" {
+		if match := ciscoModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "cisco"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "cisco") {
+			result.Vendor = "cisco"
+		}
+	}
+
+	// Snom
+	if result.Model == "" {
+		if match := snomModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "snom"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "snom") {
+			result.Vendor = "snom"
+		}
+	}
+
+	// Panasonic
+	if result.Model == "" {
+		if match := panasonicModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "panasonic"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "panasonic") {
+			result.Vendor = "panasonic"
+		}
+	}
+
+	// Fanvil
+	if result.Model == "" {
+		if match := fanvilModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "fanvil"
+			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "fanvil") {
+			result.Vendor = "fanvil"
+		}
+	}
+
+	return result, nil
 }
 
 // GrandStreamPhone implements VoIPPhone for GrandStream devices

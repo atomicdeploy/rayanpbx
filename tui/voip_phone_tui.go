@@ -1282,8 +1282,8 @@ func (m *model) executeManualIPAdd() {
 		return
 	}
 	
-	// Detect vendor
-	vendor, err := m.phoneManager.DetectPhoneVendor(ip)
+	// Detect vendor and model
+	vendorAndModel, err := m.phoneManager.DetectPhoneVendorAndModel(ip)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to connect to phone: %v", err)
 		return
@@ -1294,11 +1294,11 @@ func (m *model) executeManualIPAdd() {
 	for i, existing := range m.voipPhones {
 		if existing.IP == ip {
 			phoneExists = true
-			// Update existing phone info
-			m.voipPhones[i].UserAgent = strings.ToUpper(vendor)
+			// Update existing phone info with UserAgent from detection or custom name
 			if name != "" {
-				// Store name in UserAgent if provided (TUI limitation)
 				m.voipPhones[i].UserAgent = name
+			} else {
+				m.voipPhones[i].UserAgent = vendorAndModel.UserAgent()
 			}
 			if extension != "" {
 				m.voipPhones[i].Extension = extension
@@ -1309,10 +1309,10 @@ func (m *model) executeManualIPAdd() {
 	}
 	
 	if !phoneExists {
-		// Add to phone list
+		// Add to phone list with UserAgent from detection or custom name
 		displayName := name
 		if displayName == "" {
-			displayName = strings.ToUpper(vendor)
+			displayName = vendorAndModel.UserAgent()
 		}
 		newPhone := PhoneInfo{
 			Extension: extension,
@@ -1340,10 +1340,11 @@ func (m *model) executeManualIPAdd() {
 			IP:            ip,
 			Name:          name,
 			Extension:     extension,
-			Vendor:        vendor,
+			Vendor:        vendorAndModel.Vendor,
+			Model:         vendorAndModel.Model,
 			Status:        "discovered",
 			DiscoveryType: "manual",
-			UserAgent:     strings.ToUpper(vendor),
+			UserAgent:     vendorAndModel.UserAgent(),
 		}
 		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
 			// Non-fatal error, just log it
@@ -1355,9 +1356,9 @@ func (m *model) executeManualIPAdd() {
 	}
 	
 	if phoneExists {
-		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, vendor)
+		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, vendorAndModel.UserAgent())
 	} else {
-		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendor)
+		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendorAndModel.UserAgent())
 	}
 	m.inputMode = false
 	m.currentScreen = voipPhonesScreen
