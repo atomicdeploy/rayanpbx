@@ -74,11 +74,15 @@ class RayanPBXPhone extends Command
 
         if ($ip) {
             // Create a temporary phone object for direct IP access
+            // Note: This is a transient object NOT for database operations
             $phone = new VoipPhone([
                 'ip' => $ip,
                 'vendor' => 'grandstream',
             ]);
-            $phone->id = 0; // Temporary ID
+            // Use negative ID to indicate this is a temporary object
+            // This prevents accidental database operations
+            $phone->id = -1;
+            $phone->exists = false;
 
             return $phone;
         }

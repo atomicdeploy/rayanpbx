@@ -238,6 +238,8 @@ class GrandStreamSessionService
             $sid = $cookies['session-identity'] ?? $session->session_id;
             $baseUrl = $this->buildBaseUrl($ip);
 
+            // Note: Origin header is not required for API requests.
+            // Only the Cookie header with session-identity is needed.
             $result = $this->httpClient->nativePost(
                 $baseUrl.self::ENDPOINT_API_VALUES_GET,
                 'request='.implode(':', $parameters).'&sid='.$sid,
