@@ -321,6 +321,230 @@ func (s *GrandStreamSession) GetCookieHeader() string {
 	return strings.Join(parts, "; ")
 }
 
+// SIPAccountConfig contains SIP account configuration parameters
+type SIPAccountConfig struct {
+	AccountActive       bool   `json:"account_active"`
+	AccountName         string `json:"account_name"`
+	SIPServer           string `json:"sip_server"`
+	SecondarySIPServer  string `json:"secondary_sip_server,omitempty"`
+	OutboundProxy       string `json:"outbound_proxy,omitempty"`
+	BackupOutboundProxy string `json:"backup_outbound_proxy,omitempty"`
+	BLFServer           string `json:"blf_server,omitempty"`
+	SIPUserID           string `json:"sip_user_id"`
+	AuthID              string `json:"auth_id,omitempty"`
+	AuthPassword        string `json:"auth_password,omitempty"`
+	DisplayName         string `json:"display_name,omitempty"`
+	Voicemail           string `json:"voicemail,omitempty"`
+	AccountDisplay      string `json:"account_display,omitempty"` // 0=User Name, 1=User ID
+}
+
+// SIP Account P-value constants
+const (
+	PAccountActive       = "P271"
+	PAccountName         = "P270"
+	PSIPServer           = "P47"
+	PSecondarySIPServer  = "P2312"
+	POutboundProxy       = "P48"
+	PBackupOutboundProxy = "P2333"
+	PBLFServer           = "P2375"
+	PSIPUserID           = "P35"
+	PAuthID              = "P36"
+	PAuthPassword        = "P34"
+	PDisplayName         = "P3"
+	PVoicemail           = "P33"
+	PAccountDisplay      = "P2380"
+)
+
+// SetParameters sets parameters on the phone using /cgi-bin/api.values.post
+//
+// Format: POST /cgi-bin/api.values.post
+// Content-Type: application/x-www-form-urlencoded
+// Body: P270=value1&P47=value2&sid=<sid>
+func (m *GrandStreamSessionManager) SetParameters(session *GrandStreamSession, parameters map[string]string) error {
+	// Build form body: P270=value1&P47=value2&sid=<sid>
+	formParts := make([]string, 0, len(parameters)+1)
+	for name, value := range parameters {
+		formParts = append(formParts, fmt.Sprintf("%s=%s", url.QueryEscape(name), url.QueryEscape(value)))
+	}
+	formParts = append(formParts, fmt.Sprintf("sid=%s", url.QueryEscape(session.SessionID)))
+	formBody := strings.Join(formParts, "&")
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/cgi-bin/api.values.post", session.PhoneIP), strings.NewReader(formBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Cache-Control", "max-age=0")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", fmt.Sprintf("http://%s", session.PhoneIP))
+	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Referer", fmt.Sprintf("http://%s/", session.PhoneIP))
+	req.Header.Set("User-Agent", "RayanPBX/2.0.0 (Go TUI)")
+	req.Header.Set("Cookie", session.GetCookieHeader())
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	// Check for session expiration
+	if strings.Contains(string(body), "session-expired") {
+		session.IsActive = false
+		return fmt.Errorf("session expired")
+	}
+
+	var apiResp struct {
+		Response string `json:"response"`
+		Body     struct {
+			Status string `json:"status"`
+		} `json:"body"`
+	}
+
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse API response: %w", err)
+	}
+
+	if apiResp.Response != "success" || apiResp.Body.Status != "right" {
+		return fmt.Errorf("API request was not successful: %s", string(body))
+	}
+
+	session.LastUsedAt = time.Now()
+	return nil
+}
+
+// GetSIPAccount retrieves SIP account configuration from the phone
+func (m *GrandStreamSessionManager) GetSIPAccount(session *GrandStreamSession) (*SIPAccountConfig, error) {
+	params := []string{
+		PAccountActive, PAccountName, PSIPServer, PSecondarySIPServer,
+		POutboundProxy, PBackupOutboundProxy, PBLFServer, PSIPUserID,
+		PAuthID, PDisplayName, PVoicemail, PAccountDisplay,
+	}
+
+	data, err := m.GetParameters(session, params)
+	if err != nil {
+		return nil, err
+	}
+
+	config := &SIPAccountConfig{}
+
+	if v, ok := data[PAccountActive].(string); ok {
+		config.AccountActive = v == "1"
+	}
+	if v, ok := data[PAccountName].(string); ok {
+		config.AccountName = v
+	}
+	if v, ok := data[PSIPServer].(string); ok {
+		config.SIPServer = v
+	}
+	if v, ok := data[PSecondarySIPServer].(string); ok {
+		config.SecondarySIPServer = v
+	}
+	if v, ok := data[POutboundProxy].(string); ok {
+		config.OutboundProxy = v
+	}
+	if v, ok := data[PBackupOutboundProxy].(string); ok {
+		config.BackupOutboundProxy = v
+	}
+	if v, ok := data[PBLFServer].(string); ok {
+		config.BLFServer = v
+	}
+	if v, ok := data[PSIPUserID].(string); ok {
+		config.SIPUserID = v
+	}
+	if v, ok := data[PAuthID].(string); ok {
+		config.AuthID = v
+	}
+	if v, ok := data[PDisplayName].(string); ok {
+		config.DisplayName = v
+	}
+	if v, ok := data[PVoicemail].(string); ok {
+		config.Voicemail = v
+	}
+	if v, ok := data[PAccountDisplay].(string); ok {
+		config.AccountDisplay = v
+	}
+
+	return config, nil
+}
+
+// SetSIPAccount configures a SIP account on the phone
+func (m *GrandStreamSessionManager) SetSIPAccount(session *GrandStreamSession, config *SIPAccountConfig) error {
+	params := make(map[string]string)
+
+	// Account Active
+	if config.AccountActive {
+		params[PAccountActive] = "1"
+	} else {
+		params[PAccountActive] = "0"
+	}
+
+	// Required fields
+	if config.AccountName != "" {
+		params[PAccountName] = config.AccountName
+	}
+	if config.SIPServer != "" {
+		params[PSIPServer] = config.SIPServer
+	}
+	if config.SIPUserID != "" {
+		params[PSIPUserID] = config.SIPUserID
+	}
+
+	// Optional fields
+	if config.SecondarySIPServer != "" {
+		params[PSecondarySIPServer] = config.SecondarySIPServer
+	}
+	if config.OutboundProxy != "" {
+		params[POutboundProxy] = config.OutboundProxy
+	}
+	if config.BackupOutboundProxy != "" {
+		params[PBackupOutboundProxy] = config.BackupOutboundProxy
+	}
+	if config.BLFServer != "" {
+		params[PBLFServer] = config.BLFServer
+	}
+	if config.AuthID != "" {
+		params[PAuthID] = config.AuthID
+	}
+	if config.AuthPassword != "" {
+		params[PAuthPassword] = config.AuthPassword
+	}
+	if config.DisplayName != "" {
+		params[PDisplayName] = config.DisplayName
+	}
+	if config.Voicemail != "" {
+		params[PVoicemail] = config.Voicemail
+	}
+	if config.AccountDisplay != "" {
+		params[PAccountDisplay] = config.AccountDisplay
+	}
+
+	return m.SetParameters(session, params)
+}
+
+// ProvisionExtension is a simplified interface for provisioning a SIP extension
+func (m *GrandStreamSessionManager) ProvisionExtension(session *GrandStreamSession, extension, password, server, displayName string) error {
+	if displayName == "" {
+		displayName = fmt.Sprintf("Extension %s", extension)
+	}
+
+	return m.SetSIPAccount(session, &SIPAccountConfig{
+		AccountActive: true,
+		AccountName:   "SIP",
+		SIPServer:     server,
+		SIPUserID:     extension,
+		AuthID:        extension,
+		AuthPassword:  password,
+		DisplayName:   displayName,
+	})
+}
+
 // SessionStore methods
 
 // Set stores a session

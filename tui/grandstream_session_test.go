@@ -389,3 +389,246 @@ return true
 }
 return false
 }
+
+// TestSetParameters tests the SetParameters method
+func TestSetParameters(t *testing.T) {
+postCalled := false
+ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+if r.URL.Path == "/cgi-bin/api.values.post" && r.Method == "POST" {
+postCalled = true
+
+// Check Content-Type
+if r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+t.Error("Expected Content-Type: application/x-www-form-urlencoded")
+}
+
+// Check Cookie header
+cookie := r.Header.Get("Cookie")
+if !contains(cookie, "session-identity") {
+t.Error("Cookie should contain session-identity")
+}
+
+// Parse form
+r.ParseForm()
+if r.Form.Get("P270") != "TestAccount" {
+t.Errorf("Expected P270=TestAccount, got '%s'", r.Form.Get("P270"))
+}
+if r.Form.Get("sid") == "" {
+t.Error("Expected sid parameter")
+}
+
+// Return success response
+w.Header().Set("Content-Type", "application/json")
+w.Write([]byte(`{ "response": "success", "body": { "status": "right" } }`))
+}
+}))
+defer ts.Close()
+
+ip := ts.URL[7:]
+
+manager := NewGrandStreamSessionManager(&http.Client{Timeout: 5 * time.Second})
+
+session := &GrandStreamSession{
+PhoneIP:   ip,
+SessionID: "testsession123",
+Cookies: map[string]string{
+"HttpOnly":         "",
+"session-identity": "testsession123",
+"session-role":     "admin",
+},
+IsActive:  true,
+ExpiresAt: time.Now().Add(30 * time.Minute),
+}
+
+err := manager.SetParameters(session, map[string]string{
+"P270": "TestAccount",
+})
+
+if err != nil {
+t.Fatalf("SetParameters should not fail: %v", err)
+}
+
+if !postCalled {
+t.Error("POST endpoint was not called")
+}
+}
+
+// TestGetSIPAccount tests the GetSIPAccount method
+func TestGetSIPAccount(t *testing.T) {
+ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+if r.URL.Path == "/cgi-bin/api.values.get" {
+response := APIResponse{
+Response: "success",
+Body: map[string]interface{}{
+"P271":  "1",
+"P270":  "SIP",
+"P47":   "sip.example.com",
+"P35":   "100",
+"P36":   "100",
+"P3":    "Extension 100",
+"P2380": "0",
+},
+}
+json.NewEncoder(w).Encode(response)
+}
+}))
+defer ts.Close()
+
+ip := ts.URL[7:]
+
+manager := NewGrandStreamSessionManager(&http.Client{Timeout: 5 * time.Second})
+
+session := &GrandStreamSession{
+PhoneIP:   ip,
+SessionID: "testsession123",
+Cookies: map[string]string{
+"HttpOnly":         "",
+"session-identity": "testsession123",
+"session-role":     "admin",
+},
+IsActive:  true,
+ExpiresAt: time.Now().Add(30 * time.Minute),
+}
+
+config, err := manager.GetSIPAccount(session)
+
+if err != nil {
+t.Fatalf("GetSIPAccount should not fail: %v", err)
+}
+
+if !config.AccountActive {
+t.Error("Account should be active")
+}
+
+if config.AccountName != "SIP" {
+t.Errorf("Expected AccountName 'SIP', got '%s'", config.AccountName)
+}
+
+if config.SIPServer != "sip.example.com" {
+t.Errorf("Expected SIPServer 'sip.example.com', got '%s'", config.SIPServer)
+}
+
+if config.SIPUserID != "100" {
+t.Errorf("Expected SIPUserID '100', got '%s'", config.SIPUserID)
+}
+
+if config.DisplayName != "Extension 100" {
+t.Errorf("Expected DisplayName 'Extension 100', got '%s'", config.DisplayName)
+}
+}
+
+// TestSetSIPAccount tests the SetSIPAccount method
+func TestSetSIPAccount(t *testing.T) {
+postCalled := false
+ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+if r.URL.Path == "/cgi-bin/api.values.post" {
+postCalled = true
+
+r.ParseForm()
+
+// Check expected parameters
+if r.Form.Get("P271") != "1" {
+t.Errorf("Expected P271=1, got '%s'", r.Form.Get("P271"))
+}
+if r.Form.Get("P47") != "sip.example.com" {
+t.Errorf("Expected P47=sip.example.com, got '%s'", r.Form.Get("P47"))
+}
+if r.Form.Get("P35") != "100" {
+t.Errorf("Expected P35=100, got '%s'", r.Form.Get("P35"))
+}
+
+w.Header().Set("Content-Type", "application/json")
+w.Write([]byte(`{ "response": "success", "body": { "status": "right" } }`))
+}
+}))
+defer ts.Close()
+
+ip := ts.URL[7:]
+
+manager := NewGrandStreamSessionManager(&http.Client{Timeout: 5 * time.Second})
+
+session := &GrandStreamSession{
+PhoneIP:   ip,
+SessionID: "testsession123",
+Cookies: map[string]string{
+"HttpOnly":         "",
+"session-identity": "testsession123",
+"session-role":     "admin",
+},
+IsActive:  true,
+ExpiresAt: time.Now().Add(30 * time.Minute),
+}
+
+err := manager.SetSIPAccount(session, &SIPAccountConfig{
+AccountActive: true,
+AccountName:   "SIP",
+SIPServer:     "sip.example.com",
+SIPUserID:     "100",
+AuthID:        "100",
+AuthPassword:  "secret123",
+DisplayName:   "Extension 100",
+})
+
+if err != nil {
+t.Fatalf("SetSIPAccount should not fail: %v", err)
+}
+
+if !postCalled {
+t.Error("POST endpoint was not called")
+}
+}
+
+// TestProvisionExtension tests the ProvisionExtension method
+func TestProvisionExtension(t *testing.T) {
+ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+if r.URL.Path == "/cgi-bin/api.values.post" {
+r.ParseForm()
+
+// Verify all required fields are set
+if r.Form.Get("P271") != "1" {
+t.Error("Account should be active")
+}
+if r.Form.Get("P270") != "SIP" {
+t.Error("Account name should be SIP")
+}
+if r.Form.Get("P47") != "pbx.example.com" {
+t.Error("SIP server should be set")
+}
+if r.Form.Get("P35") != "200" {
+t.Error("Extension should be set")
+}
+if r.Form.Get("P34") != "pass123" {
+t.Error("Password should be set")
+}
+if r.Form.Get("P3") != "User 200" {
+t.Error("Display name should be set")
+}
+
+w.Header().Set("Content-Type", "application/json")
+w.Write([]byte(`{ "response": "success", "body": { "status": "right" } }`))
+}
+}))
+defer ts.Close()
+
+ip := ts.URL[7:]
+
+manager := NewGrandStreamSessionManager(&http.Client{Timeout: 5 * time.Second})
+
+session := &GrandStreamSession{
+PhoneIP:   ip,
+SessionID: "testsession123",
+Cookies: map[string]string{
+"HttpOnly":         "",
+"session-identity": "testsession123",
+"session-role":     "admin",
+},
+IsActive:  true,
+ExpiresAt: time.Now().Add(30 * time.Minute),
+}
+
+err := manager.ProvisionExtension(session, "200", "pass123", "pbx.example.com", "User 200")
+
+if err != nil {
+t.Fatalf("ProvisionExtension should not fail: %v", err)
+}
+}

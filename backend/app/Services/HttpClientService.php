@@ -195,6 +195,51 @@ class HttpClientService
     }
 
     /**
+     * Create a client configured for GrandStream phone requests.
+     *
+     * GrandStream phones return HTTP/1.0 responses with potentially malformed
+     * headers (e.g., "Set-Cookie: HttpOnly" without a value). This method
+     * configures Guzzle to handle these non-standard responses.
+     *
+     * @param  string  $ip  Phone IP address (for Origin/Referer headers)
+     * @param  string|null  $cookieHeader  Optional cookie header value
+     * @param  int  $timeout  Timeout in seconds (default: 15)
+     */
+    public function grandstreamClient(string $ip, ?string $cookieHeader = null, int $timeout = 15): PendingRequest
+    {
+        $headers = [
+            'User-Agent' => $this->getUserAgent(),
+            'Origin' => "http://{$ip}",
+            'Referer' => "http://{$ip}/",
+        ];
+
+        if ($cookieHeader !== null) {
+            $headers['Cookie'] = $cookieHeader;
+        }
+
+        $request = Http::withHeaders($headers)
+            ->timeout($timeout)
+            ->connectTimeout(10);
+
+        // Apply proxy configuration if available
+        $proxyConfig = $this->getProxyConfig();
+        if ($proxyConfig) {
+            $request = $request->withOptions([
+                'proxy' => $proxyConfig,
+            ]);
+        }
+
+        // Configure Guzzle to be lenient with malformed headers
+        $request = $request->withOptions([
+            'http_errors' => false,
+            // Don't follow redirects (GrandStream phones use 301 for some endpoints)
+            'allow_redirects' => false,
+        ]);
+
+        return $request;
+    }
+
+    /**
      * Make a GET request
      *
      * @param  array  $query  Query parameters
