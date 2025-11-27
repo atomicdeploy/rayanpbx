@@ -15,6 +15,9 @@ type discoveryState struct {
 	scanError       string
 	lldpError       string
 	mutex           sync.Mutex
+	// Pending discovered phones to be merged (thread-safe way to pass data)
+	pendingPhones   []DiscoveredPhone
+	hasPendingData  bool
 }
 
 // Global discovery state
@@ -493,6 +496,8 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 			// Add all discovered phones
 			m.addAllDiscoveredPhones()
 		case "r":
+			// Process any pending discovered phones first
+			m.processPendingDiscoveredPhones()
 			// Refresh phone list with background discovery
 			m.loadRegisteredPhonesWithDiscovery()
 		}
@@ -661,7 +666,10 @@ func (m *model) addAllDiscoveredPhones() {
 
 // loadRegisteredPhonesWithDiscovery loads phones and triggers background discovery
 func (m *model) loadRegisteredPhonesWithDiscovery() {
-	// First, load registered phones normally
+	// Process any pending discovered phones from previous background scan
+	m.processPendingDiscoveredPhones()
+	
+	// Load registered phones normally
 	m.loadRegisteredPhones()
 	
 	// Initialize phone discovery if not already done
@@ -686,6 +694,8 @@ func (m *model) runBackgroundDiscovery() {
 	voipDiscoveryState.isScanning = true
 	voipDiscoveryState.scanError = ""
 	voipDiscoveryState.lldpError = ""
+	voipDiscoveryState.pendingPhones = nil
+	voipDiscoveryState.hasPendingData = false
 	voipDiscoveryState.mutex.Unlock()
 	
 	defer func() {
@@ -695,11 +705,13 @@ func (m *model) runBackgroundDiscovery() {
 		voipDiscoveryState.mutex.Unlock()
 	}()
 	
-	// Get network subnet from config
-	network := "192.168.1.0/24"
+	// Get network subnet from config or use default
+	network := DefaultNetworkSubnet
 	if m.config != nil && m.config.NetworkSubnet != "" {
 		network = m.config.NetworkSubnet
 	}
+	
+	var allDiscovered []DiscoveredPhone
 	
 	// Try LLDP discovery (only works as root)
 	if isRunningAsRoot() {
@@ -709,7 +721,7 @@ func (m *model) runBackgroundDiscovery() {
 			voipDiscoveryState.lldpError = err.Error()
 			voipDiscoveryState.mutex.Unlock()
 		} else {
-			m.mergeDiscoveredPhones(lldpPhones)
+			allDiscovered = append(allDiscovered, lldpPhones...)
 		}
 	}
 	
@@ -720,8 +732,33 @@ func (m *model) runBackgroundDiscovery() {
 		voipDiscoveryState.scanError = err.Error()
 		voipDiscoveryState.mutex.Unlock()
 	} else {
-		m.mergeDiscoveredPhones(scanPhones)
+		allDiscovered = append(allDiscovered, scanPhones...)
 	}
+	
+	// Store pending phones for UI thread to process
+	if len(allDiscovered) > 0 {
+		voipDiscoveryState.mutex.Lock()
+		voipDiscoveryState.pendingPhones = allDiscovered
+		voipDiscoveryState.hasPendingData = true
+		voipDiscoveryState.mutex.Unlock()
+	}
+}
+
+// processPendingDiscoveredPhones processes any pending discovered phones from background scan
+// This should be called from the main UI thread
+func (m *model) processPendingDiscoveredPhones() {
+	voipDiscoveryState.mutex.Lock()
+	if !voipDiscoveryState.hasPendingData {
+		voipDiscoveryState.mutex.Unlock()
+		return
+	}
+	pending := voipDiscoveryState.pendingPhones
+	voipDiscoveryState.pendingPhones = nil
+	voipDiscoveryState.hasPendingData = false
+	voipDiscoveryState.mutex.Unlock()
+	
+	// Now safe to modify model data on UI thread
+	m.mergeDiscoveredPhones(pending)
 }
 
 // mergeDiscoveredPhones merges discovered phones into the existing list and saves to DB
