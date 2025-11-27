@@ -33,7 +33,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, xml, ctype, json, mysql, pdo, pdo_mysql, bcmath
+          extensions: mbstring, xml, ctype, json, mysql, pdo, pdo_mysql, bcmath, dom
           coverage: none
       
       - name: 📦 Install Composer dependencies
@@ -43,7 +43,7 @@ jobs:
       - name: 🔧 Prepare environment
         working-directory: backend
         run: |
-          cp ../.env.example .env
+          cp .env.example .env
           php artisan key:generate
           sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=mysql/' .env
           sed -i 's/DB_HOST=.*/DB_HOST=127.0.0.1/' .env
@@ -58,9 +58,7 @@ jobs:
       
       - name: ✅ Run tests
         working-directory: backend
-        run: |
-          php artisan test --parallel || echo "Tests will be added"
-          echo "Backend structure validated ✅"
+        run: php artisan test
 
   test-frontend:
     name: Test Frontend (Nuxt)
@@ -145,7 +143,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, xml, ctype, json, mysql, pdo, pdo_mysql, bcmath
+          extensions: mbstring, xml, ctype, json, mysql, pdo, pdo_mysql, bcmath, dom
           coverage: none
       
       - name: 🟢 Setup Node.js 24
@@ -166,8 +164,8 @@ jobs:
       
       - name: 🔧 Configure environment
         run: |
-          cp .env.example backend/.env
           cd backend
+          cp .env.example .env
           php artisan key:generate
           sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=mysql/' .env
           sed -i 's/DB_HOST=.*/DB_HOST=127.0.0.1/' .env
