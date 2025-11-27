@@ -1518,7 +1518,9 @@ class GrandStreamProvisioningService
             );
 
             if (! $response->successful() && $response->status() !== 202) {
-                throw new \Exception('HTTP error: '.$response->status());
+                $statusCode = $response->status();
+                $verboseError = $this->getVerboseHttpError($statusCode, $ip);
+                throw new \Exception($verboseError);
             }
 
             Log::info('Phone rebooted', ['ip' => $ip]);
@@ -1561,7 +1563,9 @@ class GrandStreamProvisioningService
             );
 
             if (! $response->successful() && $response->status() !== 202) {
-                throw new \Exception('HTTP error: '.$response->status());
+                $statusCode = $response->status();
+                $verboseError = $this->getVerboseHttpError($statusCode, $ip);
+                throw new \Exception($verboseError);
             }
 
             Log::warning('Phone factory reset', ['ip' => $ip]);
@@ -1604,7 +1608,9 @@ class GrandStreamProvisioningService
             );
 
             if (! $response->successful()) {
-                throw new \Exception('HTTP error: '.$response->status());
+                $statusCode = $response->status();
+                $verboseError = $this->getVerboseHttpError($statusCode, $ip);
+                throw new \Exception($verboseError);
             }
 
             // Parse response
@@ -1637,6 +1643,22 @@ class GrandStreamProvisioningService
     }
 
     /**
+     * Get verbose error message for HTTP status codes
+     */
+    protected function getVerboseHttpError(int $statusCode, string $ip): string
+    {
+        return match ($statusCode) {
+            301, 302, 303, 307, 308 => "HTTP redirect ($statusCode) detected for $ip - The phone may require HTTPS instead of HTTP, or the URL path may be incorrect. Try accessing the phone's web interface directly at http://$ip to verify the correct URL and protocol.",
+            401 => "Authentication failed (401) for $ip - Invalid username or password. Please check your credentials.",
+            403 => "Access forbidden (403) for $ip - The credentials may be correct but you do not have permission to access this resource.",
+            404 => "Not found (404) for $ip - The phone API endpoint was not found. This may not be a GrandStream phone or the firmware version may not support this API.",
+            500 => "Server error (500) for $ip - The phone encountered an internal error. Try rebooting the phone.",
+            502, 503, 504 => "Service unavailable ($statusCode) for $ip - The phone may be busy or overloaded. Try again later.",
+            default => "HTTP error $statusCode for $ip - Unexpected response from phone. Check if the phone is accessible via web browser at http://$ip",
+        };
+    }
+
+    /**
      * Set phone configuration via HTTP API
      */
     public function setPhoneConfig($ip, $config, $credentials = [])
@@ -1652,7 +1674,9 @@ class GrandStreamProvisioningService
                 ->post("http://{$ip}/cgi-bin/api-set_config", $config);
 
             if (! $response->successful() && $response->status() !== 202) {
-                throw new \Exception('HTTP error: '.$response->status());
+                $statusCode = $response->status();
+                $verboseError = $this->getVerboseHttpError($statusCode, $ip);
+                throw new \Exception($verboseError);
             }
 
             Log::info('Phone configuration updated', ['ip' => $ip]);

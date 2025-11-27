@@ -219,8 +219,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/phones/lldp/neighbors', [PhoneController::class, 'lldpNeighbors']);
     Route::get('/phones/arp/neighbors', [PhoneController::class, 'arpNeighbors']);
     Route::get('/phones/discover', [PhoneController::class, 'discover']);
+    Route::post('/phones/authenticate', [PhoneController::class, 'authenticate']); // Authenticate to phone
     Route::get('/phones/{identifier}', [PhoneController::class, 'show']);
-    Route::put('/phones/{id}', [PhoneController::class, 'update']); // Update phone
+    Route::put('/phones/{id}', [PhoneController::class, 'update']); // Update phone (including credentials)
     Route::delete('/phones/{id}', [PhoneController::class, 'destroy']); // Delete phone
     Route::post('/phones/control', [PhoneController::class, 'control']);
     Route::post('/phones/provision', [PhoneController::class, 'provision']);

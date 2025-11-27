@@ -8,6 +8,7 @@ use App\Services\GrandStreamProvisioningService;
 use App\Services\SystemctlService;
 use App\Services\TR069Service;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -187,17 +188,165 @@ class PhoneController extends Controller
             'vendor' => 'nullable|string|max:50',
             'model' => 'nullable|string|max:50',
             'credentials' => 'nullable|array',
+            'credentials.username' => 'nullable|string|max:50',
+            'credentials.password' => 'nullable|string|max:128',
         ]);
 
-        $phone->update($request->only([
-            'ip', 'mac', 'extension', 'name', 'vendor', 'model', 'credentials',
-        ]));
+        // Only allow expected credential fields
+        $updateData = $request->only(['ip', 'mac', 'extension', 'name', 'vendor', 'model']);
+
+        if ($request->has('credentials')) {
+            $creds = $request->input('credentials');
+            $updateData['credentials'] = Arr::only($creds, ['username', 'password']);
+        }
+
+        $phone->update($updateData);
 
         return response()->json([
             'success' => true,
             'phone' => $phone,
             'message' => 'Phone updated successfully',
         ]);
+    }
+
+    /**
+     * Authenticate to a phone
+     * 
+     * Authenticates to the phone using either:
+     * 1. Supplied credentials (if provided)
+     * 2. Stored credentials from the database
+     * 
+     * If authentication succeeds with supplied credentials that differ
+     * from stored credentials, the database is updated with the new credentials.
+     */
+    public function authenticate(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+            'credentials.username' => 'nullable|string|max:50',
+            'credentials.password' => 'nullable|string|max:128',
+        ]);
+
+        $ip = $request->input('ip');
+        $suppliedCredentials = $request->input('credentials');
+
+        // Find or create phone record
+        $phone = VoipPhone::firstOrCreate(
+            ['ip' => $ip],
+            [
+                'vendor' => 'grandstream',
+                'status' => 'discovered',
+                'discovery_type' => 'manual',
+            ]
+        );
+
+        // Determine which credentials to use
+        $storedCredentials = $phone->getCredentialsForApi();
+        $credentialsToUse = $suppliedCredentials ?? $storedCredentials;
+
+        // If no credentials available at all, return error
+        if (empty($credentialsToUse['password'])) {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'ip' => $ip,
+                'message' => 'No credentials provided and no stored credentials available',
+            ], 400);
+        }
+
+        // Try to authenticate with the phone
+        $result = $this->grandstreamService->getPhoneStatus($ip, $credentialsToUse);
+
+        // Check if we got a successful response
+        $isAuthenticated = isset($result['status']) && $result['status'] === 'online';
+
+        // If we have a specific HTTP error, provide verbose feedback
+        $errorDetails = null;
+        if (! $isAuthenticated && isset($result['error'])) {
+            $errorDetails = $this->getVerboseHttpError($result['error']);
+        }
+
+        // If authentication succeeded with supplied credentials, check if we need to update DB
+        if ($isAuthenticated && $suppliedCredentials) {
+            // Compare credentials using array comparison (only compare relevant keys)
+            $suppliedFiltered = Arr::only($suppliedCredentials, ['username', 'password']);
+            $storedFiltered = Arr::only($storedCredentials, ['username', 'password']);
+            $needsUpdate = $suppliedFiltered !== $storedFiltered;
+
+            // Update phone record with new credentials and status info
+            $updateData = [
+                'status' => 'online',
+                'last_seen' => now(),
+                'model' => $result['model'] ?? $phone->model,
+                'firmware' => $result['firmware'] ?? $phone->firmware,
+                'mac' => $result['mac'] ?? $phone->mac,
+            ];
+
+            if ($needsUpdate) {
+                $updateData['credentials'] = $suppliedFiltered;
+            }
+
+            $phone->update($updateData);
+        } elseif ($isAuthenticated) {
+            // Update phone status info even without credential changes
+            $phone->update([
+                'status' => 'online',
+                'last_seen' => now(),
+                'model' => $result['model'] ?? $phone->model,
+                'firmware' => $result['firmware'] ?? $phone->firmware,
+                'mac' => $result['mac'] ?? $phone->mac,
+            ]);
+        }
+
+        return response()->json([
+            'success' => $isAuthenticated,
+            'authenticated' => $isAuthenticated,
+            'ip' => $ip,
+            'status' => $result['status'] ?? 'unknown',
+            'message' => $isAuthenticated
+                ? 'Authentication successful'
+                : ($errorDetails ?? 'Authentication failed - check username and password'),
+            'phone' => $isAuthenticated ? $phone->fresh() : null,
+            'phone_info' => $isAuthenticated ? [
+                'model' => $result['model'] ?? null,
+                'firmware' => $result['firmware'] ?? null,
+                'mac' => $result['mac'] ?? null,
+            ] : null,
+            'error_details' => $errorDetails,
+        ]);
+    }
+
+    /**
+     * Get verbose error message for HTTP errors
+     */
+    protected function getVerboseHttpError(string $error): string
+    {
+        // Extract HTTP status code if present - match exact format from services
+        if (preg_match('/\bHTTP error[:\s]+(\d{3})\b/i', $error, $matches)) {
+            $statusCode = (int) $matches[1];
+
+            return match ($statusCode) {
+                301, 302, 303, 307, 308 => "HTTP redirect ($statusCode) - The phone may require HTTPS instead of HTTP, or the URL path may be incorrect. Try accessing the phone's web interface directly to verify the correct URL.",
+                401 => 'Authentication failed (401) - Invalid username or password. Please check your credentials.',
+                403 => 'Access forbidden (403) - The credentials may be correct but you do not have permission to access this resource.',
+                404 => 'Not found (404) - The phone API endpoint was not found. This may not be a GrandStream phone or the firmware version may not support this API.',
+                500 => 'Server error (500) - The phone encountered an internal error. Try rebooting the phone.',
+                502, 503, 504 => "Service unavailable ($statusCode) - The phone may be busy or overloaded. Try again later.",
+                default => "HTTP error ($statusCode) - Unexpected response from phone. Check if the phone is accessible via web browser.",
+            };
+        }
+
+        // Handle connection errors
+        if (stripos($error, 'connection') !== false || stripos($error, 'timeout') !== false) {
+            return 'Connection failed - Cannot reach the phone. Verify the IP address and ensure the phone is powered on and connected to the network.';
+        }
+
+        if (stripos($error, 'ssl') !== false || stripos($error, 'certificate') !== false) {
+            return 'SSL/TLS error - The phone may require HTTPS with a valid certificate. Try the phone\'s web interface directly.';
+        }
+
+        return $error;
     }
 
     /**
