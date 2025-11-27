@@ -215,15 +215,16 @@ type model struct {
 	asteriskOutput  string
 	
 	// VoIP phone management
-	phoneManager       *PhoneManager
-	phoneDiscovery     *PhoneDiscovery
-	voipPhones         []PhoneInfo
-	discoveredPhones   []DiscoveredPhone
-	selectedPhoneIdx   int
-	voipControlMenu    []string
-	voipPhoneOutput    string
-	currentPhoneStatus *PhoneStatus
-	phoneCredentials   map[string]map[string]string
+	phoneManager           *PhoneManager
+	phoneDiscovery         *PhoneDiscovery
+	voipPhones             []PhoneInfo
+	discoveredPhones       []DiscoveredPhone
+	selectedPhoneIdx       int
+	voipControlMenu        []string
+	voipPhoneOutput        string
+	currentPhoneStatus     *PhoneStatus
+	phoneCredentials       map[string]map[string]string
+	voipEditingExistingIP  string // If set, we're editing credentials for an existing phone
 	
 	// Menu position memory (preserve cursor position when navigating back)
 	mainMenuCursor        int
@@ -414,7 +415,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 			// Handle VoIP-specific keys first
 			switch msg.String() {
-			case "m", "c", "r", "p", "d":
+			case "m", "c", "r", "p", "e", "A":
 				m.handleVoIPPhonesKeyPress(msg.String())
 				return m, nil
 			}

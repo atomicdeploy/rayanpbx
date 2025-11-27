@@ -330,19 +330,19 @@ func TestInitManualIPInput(t *testing.T) {
 		t.Error("Input mode should be enabled")
 	}
 	
-	if len(m.inputFields) != 3 {
-		t.Errorf("Expected 3 input fields, got %d", len(m.inputFields))
+	if len(m.inputFields) != 5 {
+		t.Errorf("Expected 5 input fields, got %d", len(m.inputFields))
 	}
 	
-	expectedFields := []string{"IP Address", "Username", "Password"}
+	expectedFields := []string{"IP Address", "Name", "Extension", "Username", "Password"}
 	for i, field := range expectedFields {
 		if m.inputFields[i] != field {
 			t.Errorf("Expected field %s, got %s", field, m.inputFields[i])
 		}
 	}
 	
-	// Check default username
-	if m.inputValues[1] != "admin" {
+	// Check default username (index 3 in new field order)
+	if m.inputValues[3] != "admin" {
 		t.Error("Default username should be 'admin'")
 	}
 }
@@ -434,5 +434,136 @@ func TestVoIPPhonesScreenNavigation(t *testing.T) {
 	m.handleVoIPPhonesKeyPress("down")
 	if m.selectedPhoneIdx != 0 {
 		t.Errorf("Expected selectedPhoneIdx to rollover to 0 (first item), got %d", m.selectedPhoneIdx)
+	}
+}
+
+// TestInitManualIPInputWithIP tests manual IP input initialization with pre-filled IP
+func TestInitManualIPInputWithIP(t *testing.T) {
+	config := &Config{
+		DBHost:     "localhost",
+		DBPort:     "3306",
+		DBDatabase: "rayanpbx",
+		DBUsername: "root",
+		DBPassword: "password",
+	}
+	
+	m := initialModel(nil, config, false)
+	testIP := "192.168.1.100"
+	m.initManualIPInputWithIP(testIP)
+	
+	if m.currentScreen != voipManualIPScreen {
+		t.Error("Current screen should be voipManualIPScreen")
+	}
+	
+	if !m.inputMode {
+		t.Error("Input mode should be enabled")
+	}
+	
+	if len(m.inputFields) != 5 {
+		t.Errorf("Expected 5 input fields, got %d", len(m.inputFields))
+	}
+	
+	// Check IP is pre-filled
+	if m.inputValues[0] != testIP {
+		t.Errorf("IP should be pre-filled with %s, got %s", testIP, m.inputValues[0])
+	}
+	
+	// Check cursor is on Name field (index 1) since IP is already filled
+	if m.inputCursor != 1 {
+		t.Errorf("Cursor should be on Name field (1), got %d", m.inputCursor)
+	}
+	
+	// Check default username (index 3 in new field order)
+	if m.inputValues[3] != "admin" {
+		t.Error("Default username should be 'admin'")
+	}
+	
+	// Check voipEditingExistingIP is set (new unified form behavior)
+	if m.voipEditingExistingIP != testIP {
+		t.Errorf("voipEditingExistingIP should be set to %s, got %s", testIP, m.voipEditingExistingIP)
+	}
+}
+
+// TestInitManualIPInputNewPhone tests that adding new phone clears editing IP
+func TestInitManualIPInputNewPhone(t *testing.T) {
+	config := &Config{
+		DBHost:     "localhost",
+		DBPort:     "3306",
+		DBDatabase: "rayanpbx",
+		DBUsername: "root",
+		DBPassword: "password",
+	}
+	
+	m := initialModel(nil, config, false)
+	
+	// First simulate editing an existing phone
+	m.voipEditingExistingIP = "192.168.1.100"
+	
+	// Now add a new phone
+	m.initManualIPInput()
+	
+	// voipEditingExistingIP should be cleared
+	if m.voipEditingExistingIP != "" {
+		t.Errorf("voipEditingExistingIP should be empty for new phone, got %s", m.voipEditingExistingIP)
+	}
+	
+	// Cursor should be on first field (IP Address)
+	if m.inputCursor != 0 {
+		t.Errorf("Cursor should be on first field (0) for new phone, got %d", m.inputCursor)
+	}
+}
+
+// TestIsRunningAsRoot tests the root detection function
+func TestIsRunningAsRoot(t *testing.T) {
+	// This test just ensures the function doesn't panic
+	result := isRunningAsRoot()
+	// We can't really test the return value as it depends on how tests are run
+	// Just verify it returns a boolean without panicking
+	_ = result
+}
+
+// TestAddAllDiscoveredPhones tests adding all discovered phones
+func TestAddAllDiscoveredPhones(t *testing.T) {
+	config := &Config{
+		DBHost:     "localhost",
+		DBPort:     "3306",
+		DBDatabase: "rayanpbx",
+		DBUsername: "root",
+		DBPassword: "password",
+	}
+	
+	m := initialModel(nil, config, false)
+	
+	// Start with no discovered phones
+	m.discoveredPhones = []DiscoveredPhone{}
+	m.voipPhones = []PhoneInfo{}
+	
+	// Try to add when there are no discovered phones
+	m.addAllDiscoveredPhones()
+	if m.errorMsg == "" {
+		t.Error("Should have error when no discovered phones")
+	}
+	
+	// Add some discovered phones
+	m.errorMsg = ""
+	m.discoveredPhones = []DiscoveredPhone{
+		{IP: "192.168.1.100", MAC: "00:11:22:33:44:55", Vendor: "GrandStream", Model: "GXP1630"},
+		{IP: "192.168.1.101", MAC: "00:11:22:33:44:56", Vendor: "Yealink", Model: "T46S"},
+	}
+	
+	m.addAllDiscoveredPhones()
+	
+	if m.errorMsg != "" {
+		t.Errorf("Should not have error: %s", m.errorMsg)
+	}
+	
+	if len(m.voipPhones) != 2 {
+		t.Errorf("Expected 2 phones added, got %d", len(m.voipPhones))
+	}
+	
+	// Try to add again - should not add duplicates
+	m.addAllDiscoveredPhones()
+	if len(m.voipPhones) != 2 {
+		t.Errorf("Should not add duplicates, expected 2, got %d", len(m.voipPhones))
 	}
 }
