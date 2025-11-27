@@ -149,8 +149,12 @@ class ExtensionController extends Controller
             'notes' => 'nullable|string',
         ]);
         
-        if (isset($validated['secret'])) {
+        // Only update secret if a new one was provided (not empty)
+        if (!empty($validated['secret'])) {
             $validated['secret'] = bcrypt($validated['secret']);
+        } else {
+            // Remove secret from validated data to avoid updating it with null
+            unset($validated['secret']);
         }
         
         $extension->update($validated);
