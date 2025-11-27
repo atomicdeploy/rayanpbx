@@ -319,8 +319,8 @@ func TestAsteriskMenuNavigation(t *testing.T) {
 		t.Fatal("asteriskMenu is empty")
 	}
 	
-	// Verify menu has expected number of items (12 now including Show Transports)
-	expectedMenuItems := 12
+	// Verify menu has expected number of items (13 now including Configure PJSIP Transports)
+	expectedMenuItems := 13
 	if menuLength != expectedMenuItems {
 		t.Errorf("Expected %d menu items, got %d", expectedMenuItems, menuLength)
 	}
@@ -371,6 +371,8 @@ func TestExtensionToggleKeyBinding(t *testing.T) {
 func TestExtensionScreenHelpText(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	m.currentScreen = extensionsScreen
+	// Set extensionSyncManager to nil to avoid DB access
+	m.extensionSyncManager = nil
 	
 	// Populate some test extensions
 	m.extensions = []Extension{
@@ -405,7 +407,7 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 		cursorPosition    int
 		expectedMenuSave  bool
 	}{
-		{"Hello World Setup", 0, true},
+		{"Quick Setup", 0, true},
 		{"Extensions Management", 1, true},
 		{"Trunks Management", 2, true},
 		{"VoIP Phones Management", 3, true},
@@ -447,7 +449,7 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 func TestMenuItemsCount(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	
-	// We expect 12 menu items (including Exit)
+	// We expect 12 menu items (including Quick Setup and Exit)
 	expectedItems := 12
 	if len(m.menuItems) != expectedItems {
 		t.Errorf("Expected %d menu items, got %d", expectedItems, len(m.menuItems))
@@ -455,7 +457,7 @@ func TestMenuItemsCount(t *testing.T) {
 	
 	// Verify specific items exist
 	expectedTexts := []string{
-		"Hello World",
+		"Quick Setup",
 		"Extensions",
 		"Trunks",
 		"VoIP Phones",
@@ -726,13 +728,6 @@ func TestMenuRolloverNavigation(t *testing.T) {
 			getCursor: func(m *model) int { return m.cursor },
 			setCursor: func(m *model, v int) { m.cursor = v },
 		},
-		{
-			name:    "Hello World menu rollover",
-			screen:  helloWorldScreen,
-			setupFunc: func(m *model) {},
-			getCursor: func(m *model) int { return m.cursor },
-			setCursor: func(m *model, v int) { m.cursor = v },
-		},
 	}
 	
 	for _, tc := range testCases {
@@ -752,8 +747,6 @@ func TestMenuRolloverNavigation(t *testing.T) {
 				menuLen = len(m.asteriskMenu)
 			case sipTestMenuScreen:
 				menuLen = len(m.sipTestMenu)
-			case helloWorldScreen:
-				menuLen = len(m.helloWorldMenu)
 			}
 			
 			if menuLen == 0 {
@@ -1107,4 +1100,92 @@ func TestUsageInputScreenNavigation(t *testing.T) {
 	if newModel.usageCommandTemplate != "" {
 		t.Error("Expected usageCommandTemplate to be cleared after ESC")
 	}
+}
+
+// TestQuickSetupInit tests the Quick Setup wizard initialization
+func TestQuickSetupInit(t *testing.T) {
+m := initialModel(nil, nil, false)
+
+// Initialize Quick Setup
+m.initQuickSetup()
+
+// Verify initial state
+if m.currentScreen != quickSetupScreen {
+t.Errorf("Expected currentScreen to be quickSetupScreen, got %v", m.currentScreen)
+}
+
+if m.quickSetupStep != 0 {
+t.Errorf("Expected quickSetupStep to be 0, got %d", m.quickSetupStep)
+}
+
+if m.quickSetupExtStart != "100" {
+t.Errorf("Expected quickSetupExtStart to be '100', got '%s'", m.quickSetupExtStart)
+}
+
+if m.quickSetupExtEnd != "105" {
+t.Errorf("Expected quickSetupExtEnd to be '105', got '%s'", m.quickSetupExtEnd)
+}
+
+if len(m.inputFields) != 3 {
+t.Errorf("Expected 3 input fields, got %d", len(m.inputFields))
+}
+
+if !m.inputMode {
+t.Error("Expected inputMode to be true")
+}
+}
+
+// TestQuickSetupRender tests that Quick Setup renders correctly
+func TestQuickSetupRender(t *testing.T) {
+m := initialModel(nil, nil, false)
+m.initQuickSetup()
+
+output := m.renderQuickSetup()
+
+// Check for expected content
+if !strings.Contains(output, "Quick Setup Wizard") {
+t.Error("Expected output to contain 'Quick Setup Wizard'")
+}
+
+if !strings.Contains(output, "Starting Extension Number") {
+t.Error("Expected output to contain 'Starting Extension Number'")
+}
+
+if !strings.Contains(output, "Ending Extension Number") {
+t.Error("Expected output to contain 'Ending Extension Number'")
+}
+
+if !strings.Contains(output, "Password for all extensions") {
+t.Error("Expected output to contain 'Password for all extensions'")
+}
+}
+
+// TestQuickSetupInputHandling tests input handling in Quick Setup
+func TestQuickSetupInputHandling(t *testing.T) {
+m := initialModel(nil, nil, false)
+m.initQuickSetup()
+
+// Test navigation
+m.handleQuickSetupInput("down")
+if m.inputCursor != 1 {
+t.Errorf("Expected inputCursor to be 1 after down, got %d", m.inputCursor)
+}
+
+m.handleQuickSetupInput("up")
+if m.inputCursor != 0 {
+t.Errorf("Expected inputCursor to be 0 after up, got %d", m.inputCursor)
+}
+
+// Test character input
+m.handleQuickSetupInput("1")
+if !strings.HasSuffix(m.inputValues[0], "1") {
+t.Errorf("Expected first input to end with '1', got '%s'", m.inputValues[0])
+}
+
+// Test backspace
+originalLen := len(m.inputValues[0])
+m.handleQuickSetupInput("backspace")
+if len(m.inputValues[0]) != originalLen-1 {
+t.Errorf("Expected input length to decrease after backspace")
+}
 }

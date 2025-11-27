@@ -160,10 +160,10 @@ const (
 	voipPhoneProvisionScreen
 	voipManualIPScreen
 	voipDiscoveryScreen
-	helloWorldScreen
 	extensionSyncScreen
 	extensionSyncDetailScreen
 	usageInputScreen
+	quickSetupScreen
 	resetConfigurationScreen
 	resetConfirmScreen
 )
@@ -235,11 +235,6 @@ type model struct {
 	docsList          []string
 	selectedDocIdx    int
 	currentDocContent string
-	
-	// Hello World Setup
-	helloWorldSetup  *HelloWorldSetup
-	helloWorldStatus HelloWorldStatus
-	helloWorldMenu   []string
 
 	// Extension Sync
 	extensionSyncManager *ExtensionSyncManager
@@ -260,6 +255,15 @@ type model struct {
 	resetConfiguration *ResetConfiguration
 	resetSummary       string
 	resetMenu          []string
+
+	// Quick Setup wizard
+	quickSetupStep        int      // Current step in the wizard (0-3)
+	quickSetupExtStart    string   // Starting extension number
+	quickSetupExtEnd      string   // Ending extension number
+	quickSetupPassword    string   // Common password for all extensions
+	quickSetupComplete    bool     // Whether setup is complete
+	quickSetupError       string   // Error message during setup
+	quickSetupResult      string   // Result message after setup
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -277,14 +281,13 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	asteriskManager := NewAsteriskManager()
 	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
 	configManager := NewAsteriskConfigManager(verbose)
-	helloWorldSetup := NewHelloWorldSetup(configManager, asteriskManager, verbose)
 	extensionSyncManager := NewExtensionSyncManager(db, asteriskManager, configManager)
 	resetConfiguration := NewResetConfiguration(db, configManager, asteriskManager, verbose)
 	
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
-			"🚀 Hello World Setup",
+			"🚀 Quick Setup",
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
@@ -303,7 +306,6 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		asteriskManager:       asteriskManager,
 		diagnosticsManager:    diagnosticsManager,
 		configManager:         configManager,
-		helloWorldSetup:       helloWorldSetup,
 		extensionSyncManager:  extensionSyncManager,
 		resetConfiguration:    resetConfiguration,
 		verbose:               verbose,
@@ -315,6 +317,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🔧 Reload PJSIP Configuration",
 			"📞 Reload Dialplan",
 			"🔁 Reload All Modules",
+			"📡 Configure PJSIP Transports",
 			"👥 Show PJSIP Endpoints",
 			"🚦 Show PJSIP Transports",
 			"📡 Show Active Channels",
@@ -341,12 +344,6 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📲 Test Call",
 			"🧪 Run Full Test Suite",
 			"🔙 Back to Diagnostics",
-		},
-		helloWorldMenu: []string{
-			"🚀 Run Complete Setup",
-			"📊 Check Status",
-			"🗑️  Remove Setup",
-			"🔙 Back to Main Menu",
 		},
 		extensionSyncMenu: []string{
 			"🔄 Sync Database → Asterisk (selected)",
@@ -378,6 +375,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return updateConfigAdd(msg, m)
 		} else if m.currentScreen == configEditScreen {
 			return updateConfigEdit(msg, m)
+		}
+		
+		// Handle Quick Setup screen
+		if m.currentScreen == quickSetupScreen {
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "esc":
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				m.inputMode = false
+				return m, nil
+			case "up", "k":
+				m.handleQuickSetupInput("up")
+				return m, nil
+			case "down", "j":
+				m.handleQuickSetupInput("down")
+				return m, nil
+			case "backspace":
+				m.handleQuickSetupInput("backspace")
+				return m, nil
+			case "enter":
+				m.handleQuickSetupInput("enter")
+				return m, nil
+			default:
+				// Handle character input - allow alphanumeric, dash, underscore
+				key := msg.String()
+				if len(key) == 1 && isValidQuickSetupChar(key[0]) {
+					m.handleQuickSetupInput(key)
+				}
+				return m, nil
+			}
 		}
 		
 		// Handle VoIP phone screens
@@ -465,15 +494,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if len(m.asteriskMenu) > 0 {
 					m.cursor = len(m.asteriskMenu) - 1
 				}
-			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu with rollover
-				if m.cursor > 0 {
-					m.cursor--
-				} else if len(m.helloWorldMenu) > 0 {
-					m.cursor = len(m.helloWorldMenu) - 1
-				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// Navigate system settings with rollover (7 options)
+				// Navigate system settings with rollover (7 options: indices 0-6)
 				if m.cursor > 0 {
 					m.cursor--
 				} else {
@@ -556,15 +578,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if len(m.asteriskMenu) > 0 {
 					m.cursor = 0
 				}
-			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu with rollover
-				if m.cursor < len(m.helloWorldMenu)-1 {
-					m.cursor++
-				} else if len(m.helloWorldMenu) > 0 {
-					m.cursor = 0
-				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 7 options with rollover
+				// Navigate system settings with rollover (7 options: indices 0-6)
 				if m.cursor < 6 {
 					m.cursor++
 				} else {
@@ -652,12 +667,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.asteriskMenu) > 0 {
 					m.cursor = len(m.asteriskMenu) - 1
 				}
-			} else if m.currentScreen == helloWorldScreen {
-				if len(m.helloWorldMenu) > 0 {
-					m.cursor = len(m.helloWorldMenu) - 1
-				}
 			} else if m.currentScreen == systemSettingsScreen {
-				m.cursor = 6
+				m.cursor = 6  // Last option index (7 options: 0-6)
 			} else if m.currentScreen == resetConfigurationScreen {
 				if len(m.resetMenu) > 0 {
 					m.cursor = len(m.resetMenu) - 1
@@ -800,13 +811,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentScreen == mainMenu {
 				switch m.cursor {
 				case 0:
-					// Hello World Setup
+					// Quick Setup wizard
 					m.mainMenuCursor = m.cursor
-					m.currentScreen = helloWorldScreen
-					m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-					m.cursor = 0
-					m.errorMsg = ""
-					m.successMsg = ""
+					m.initQuickSetup()
 				case 1:
 					// Load extensions with sync info
 					m.mainMenuCursor = m.cursor // Save main menu position
@@ -908,9 +915,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone enter key
 				m.handleVoIPPhonesKeyPress("enter")
-			} else if m.currentScreen == helloWorldScreen {
-				// Handle Hello World setup menu selection
-				m.handleHelloWorldMenuSelection()
 			} else if m.currentScreen == extensionSyncScreen {
 				// Handle extension sync menu selection
 				m.handleExtensionSyncSelection()
@@ -934,11 +938,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == extensionSyncScreen {
 					m.currentScreen = extensionsScreen
 					m.cursor = 0
-					m.errorMsg = ""
-					m.successMsg = ""
-				} else if m.currentScreen == helloWorldScreen {
-					m.currentScreen = mainMenu
-					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == diagnosticsMenuScreen {
@@ -1146,22 +1145,20 @@ func (m model) View() string {
 		s += m.renderVoIPManualIP()
 	case voipDiscoveryScreen:
 		s += m.renderVoIPDiscovery()
-	case helloWorldScreen:
-		s += m.renderHelloWorld()
 	case extensionSyncScreen:
 		s += m.renderExtensionSync()
 	case resetConfigurationScreen:
 		s += m.renderResetConfiguration()
 	case resetConfirmScreen:
 		s += m.renderResetConfirm()
+	case quickSetupScreen:
+		s += m.renderQuickSetup()
 	}
 
 	// Footer with emojis
 	s += "\n\n"
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
-	} else if m.currentScreen == helloWorldScreen {
-		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute • ESC: Back • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • S: Sync • h: Help • ESC: Back")
 	} else if m.currentScreen == extensionSyncScreen {
@@ -1180,6 +1177,12 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageInputScreen {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
+	} else if m.currentScreen == quickSetupScreen {
+		if m.quickSetupComplete || m.quickSetupError != "" {
+			s += helpStyle.Render("ESC: Back to Main Menu • q: Quit")
+		} else {
+			s += helpStyle.Render("↑/↓: Navigate • Type to enter values • Enter: Execute Setup • ESC: Cancel")
+		}
 	} else if m.currentScreen == systemSettingsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Apply Setting • ESC: Back • q: Quit")
 	} else if m.currentScreen == resetConfigurationScreen {
@@ -3497,7 +3500,20 @@ func (m *model) handleAsteriskMenuSelection() {
 				m.asteriskOutput = output
 			}
 		}
-	case 7: // Show PJSIP Endpoints
+	case 7: // Configure PJSIP Transports
+		err := m.configManager.EnsureTransportConfig()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to configure transports: %v", err)
+		} else {
+			m.successMsg = "PJSIP transports configured successfully (UDP and TCP on port 5060)"
+			// Reload PJSIP to apply changes
+			if _, reloadErr := m.asteriskManager.ReloadPJSIPQuiet(); reloadErr != nil {
+				m.asteriskOutput = "⚠️ Transports configured but reload failed. You may need to restart Asterisk."
+			} else {
+				m.asteriskOutput = "✅ UDP Transport: 0.0.0.0:5060\n✅ TCP Transport: 0.0.0.0:5060\n\nConfiguration reloaded successfully."
+			}
+		}
+	case 8: // Show PJSIP Endpoints
 		output, err := m.asteriskManager.ShowEndpoints()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show endpoints: %v", err)
@@ -3505,7 +3521,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP endpoints retrieved"
 		}
-	case 8: // Show PJSIP Transports
+	case 9: // Show PJSIP Transports
 		output, err := m.asteriskManager.ShowTransports()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show transports: %v", err)
@@ -3513,7 +3529,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP transports retrieved"
 		}
-	case 9: // Show Active Channels
+	case 10: // Show Active Channels
 		output, err := m.asteriskManager.ShowChannels()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show channels: %v", err)
@@ -3521,7 +3537,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Active channels retrieved"
 		}
-	case 10: // Show Registrations
+	case 11: // Show Registrations
 		output, err := m.asteriskManager.ShowPeers()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show registrations: %v", err)
@@ -3529,7 +3545,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 11: // Back to Main Menu
+	case 12: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
@@ -4073,113 +4089,6 @@ func (m model) renderDocView() string {
 	return menuStyle.Render(content)
 }
 
-// renderHelloWorld displays the Hello World automated setup wizard
-func (m model) renderHelloWorld() string {
-	content := titleStyle.Render("🚀 Hello World Setup - Quick Start Wizard") + "\n\n"
-	
-	// Status section
-	content += infoStyle.Render("📊 Current Setup Status:") + "\n"
-	
-	// Transport status
-	if m.helloWorldStatus.TransportConfigured {
-		content += successStyle.Render("  ✅ Transport: Configured") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Transport: Not configured") + "\n"
-	}
-	
-	// Extension status
-	if m.helloWorldStatus.ExtensionConfigured {
-		content += successStyle.Render("  ✅ Extension 101: Configured") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Extension 101: Not configured") + "\n"
-	}
-	
-	// Dialplan status
-	if m.helloWorldStatus.DialplanConfigured {
-		content += successStyle.Render("  ✅ Dialplan (ext 100): Configured") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Dialplan (ext 100): Not configured") + "\n"
-	}
-	
-	// Sound file status
-	if m.helloWorldStatus.SoundFileExists {
-		content += successStyle.Render("  ✅ Sound file: Found") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Sound file: Not found") + "\n"
-	}
-	
-	// Asterisk status
-	if m.helloWorldStatus.AsteriskRunning {
-		content += successStyle.Render("  ✅ Asterisk: Running") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Asterisk: Not running") + "\n"
-	}
-	content += "\n"
-	
-	// SIP Phone Configuration (show only if setup is complete)
-	if m.helloWorldStatus.ExtensionConfigured && m.helloWorldStatus.DialplanConfigured {
-		content += infoStyle.Render("📱 SIP Phone Configuration:") + "\n"
-		username, password, server, port := m.helloWorldSetup.GetSIPCredentials()
-		content += fmt.Sprintf("  • Username: %s\n", successStyle.Render(username))
-		content += fmt.Sprintf("  • Password: %s\n", successStyle.Render(password))
-		content += fmt.Sprintf("  • Server: %s\n", successStyle.Render(server))
-		content += fmt.Sprintf("  • Port: %d\n", port)
-		content += "\n"
-		content += helpStyle.Render("  Use MicroSIP, Zoiper, or any SIP phone to register") + "\n"
-		content += helpStyle.Render("  Then dial 100 to hear 'Hello World!'") + "\n\n"
-	}
-	
-	// Menu
-	content += infoStyle.Render("Select an action:") + "\n\n"
-	
-	for i, item := range m.helloWorldMenu {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			item = selectedItemStyle.Render(item)
-		} else {
-			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
-		}
-		content += fmt.Sprintf("%s %s\n", cursor, item)
-	}
-	
-	return menuStyle.Render(content)
-}
-
-// handleHelloWorldMenuSelection handles menu selection on the Hello World screen
-func (m *model) handleHelloWorldMenuSelection() {
-	m.errorMsg = ""
-	m.successMsg = ""
-	
-	switch m.cursor {
-	case 0: // Run Complete Setup
-		if err := m.helloWorldSetup.SetupAll(); err != nil {
-			m.errorMsg = fmt.Sprintf("Setup failed: %v", err)
-		} else {
-			m.successMsg = "Hello World setup completed successfully! Configure your SIP phone with the credentials shown above."
-		}
-		// Refresh status
-		m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-		
-	case 1: // Check Status
-		m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-		m.successMsg = "Status refreshed"
-		
-	case 2: // Remove Setup
-		if err := m.helloWorldSetup.RemoveSetup(); err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to remove setup: %v", err)
-		} else {
-			m.successMsg = "Hello World setup removed successfully"
-		}
-		// Refresh status
-		m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-		
-	case 3: // Back to Main Menu
-		m.currentScreen = mainMenu
-		m.cursor = m.mainMenuCursor
-	}
-}
-
 // loadExtensionSyncInfo loads sync information for all extensions
 func (m *model) loadExtensionSyncInfo() {
 	if m.extensionSyncManager == nil {
@@ -4511,6 +4420,270 @@ func (m *model) executeResetConfiguration() {
 		m.extensions = exts
 	}
 	m.loadExtensionSyncInfo()
+}
+
+// initQuickSetup initializes the Quick Setup wizard
+func (m *model) initQuickSetup() {
+	m.currentScreen = quickSetupScreen
+	m.quickSetupStep = 0
+	m.quickSetupExtStart = "100"
+	m.quickSetupExtEnd = "105"
+	m.quickSetupPassword = ""
+	m.quickSetupComplete = false
+	m.quickSetupError = ""
+	m.quickSetupResult = ""
+	m.inputMode = true
+	m.inputCursor = 0
+	m.inputFields = []string{
+		"Starting Extension Number",
+		"Ending Extension Number",
+		"Password for all extensions",
+	}
+	m.inputValues = []string{m.quickSetupExtStart, m.quickSetupExtEnd, ""}
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
+// renderQuickSetup renders the Quick Setup wizard screen
+func (m model) renderQuickSetup() string {
+	var sb strings.Builder
+	
+	sb.WriteString(titleStyle.Render("🚀 Quick Setup Wizard") + "\n\n")
+	
+	if m.quickSetupComplete {
+		// Show completion screen
+		sb.WriteString(successStyle.Render("✅ Quick Setup Complete!") + "\n\n")
+		sb.WriteString(m.quickSetupResult + "\n\n")
+		sb.WriteString(helpStyle.Render("Press ESC to return to main menu") + "\n")
+		return menuStyle.Render(sb.String())
+	}
+	
+	if m.quickSetupError != "" {
+		sb.WriteString(errorStyle.Render("❌ Error: " + m.quickSetupError) + "\n\n")
+		sb.WriteString(helpStyle.Render("Press ESC to return to main menu and try again") + "\n")
+		return menuStyle.Render(sb.String())
+	}
+	
+	sb.WriteString(infoStyle.Render("This wizard will help you set up a basic PBX configuration:") + "\n")
+	sb.WriteString("  • Configure PJSIP transports (UDP/TCP)\n")
+	sb.WriteString("  • Create a range of extensions\n")
+	sb.WriteString("  • Set up dialplan for extension-to-extension calls\n")
+	sb.WriteString("  • Reload Asterisk configuration\n\n")
+	
+	// Show input fields
+	for i, field := range m.inputFields {
+		cursor := "  "
+		if i == m.inputCursor {
+			cursor = "▶ "
+		}
+		
+		value := m.inputValues[i]
+		if field == "Password for all extensions" && value != "" && i != m.inputCursor {
+			value = strings.Repeat("*", len(value))
+		}
+		
+		fieldStr := fmt.Sprintf("%s%s: ", cursor, field)
+		if i == m.inputCursor {
+			sb.WriteString(selectedItemStyle.Render(fieldStr) + value + "█\n")
+		} else {
+			sb.WriteString(fieldStr + value + "\n")
+		}
+	}
+	
+	sb.WriteString("\n")
+	sb.WriteString(helpStyle.Render("↑/↓: Navigate • Type to enter values • Enter: Submit • ESC: Cancel") + "\n")
+	
+	// Show validation hints
+	if len(m.inputValues[0]) > 0 && len(m.inputValues[1]) > 0 {
+		startNum := 0
+		endNum := 0
+		fmt.Sscanf(m.inputValues[0], "%d", &startNum)
+		fmt.Sscanf(m.inputValues[1], "%d", &endNum)
+		
+		if startNum > 0 && endNum > 0 && endNum >= startNum {
+			count := endNum - startNum + 1
+			sb.WriteString(fmt.Sprintf("\n📊 Will create %d extensions (%s - %s)\n", count, m.inputValues[0], m.inputValues[1]))
+		}
+	}
+	
+	return menuStyle.Render(sb.String())
+}
+
+// handleQuickSetupInput handles keyboard input for Quick Setup wizard
+func (m *model) handleQuickSetupInput(key string) {
+	switch key {
+	case "up":
+		if m.inputCursor > 0 {
+			m.inputCursor--
+		}
+	case "down":
+		if m.inputCursor < len(m.inputFields)-1 {
+			m.inputCursor++
+		}
+	case "backspace":
+		currentValue := m.inputValues[m.inputCursor]
+		if len(currentValue) > 0 {
+			m.inputValues[m.inputCursor] = currentValue[:len(currentValue)-1]
+		}
+	case "enter":
+		// Validate and execute setup
+		m.executeQuickSetup()
+	default:
+		// Add character to current field
+		if len(key) == 1 {
+			m.inputValues[m.inputCursor] += key
+		}
+	}
+}
+
+// isValidQuickSetupChar returns true if the character is valid for Quick Setup input
+func isValidQuickSetupChar(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_'
+}
+
+// executeQuickSetup performs the Quick Setup
+func (m *model) executeQuickSetup() {
+	// Validate inputs
+	startNum := 0
+	endNum := 0
+	
+	if _, err := fmt.Sscanf(m.inputValues[0], "%d", &startNum); err != nil || startNum <= 0 {
+		m.quickSetupError = "Invalid starting extension number"
+		return
+	}
+	
+	if _, err := fmt.Sscanf(m.inputValues[1], "%d", &endNum); err != nil || endNum <= 0 {
+		m.quickSetupError = "Invalid ending extension number"
+		return
+	}
+	
+	if endNum < startNum {
+		m.quickSetupError = "Ending extension must be >= starting extension"
+		return
+	}
+	
+	password := m.inputValues[2]
+	if password == "" {
+		m.quickSetupError = "Password is required"
+		return
+	}
+	
+	if len(password) < 4 {
+		m.quickSetupError = "Password must be at least 4 characters"
+		return
+	}
+	
+	// Execute setup steps
+	var result strings.Builder
+	result.WriteString("📋 Setup Results:\n\n")
+	
+	// Step 1: Configure transports
+	result.WriteString("1️⃣  Configuring PJSIP Transports... ")
+	if err := m.configManager.EnsureTransportConfig(); err != nil {
+		m.quickSetupError = fmt.Sprintf("Failed to configure transports: %v", err)
+		return
+	}
+	result.WriteString("✅\n")
+	
+	// Step 2: Create extensions
+	count := endNum - startNum + 1
+	result.WriteString(fmt.Sprintf("2️⃣  Creating %d extensions... ", count))
+	
+	extensions := make([]Extension, 0, count)
+	for extNum := startNum; extNum <= endNum; extNum++ {
+		extNumStr := fmt.Sprintf("%d", extNum)
+		
+		// Create extension in database
+		ext := Extension{
+			ExtensionNumber:  extNumStr,
+			Name:             fmt.Sprintf("Extension %d", extNum),
+			Secret:           password,
+			Context:          DefaultExtensionContext,
+			Transport:        DefaultExtensionTransport,
+			Codecs:           DefaultCodecs,
+			Enabled:          true,
+			MaxContacts:      DefaultMaxContacts,
+			QualifyFrequency: DefaultQualifyFrequency,
+			DirectMedia:      DefaultDirectMedia,
+		}
+		
+		// Insert into database
+		if m.db != nil {
+			_, err := m.db.Exec(`
+				INSERT INTO extensions (extension_number, name, secret, context, transport, codecs, enabled, max_contacts, qualify_frequency, direct_media)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AS new
+				ON DUPLICATE KEY UPDATE name=new.name, secret=new.secret, enabled=new.enabled
+			`, ext.ExtensionNumber, ext.Name, ext.Secret, ext.Context, ext.Transport, ext.Codecs, ext.Enabled, ext.MaxContacts, ext.QualifyFrequency, ext.DirectMedia)
+			
+			if err != nil {
+				m.quickSetupError = fmt.Sprintf("Failed to create extension %s: %v", extNumStr, err)
+				return
+			}
+		}
+		
+		extensions = append(extensions, ext)
+		
+		// Create PJSIP config for this extension
+		sections := CreatePjsipEndpointSections(
+			ext.ExtensionNumber,
+			ext.Secret,
+			ext.Context,
+			ext.Transport,
+			strings.Split(ext.Codecs, ","),
+			ext.DirectMedia,
+			ext.CallerID,
+			ext.MaxContacts,
+			ext.QualifyFrequency,
+			ext.VoicemailEnabled,
+		)
+		
+		if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", extNumStr)); err != nil {
+			m.quickSetupError = fmt.Sprintf("Failed to write PJSIP config for %s: %v", extNumStr, err)
+			return
+		}
+	}
+	result.WriteString("✅\n")
+	
+	// Step 3: Generate dialplan
+	result.WriteString("3️⃣  Generating dialplan... ")
+	dialplanConfig := m.configManager.GenerateInternalDialplan(extensions)
+	if err := m.configManager.WriteDialplanConfig(dialplanConfig, "Quick Setup"); err != nil {
+		m.quickSetupError = fmt.Sprintf("Failed to write dialplan: %v", err)
+		return
+	}
+	result.WriteString("✅\n")
+	
+	// Step 4: Reload Asterisk
+	result.WriteString("4️⃣  Reloading Asterisk... ")
+	if _, err := m.asteriskManager.ReloadPJSIPQuiet(); err != nil {
+		result.WriteString("⚠️ (may need manual reload)\n")
+	} else {
+		result.WriteString("✅\n")
+	}
+	
+	if _, err := m.asteriskManager.ReloadDialplanQuiet(); err != nil {
+		result.WriteString("   Dialplan reload: ⚠️ (may need manual reload)\n")
+	}
+	
+	result.WriteString("\n")
+	result.WriteString("📱 SIP Phone Configuration:\n")
+	result.WriteString(fmt.Sprintf("   • Extensions: %d - %d\n", startNum, endNum))
+	result.WriteString(fmt.Sprintf("   • Password: %s\n", password))
+	result.WriteString("   • Server: <your-server-ip>\n")
+	result.WriteString("   • Port: 5060\n")
+	result.WriteString("   • Transport: UDP\n\n")
+	
+	result.WriteString("💡 Next Steps:\n")
+	result.WriteString("   1. Configure your SIP phones with the above credentials\n")
+	result.WriteString("   2. Dial between extensions to test calls\n")
+	
+	m.quickSetupResult = result.String()
+	m.quickSetupComplete = true
+	
+	// Refresh extensions list
+	if exts, err := GetExtensions(m.db); err == nil {
+		m.extensions = exts
+	}
 }
 
 func main() {

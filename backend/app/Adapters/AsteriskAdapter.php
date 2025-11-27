@@ -450,7 +450,7 @@ class AsteriskAdapter
      */
     public function generateInternalDialplan($extensions)
     {
-        $config = "\n[internal]\n";
+        $config = "\n[from-internal]\n";
 
         // Add hint definitions for presence/BLF support
         // These hints map extension numbers to their PJSIP endpoints for device state monitoring
@@ -510,7 +510,7 @@ class AsteriskAdapter
             }
 
             // For dialplan, replace the internal context
-            $config->removeSectionsByName('internal');
+            $config->removeSectionsByName('from-internal');
 
             // Parse the new content and add it
             $newContent = AsteriskConfig::parseContent($content);
