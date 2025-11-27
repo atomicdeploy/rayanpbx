@@ -400,9 +400,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleQuickSetupInput("enter")
 				return m, nil
 			default:
-				// Handle character input
+				// Handle character input - allow alphanumeric, dash, underscore
 				key := msg.String()
-				if len(key) == 1 && (key[0] >= '0' && key[0] <= '9' || key[0] >= 'a' && key[0] <= 'z' || key[0] >= 'A' && key[0] <= 'Z' || key[0] == '-' || key[0] == '_') {
+				if len(key) == 1 && isValidQuickSetupChar(key[0]) {
 					m.handleQuickSetupInput(key)
 				}
 				return m, nil
@@ -4521,8 +4521,9 @@ func (m *model) handleQuickSetupInput(key string) {
 			m.inputCursor++
 		}
 	case "backspace":
-		if len(m.inputValues[m.inputCursor]) > 0 {
-			m.inputValues[m.inputCursor] = m.inputValues[m.inputCursor][:len(m.inputValues[m.inputCursor])-1]
+		currentValue := m.inputValues[m.inputCursor]
+		if len(currentValue) > 0 {
+			m.inputValues[m.inputCursor] = currentValue[:len(currentValue)-1]
 		}
 	case "enter":
 		// Validate and execute setup
@@ -4533,6 +4534,11 @@ func (m *model) handleQuickSetupInput(key string) {
 			m.inputValues[m.inputCursor] += key
 		}
 	}
+}
+
+// isValidQuickSetupChar returns true if the character is valid for Quick Setup input
+func isValidQuickSetupChar(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_'
 }
 
 // executeQuickSetup performs the Quick Setup
@@ -4605,8 +4611,8 @@ func (m *model) executeQuickSetup() {
 		if m.db != nil {
 			_, err := m.db.Exec(`
 				INSERT INTO extensions (extension_number, name, secret, context, transport, codecs, enabled, max_contacts, qualify_frequency, direct_media)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE name=VALUES(name), secret=VALUES(secret), enabled=VALUES(enabled)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AS new
+				ON DUPLICATE KEY UPDATE name=new.name, secret=new.secret, enabled=new.enabled
 			`, ext.ExtensionNumber, ext.Name, ext.Secret, ext.Context, ext.Transport, ext.Codecs, ext.Enabled, ext.MaxContacts, ext.QualifyFrequency, ext.DirectMedia)
 			
 			if err != nil {
