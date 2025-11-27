@@ -564,6 +564,120 @@ check_mysql_health() {
     return 0
 }
 
+# Check Laravel backend health (autoload, classes, etc.)
+# This verifies that the Composer autoloader is working correctly
+# and critical classes are loadable
+check_laravel_health() {
+    local backend_dir="${1:-/opt/rayanpbx/backend}"
+    local auto_fix="${2:-true}"
+    
+    print_info "Checking Laravel backend health..."
+    
+    # Check if backend directory exists
+    if [ ! -d "$backend_dir" ]; then
+        print_error "Backend directory not found: $backend_dir"
+        return 1
+    fi
+    
+    # Check if vendor directory exists
+    if [ ! -d "$backend_dir/vendor" ]; then
+        print_error "Vendor directory not found - Composer dependencies not installed"
+        if [ "$auto_fix" = "true" ]; then
+            print_info "Running composer install..."
+            if cd "$backend_dir" && composer install --no-dev --optimize-autoloader 2>/dev/null; then
+                print_success "Composer dependencies installed"
+            else
+                print_error "Failed to install Composer dependencies"
+                return 1
+            fi
+        else
+            print_info "Run: cd $backend_dir && composer install"
+            return 1
+        fi
+    fi
+    
+    # Check if autoload.php exists
+    if [ ! -f "$backend_dir/vendor/autoload.php" ]; then
+        print_error "Composer autoload.php not found"
+        if [ "$auto_fix" = "true" ]; then
+            print_info "Running composer dump-autoload..."
+            if cd "$backend_dir" && composer dump-autoload -o 2>/dev/null; then
+                print_success "Autoload regenerated"
+            else
+                print_error "Failed to regenerate autoload"
+                return 1
+            fi
+        else
+            print_info "Run: cd $backend_dir && composer dump-autoload -o"
+            return 1
+        fi
+    fi
+    
+    # Define critical classes to test - centralized list
+    local critical_classes="App\\\\Adapters\\\\AsteriskAdapter,App\\\\Helpers\\\\AsteriskConfig,App\\\\Helpers\\\\AsteriskSection,App\\\\Helpers\\\\AsteriskConfigHelper"
+    
+    # Test critical class loading using PHP
+    local test_result=$(cd "$backend_dir" && php -r "
+        require 'vendor/autoload.php';
+        \$classes = explode(',', '$critical_classes');
+        \$failed = [];
+        foreach (\$classes as \$class) {
+            if (!class_exists(\$class, true)) {
+                \$failed[] = \$class;
+            }
+        }
+        if (empty(\$failed)) {
+            echo 'OK';
+        } else {
+            echo 'FAILED:' . implode(',', \$failed);
+        }
+    " 2>&1)
+    
+    if [ "$test_result" = "OK" ]; then
+        print_success "All critical classes are loadable"
+        return 0
+    elif [[ "$test_result" == FAILED:* ]]; then
+        local failed_classes="${test_result#FAILED:}"
+        print_error "Failed to load classes: $failed_classes"
+        
+        if [ "$auto_fix" = "true" ]; then
+            print_info "Regenerating Composer autoload..."
+            if cd "$backend_dir" && composer dump-autoload -o 2>/dev/null; then
+                # Retry the test with same class list
+                local retry_result=$(php -r "
+                    require 'vendor/autoload.php';
+                    \$classes = explode(',', '$critical_classes');
+                    foreach (\$classes as \$class) {
+                        if (!class_exists(\$class, true)) {
+                            echo 'FAIL';
+                            exit;
+                        }
+                    }
+                    echo 'OK';
+                " 2>&1)
+                
+                if [ "$retry_result" = "OK" ]; then
+                    print_success "Autoload fixed - all classes now loadable"
+                    return 0
+                else
+                    print_error "Classes still not loadable after autoload regeneration"
+                    print_info "Check if the class files exist in app/ directory"
+                    return 1
+                fi
+            else
+                print_error "Failed to regenerate autoload"
+                return 1
+            fi
+        else
+            print_info "Run: cd $backend_dir && composer dump-autoload -o"
+            return 1
+        fi
+    else
+        print_error "PHP error while testing classes: $test_result"
+        return 1
+    fi
+}
+
 # Check PM2 services
 check_pm2_services() {
     if ! command -v pm2 &> /dev/null; then
@@ -792,6 +906,11 @@ main() {
         check-mysql)
             check_mysql_health "$2"
             ;;
+        check-laravel)
+            # Check Laravel backend health (autoload, classes, etc.)
+            # Usage: check-laravel [backend-dir] [auto-fix]
+            check_laravel_health "${2:-/opt/rayanpbx/backend}" "${3:-true}"
+            ;;
         check-pm2)
             check_pm2_services
             ;;
@@ -822,16 +941,17 @@ main() {
             echo -e "${CYAN}💊 Health Checks:${RESET}"
             check_asterisk_health
             check_and_fix_ami "127.0.0.1" "5038" "admin" "rayanpbx_ami_secret" "false"
+            check_laravel_health "/opt/rayanpbx/backend" "false"
             check_http_health "http://localhost:8000/api/health" 200
             check_pm2_services
             echo
             ;;
         *)
             if [ -z "$action" ]; then
-                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-sip|check-ami|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
+                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-sip|check-ami|check-laravel|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
             else
                 echo "Unknown command: $action"
-                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-sip|check-ami|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
+                echo "Usage: $0 {check-port|verify-port|check-service|check-http|check-asterisk|check-sip|check-ami|check-laravel|check-mysql|check-pm2|get-username|full-check|--version} [args...]"
             fi
             echo
             echo "Commands:"
@@ -843,6 +963,7 @@ main() {
             echo "  check-sip [PORT] [AUTO-FIX]         - Check SIP port listening with optional auto-fix"
             echo "  check-ami [HOST] [PORT] [USER] [SECRET] [AUTO-FIX]"
             echo "                                      - Check AMI socket health with optional auto-fix"
+            echo "  check-laravel [DIR] [AUTO-FIX]      - Check Laravel autoload and classes"
             echo "  check-mysql [PASSWORD]              - Check MySQL health"
             echo "  check-pm2                           - Check PM2 services"
             echo "  get-username                        - Get default Linux username"

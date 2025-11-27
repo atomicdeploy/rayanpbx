@@ -66,4 +66,4 @@ tmp/
 # Database
 *.sqlite
 *.db
-.copilot-session-notes.md
+.phpunit.cache/
