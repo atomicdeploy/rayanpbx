@@ -3240,6 +3240,12 @@ if next_step "Backend API Setup" "backend"; then
     print_progress "Installing backend dependencies..."
     cd /opt/rayanpbx/backend
     composer install --no-dev --optimize-autoloader 2>&1 | grep -E "(Installing|Generating)" || true
+    
+    # Always regenerate autoload to ensure all classes are properly mapped
+    # This is essential after git pull updates to prevent "Class not found" errors
+    print_progress "Regenerating autoload classmap..."
+    composer dump-autoload --optimize --no-dev 2>&1 | grep -E "(Generated|Generating)" || true
+    print_success "Autoload classmap updated"
 
     print_progress "Running database migrations..."
     php artisan migrate --force
