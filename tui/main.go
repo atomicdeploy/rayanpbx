@@ -160,7 +160,6 @@ const (
 	voipPhoneProvisionScreen
 	voipManualIPScreen
 	voipDiscoveryScreen
-	helloWorldScreen
 	extensionSyncScreen
 	extensionSyncDetailScreen
 	usageInputScreen
@@ -235,11 +234,6 @@ type model struct {
 	docsList          []string
 	selectedDocIdx    int
 	currentDocContent string
-	
-	// Hello World Setup
-	helloWorldSetup  *HelloWorldSetup
-	helloWorldStatus HelloWorldStatus
-	helloWorldMenu   []string
 
 	// Extension Sync
 	extensionSyncManager *ExtensionSyncManager
@@ -277,14 +271,12 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	asteriskManager := NewAsteriskManager()
 	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
 	configManager := NewAsteriskConfigManager(verbose)
-	helloWorldSetup := NewHelloWorldSetup(configManager, asteriskManager, verbose)
 	extensionSyncManager := NewExtensionSyncManager(db, asteriskManager, configManager)
 	resetConfiguration := NewResetConfiguration(db, configManager, asteriskManager, verbose)
 	
 	return model{
 		currentScreen: mainMenu,
 		menuItems: []string{
-			"🚀 Hello World Setup",
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
@@ -303,7 +295,6 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		asteriskManager:       asteriskManager,
 		diagnosticsManager:    diagnosticsManager,
 		configManager:         configManager,
-		helloWorldSetup:       helloWorldSetup,
 		extensionSyncManager:  extensionSyncManager,
 		resetConfiguration:    resetConfiguration,
 		verbose:               verbose,
@@ -315,6 +306,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🔧 Reload PJSIP Configuration",
 			"📞 Reload Dialplan",
 			"🔁 Reload All Modules",
+			"📡 Configure PJSIP Transports",
 			"👥 Show PJSIP Endpoints",
 			"🚦 Show PJSIP Transports",
 			"📡 Show Active Channels",
@@ -341,12 +333,6 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📲 Test Call",
 			"🧪 Run Full Test Suite",
 			"🔙 Back to Diagnostics",
-		},
-		helloWorldMenu: []string{
-			"🚀 Run Complete Setup",
-			"📊 Check Status",
-			"🗑️  Remove Setup",
-			"🔙 Back to Main Menu",
 		},
 		extensionSyncMenu: []string{
 			"🔄 Sync Database → Asterisk (selected)",
@@ -465,19 +451,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if len(m.asteriskMenu) > 0 {
 					m.cursor = len(m.asteriskMenu) - 1
 				}
-			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu with rollover
-				if m.cursor > 0 {
-					m.cursor--
-				} else if len(m.helloWorldMenu) > 0 {
-					m.cursor = len(m.helloWorldMenu) - 1
-				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// Navigate system settings with rollover (7 options)
+				// Navigate system settings with rollover (6 options now)
 				if m.cursor > 0 {
 					m.cursor--
 				} else {
-					m.cursor = 6
+					m.cursor = 5
 				}
 			} else if m.currentScreen == resetConfigurationScreen {
 				// Navigate reset configuration menu with rollover
@@ -556,16 +535,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if len(m.asteriskMenu) > 0 {
 					m.cursor = 0
 				}
-			} else if m.currentScreen == helloWorldScreen {
-				// Navigate Hello World menu with rollover
-				if m.cursor < len(m.helloWorldMenu)-1 {
-					m.cursor++
-				} else if len(m.helloWorldMenu) > 0 {
-					m.cursor = 0
-				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 7 options with rollover
-				if m.cursor < 6 {
+				// System settings has 6 options with rollover
+				if m.cursor < 5 {
 					m.cursor++
 				} else {
 					m.cursor = 0
@@ -652,12 +624,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.asteriskMenu) > 0 {
 					m.cursor = len(m.asteriskMenu) - 1
 				}
-			} else if m.currentScreen == helloWorldScreen {
-				if len(m.helloWorldMenu) > 0 {
-					m.cursor = len(m.helloWorldMenu) - 1
-				}
 			} else if m.currentScreen == systemSettingsScreen {
-				m.cursor = 6
+				m.cursor = 5
 			} else if m.currentScreen == resetConfigurationScreen {
 				if len(m.resetMenu) > 0 {
 					m.cursor = len(m.resetMenu) - 1
@@ -800,14 +768,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentScreen == mainMenu {
 				switch m.cursor {
 				case 0:
-					// Hello World Setup
-					m.mainMenuCursor = m.cursor
-					m.currentScreen = helloWorldScreen
-					m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-					m.cursor = 0
-					m.errorMsg = ""
-					m.successMsg = ""
-				case 1:
 					// Load extensions with sync info
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if exts, err := GetExtensions(m.db); err == nil {
@@ -817,7 +777,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
 					}
-				case 2:
+				case 1:
 					// Load trunks
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if trunks, err := GetTrunks(m.db); err == nil {
@@ -826,11 +786,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
-				case 3:
+				case 2:
 					// VoIP Phones Management
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
-				case 4:
+				case 3:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -838,7 +798,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 5:
+				case 4:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -846,28 +806,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 6:
+				case 5:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = statusScreen
-				case 7:
+				case 6:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = logsScreen
-				case 8:
+				case 7:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 9:
+				case 8:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 10:
+				case 9:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 11:
+				case 10:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -908,9 +868,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.currentScreen == voipPhonesScreen || m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 				// Handle VoIP phone enter key
 				m.handleVoIPPhonesKeyPress("enter")
-			} else if m.currentScreen == helloWorldScreen {
-				// Handle Hello World setup menu selection
-				m.handleHelloWorldMenuSelection()
 			} else if m.currentScreen == extensionSyncScreen {
 				// Handle extension sync menu selection
 				m.handleExtensionSyncSelection()
@@ -934,11 +891,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == extensionSyncScreen {
 					m.currentScreen = extensionsScreen
 					m.cursor = 0
-					m.errorMsg = ""
-					m.successMsg = ""
-				} else if m.currentScreen == helloWorldScreen {
-					m.currentScreen = mainMenu
-					m.cursor = m.mainMenuCursor
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else if m.currentScreen == diagnosticsMenuScreen {
@@ -1146,8 +1098,6 @@ func (m model) View() string {
 		s += m.renderVoIPManualIP()
 	case voipDiscoveryScreen:
 		s += m.renderVoIPDiscovery()
-	case helloWorldScreen:
-		s += m.renderHelloWorld()
 	case extensionSyncScreen:
 		s += m.renderExtensionSync()
 	case resetConfigurationScreen:
@@ -1160,8 +1110,6 @@ func (m model) View() string {
 	s += "\n\n"
 	if m.currentScreen == mainMenu {
 		s += helpStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • q: Quit")
-	} else if m.currentScreen == helloWorldScreen {
-		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute • ESC: Back • q: Quit")
 	} else if m.currentScreen == extensionsScreen {
 		s += helpStyle.Render("↑/↓: Navigate • a: Add • e: Edit • d: Delete • t: Toggle • i: Info • S: Sync • h: Help • ESC: Back")
 	} else if m.currentScreen == extensionSyncScreen {
@@ -3497,7 +3445,20 @@ func (m *model) handleAsteriskMenuSelection() {
 				m.asteriskOutput = output
 			}
 		}
-	case 7: // Show PJSIP Endpoints
+	case 7: // Configure PJSIP Transports
+		err := m.configManager.EnsureTransportConfig()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to configure transports: %v", err)
+		} else {
+			m.successMsg = "PJSIP transports configured successfully (UDP and TCP on port 5060)"
+			// Reload PJSIP to apply changes
+			if _, reloadErr := m.asteriskManager.ReloadPJSIPQuiet(); reloadErr != nil {
+				m.asteriskOutput = "⚠️ Transports configured but reload failed. You may need to restart Asterisk."
+			} else {
+				m.asteriskOutput = "✅ UDP Transport: 0.0.0.0:5060\n✅ TCP Transport: 0.0.0.0:5060\n\nConfiguration reloaded successfully."
+			}
+		}
+	case 8: // Show PJSIP Endpoints
 		output, err := m.asteriskManager.ShowEndpoints()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show endpoints: %v", err)
@@ -3505,7 +3466,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP endpoints retrieved"
 		}
-	case 8: // Show PJSIP Transports
+	case 9: // Show PJSIP Transports
 		output, err := m.asteriskManager.ShowTransports()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show transports: %v", err)
@@ -3513,7 +3474,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP transports retrieved"
 		}
-	case 9: // Show Active Channels
+	case 10: // Show Active Channels
 		output, err := m.asteriskManager.ShowChannels()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show channels: %v", err)
@@ -3521,7 +3482,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Active channels retrieved"
 		}
-	case 10: // Show Registrations
+	case 11: // Show Registrations
 		output, err := m.asteriskManager.ShowPeers()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show registrations: %v", err)
@@ -3529,7 +3490,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 11: // Back to Main Menu
+	case 12: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
@@ -4071,113 +4032,6 @@ func (m model) renderDocView() string {
 	content += docContent
 	
 	return menuStyle.Render(content)
-}
-
-// renderHelloWorld displays the Hello World automated setup wizard
-func (m model) renderHelloWorld() string {
-	content := titleStyle.Render("🚀 Hello World Setup - Quick Start Wizard") + "\n\n"
-	
-	// Status section
-	content += infoStyle.Render("📊 Current Setup Status:") + "\n"
-	
-	// Transport status
-	if m.helloWorldStatus.TransportConfigured {
-		content += successStyle.Render("  ✅ Transport: Configured") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Transport: Not configured") + "\n"
-	}
-	
-	// Extension status
-	if m.helloWorldStatus.ExtensionConfigured {
-		content += successStyle.Render("  ✅ Extension 101: Configured") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Extension 101: Not configured") + "\n"
-	}
-	
-	// Dialplan status
-	if m.helloWorldStatus.DialplanConfigured {
-		content += successStyle.Render("  ✅ Dialplan (ext 100): Configured") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Dialplan (ext 100): Not configured") + "\n"
-	}
-	
-	// Sound file status
-	if m.helloWorldStatus.SoundFileExists {
-		content += successStyle.Render("  ✅ Sound file: Found") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Sound file: Not found") + "\n"
-	}
-	
-	// Asterisk status
-	if m.helloWorldStatus.AsteriskRunning {
-		content += successStyle.Render("  ✅ Asterisk: Running") + "\n"
-	} else {
-		content += errorStyle.Render("  ❌ Asterisk: Not running") + "\n"
-	}
-	content += "\n"
-	
-	// SIP Phone Configuration (show only if setup is complete)
-	if m.helloWorldStatus.ExtensionConfigured && m.helloWorldStatus.DialplanConfigured {
-		content += infoStyle.Render("📱 SIP Phone Configuration:") + "\n"
-		username, password, server, port := m.helloWorldSetup.GetSIPCredentials()
-		content += fmt.Sprintf("  • Username: %s\n", successStyle.Render(username))
-		content += fmt.Sprintf("  • Password: %s\n", successStyle.Render(password))
-		content += fmt.Sprintf("  • Server: %s\n", successStyle.Render(server))
-		content += fmt.Sprintf("  • Port: %d\n", port)
-		content += "\n"
-		content += helpStyle.Render("  Use MicroSIP, Zoiper, or any SIP phone to register") + "\n"
-		content += helpStyle.Render("  Then dial 100 to hear 'Hello World!'") + "\n\n"
-	}
-	
-	// Menu
-	content += infoStyle.Render("Select an action:") + "\n\n"
-	
-	for i, item := range m.helloWorldMenu {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			item = selectedItemStyle.Render(item)
-		} else {
-			item = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(item)
-		}
-		content += fmt.Sprintf("%s %s\n", cursor, item)
-	}
-	
-	return menuStyle.Render(content)
-}
-
-// handleHelloWorldMenuSelection handles menu selection on the Hello World screen
-func (m *model) handleHelloWorldMenuSelection() {
-	m.errorMsg = ""
-	m.successMsg = ""
-	
-	switch m.cursor {
-	case 0: // Run Complete Setup
-		if err := m.helloWorldSetup.SetupAll(); err != nil {
-			m.errorMsg = fmt.Sprintf("Setup failed: %v", err)
-		} else {
-			m.successMsg = "Hello World setup completed successfully! Configure your SIP phone with the credentials shown above."
-		}
-		// Refresh status
-		m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-		
-	case 1: // Check Status
-		m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-		m.successMsg = "Status refreshed"
-		
-	case 2: // Remove Setup
-		if err := m.helloWorldSetup.RemoveSetup(); err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to remove setup: %v", err)
-		} else {
-			m.successMsg = "Hello World setup removed successfully"
-		}
-		// Refresh status
-		m.helloWorldStatus = m.helloWorldSetup.GetStatus()
-		
-	case 3: // Back to Main Menu
-		m.currentScreen = mainMenu
-		m.cursor = m.mainMenuCursor
-	}
 }
 
 // loadExtensionSyncInfo loads sync information for all extensions

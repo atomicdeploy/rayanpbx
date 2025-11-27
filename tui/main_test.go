@@ -319,8 +319,8 @@ func TestAsteriskMenuNavigation(t *testing.T) {
 		t.Fatal("asteriskMenu is empty")
 	}
 	
-	// Verify menu has expected number of items (12 now including Show Transports)
-	expectedMenuItems := 12
+	// Verify menu has expected number of items (13 now including Configure PJSIP Transports)
+	expectedMenuItems := 13
 	if menuLength != expectedMenuItems {
 		t.Errorf("Expected %d menu items, got %d", expectedMenuItems, menuLength)
 	}
@@ -371,6 +371,8 @@ func TestExtensionToggleKeyBinding(t *testing.T) {
 func TestExtensionScreenHelpText(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	m.currentScreen = extensionsScreen
+	// Set extensionSyncManager to nil to avoid DB access
+	m.extensionSyncManager = nil
 	
 	// Populate some test extensions
 	m.extensions = []Extension{
@@ -405,17 +407,16 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 		cursorPosition    int
 		expectedMenuSave  bool
 	}{
-		{"Hello World Setup", 0, true},
-		{"Extensions Management", 1, true},
-		{"Trunks Management", 2, true},
-		{"VoIP Phones Management", 3, true},
-		{"Asterisk Management", 4, true},
-		{"Diagnostics & Debugging", 5, true},
-		{"System Status", 6, true},
-		{"Logs Viewer", 7, true},
-		{"CLI Usage Guide", 8, true},
-		{"Configuration Management", 9, true},
-		{"System Settings", 10, true},
+		{"Extensions Management", 0, true},
+		{"Trunks Management", 1, true},
+		{"VoIP Phones Management", 2, true},
+		{"Asterisk Management", 3, true},
+		{"Diagnostics & Debugging", 4, true},
+		{"System Status", 5, true},
+		{"Logs Viewer", 6, true},
+		{"CLI Usage Guide", 7, true},
+		{"Configuration Management", 8, true},
+		{"System Settings", 9, true},
 	}
 	
 	for _, tc := range testCases {
@@ -447,15 +448,14 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 func TestMenuItemsCount(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	
-	// We expect 12 menu items (including Exit)
-	expectedItems := 12
+	// We expect 11 menu items (including Exit)
+	expectedItems := 11
 	if len(m.menuItems) != expectedItems {
 		t.Errorf("Expected %d menu items, got %d", expectedItems, len(m.menuItems))
 	}
 	
 	// Verify specific items exist
 	expectedTexts := []string{
-		"Hello World",
 		"Extensions",
 		"Trunks",
 		"VoIP Phones",
@@ -726,13 +726,6 @@ func TestMenuRolloverNavigation(t *testing.T) {
 			getCursor: func(m *model) int { return m.cursor },
 			setCursor: func(m *model, v int) { m.cursor = v },
 		},
-		{
-			name:    "Hello World menu rollover",
-			screen:  helloWorldScreen,
-			setupFunc: func(m *model) {},
-			getCursor: func(m *model) int { return m.cursor },
-			setCursor: func(m *model, v int) { m.cursor = v },
-		},
 	}
 	
 	for _, tc := range testCases {
@@ -752,8 +745,6 @@ func TestMenuRolloverNavigation(t *testing.T) {
 				menuLen = len(m.asteriskMenu)
 			case sipTestMenuScreen:
 				menuLen = len(m.sipTestMenu)
-			case helloWorldScreen:
-				menuLen = len(m.helloWorldMenu)
 			}
 			
 			if menuLen == 0 {
