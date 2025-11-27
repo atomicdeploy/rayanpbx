@@ -1836,10 +1836,36 @@ cmd_tui() {
 # VoIP Phone Management Commands (GrandStream)
 # Uses php artisan rayanpbx:phone under the hood
 
+# List all phones
+cmd_phone_list() {
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    print_header "📱 VoIP Phones"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    php artisan rayanpbx:phone list $json_flag
+}
+
 # Test phone authentication
 cmd_phone_test() {
     local ip=""
-    local username="admin"
+    local id=""
+    local mac=""
+    local ext=""
+    local username=""
     local password=""
     local json_flag=""
     
@@ -1848,6 +1874,12 @@ cmd_phone_test() {
         case "$1" in
             --ip=*) ip="${1#*=}"; shift ;;
             --ip) ip="$2"; shift 2 ;;
+            --id=*) id="${1#*=}"; shift ;;
+            --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
             --username=*) username="${1#*=}"; shift ;;
             --username) username="$2"; shift 2 ;;
             --password=*) password="${1#*=}"; shift ;;
@@ -1857,9 +1889,12 @@ cmd_phone_test() {
         esac
     done
     
-    if [ -z "$ip" ] || [ -z "$password" ]; then
-        print_error "Test requires --ip and --password"
-        echo "Usage: rayanpbx-cli phone test --ip=<ip> --password=<password>"
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        echo "Usage: rayanpbx-cli phone test --ip=<ip> [--password=<password>]"
+        echo "   or: rayanpbx-cli phone test --id=<id>"
+        echo "   or: rayanpbx-cli phone test --mac=<mac>"
+        echo "   or: rayanpbx-cli phone test --ext=<extension>"
         exit 2
     fi
     
@@ -1871,14 +1906,24 @@ cmd_phone_test() {
         exit 1
     }
     
-    php artisan rayanpbx:phone test --ip="$ip" --username="$username" --password="$password" $json_flag
+    local args="test"
+    [ -n "$ip" ] && args="$args --ip=$ip"
+    [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
+    [ -n "$username" ] && args="$args --username=$username"
+    [ -n "$password" ] && args="$args --password=$password"
+    
+    php artisan rayanpbx:phone $args $json_flag
 }
 
 # Show phone device information
 cmd_phone_info() {
     local ip=""
     local id=""
-    local username="admin"
+    local mac=""
+    local ext=""
+    local username=""
     local password=""
     local json_flag=""
     
@@ -1889,6 +1934,10 @@ cmd_phone_info() {
             --ip) ip="$2"; shift 2 ;;
             --id=*) id="${1#*=}"; shift ;;
             --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
             --username=*) username="${1#*=}"; shift ;;
             --username) username="$2"; shift 2 ;;
             --password=*) password="${1#*=}"; shift ;;
@@ -1898,10 +1947,12 @@ cmd_phone_info() {
         esac
     done
     
-    if [ -z "$ip" ] && [ -z "$id" ]; then
-        print_error "Please provide either --ip or --id"
-        echo "Usage: rayanpbx-cli phone info --ip=<ip> --password=<password>"
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        echo "Usage: rayanpbx-cli phone info --ip=<ip> [--password=<password>]"
         echo "   or: rayanpbx-cli phone info --id=<id>"
+        echo "   or: rayanpbx-cli phone info --mac=<mac>"
+        echo "   or: rayanpbx-cli phone info --ext=<extension>"
         exit 2
     fi
     
@@ -1916,6 +1967,8 @@ cmd_phone_info() {
     local args="info"
     [ -n "$ip" ] && args="$args --ip=$ip"
     [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
     [ -n "$username" ] && args="$args --username=$username"
     [ -n "$password" ] && args="$args --password=$password"
     
@@ -1926,7 +1979,9 @@ cmd_phone_info() {
 cmd_phone_sip() {
     local ip=""
     local id=""
-    local username="admin"
+    local mac=""
+    local ext=""
+    local username=""
     local password=""
     local json_flag=""
     
@@ -1937,6 +1992,10 @@ cmd_phone_sip() {
             --ip) ip="$2"; shift 2 ;;
             --id=*) id="${1#*=}"; shift ;;
             --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
             --username=*) username="${1#*=}"; shift ;;
             --username) username="$2"; shift 2 ;;
             --password=*) password="${1#*=}"; shift ;;
@@ -1946,10 +2005,12 @@ cmd_phone_sip() {
         esac
     done
     
-    if [ -z "$ip" ] && [ -z "$id" ]; then
-        print_error "Please provide either --ip or --id"
-        echo "Usage: rayanpbx-cli phone sip --ip=<ip> --password=<password>"
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        echo "Usage: rayanpbx-cli phone sip --ip=<ip> [--password=<password>]"
         echo "   or: rayanpbx-cli phone sip --id=<id>"
+        echo "   or: rayanpbx-cli phone sip --mac=<mac>"
+        echo "   or: rayanpbx-cli phone sip --ext=<extension>"
         exit 2
     fi
     
@@ -1964,6 +2025,8 @@ cmd_phone_sip() {
     local args="sip"
     [ -n "$ip" ] && args="$args --ip=$ip"
     [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
     [ -n "$username" ] && args="$args --username=$username"
     [ -n "$password" ] && args="$args --password=$password"
     
@@ -1974,7 +2037,9 @@ cmd_phone_sip() {
 cmd_phone_provision() {
     local ip=""
     local id=""
-    local username="admin"
+    local mac=""
+    local ext=""
+    local username=""
     local password=""
     local extension=""
     local sip_password=""
@@ -1989,6 +2054,10 @@ cmd_phone_provision() {
             --ip) ip="$2"; shift 2 ;;
             --id=*) id="${1#*=}"; shift ;;
             --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
             --username=*) username="${1#*=}"; shift ;;
             --username) username="$2"; shift 2 ;;
             --password=*) password="${1#*=}"; shift ;;
@@ -2006,14 +2075,14 @@ cmd_phone_provision() {
         esac
     done
     
-    if [ -z "$ip" ] && [ -z "$id" ]; then
-        print_error "Please provide either --ip or --id"
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
         exit 2
     fi
     
     if [ -z "$extension" ] || [ -z "$sip_password" ] || [ -z "$sip_server" ]; then
         print_error "Provisioning requires --extension, --sip-password, and --sip-server"
-        echo "Usage: rayanpbx-cli phone provision --ip=<ip> --password=<password> \\"
+        echo "Usage: rayanpbx-cli phone provision --id=<id> \\"
         echo "         --extension=101 --sip-password=ext101 --sip-server=pbx.example.com"
         exit 2
     fi
@@ -2029,6 +2098,8 @@ cmd_phone_provision() {
     local args="provision"
     [ -n "$ip" ] && args="$args --ip=$ip"
     [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
     [ -n "$username" ] && args="$args --username=$username"
     [ -n "$password" ] && args="$args --password=$password"
     args="$args --extension=$extension"
@@ -2397,12 +2468,14 @@ cmd_help() {
         echo ""
         
         echo -e "${CYAN}📱 phone${NC} ${DIM}- VoIP phone management (GrandStream)${NC}"
-        echo -e "   ${GREEN}test${NC} --ip=<ip> --password=<pass>  Test phone authentication"
-        echo -e "   ${GREEN}info${NC} --ip=<ip> --password=<pass>  Show device information"
+        echo -e "   ${GREEN}list${NC}                              List all phones in database"
+        echo -e "   ${GREEN}test${NC} --id=<id>                    Test phone authentication"
+        echo -e "   ${GREEN}info${NC} --id=<id>                    Show device information"
         echo -e "   ${GREEN}sip${NC} --id=<id>                     Show SIP account configuration"
-        echo -e "   ${GREEN}provision${NC} --ip=<ip> --password=<pass> --extension=<ext> --sip-password=<pass> --sip-server=<srv>"
+        echo -e "   ${GREEN}provision${NC} --id=<id> --extension=<ext> --sip-password=<pass> --sip-server=<srv>"
         echo -e "                                      Configure SIP extension on phone"
         echo -e "   ${GREEN}sync${NC} --id=<id>                    Sync phone info to database"
+        echo -e "   ${DIM}Selectors: --id, --ip, --mac, --ext (password optional if stored)${NC}"
         echo ""
         
         echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
@@ -2526,30 +2599,38 @@ cmd_help() {
                 echo -e "${CYAN}${BOLD}VoIP Phone Management (GrandStream)${NC}"
                 echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
                 echo -e "Manage VoIP phones, particularly GrandStream devices.\n"
-                echo -e "${YELLOW}rayanpbx-cli phone test --ip=<ip> --password=<password>${NC}"
+                echo -e "${YELLOW}rayanpbx-cli phone list${NC}"
+                echo -e "  Lists all phones in the database."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone list${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone test [selector]${NC}"
                 echo -e "  Tests authentication with a phone."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone test --id=1${NC}"
                 echo -e "  ${DIM}Example: rayanpbx-cli phone test --ip=192.168.1.100 --password=admin${NC}\n"
-                echo -e "${YELLOW}rayanpbx-cli phone info --ip=<ip> --password=<password>${NC}"
+                echo -e "${YELLOW}rayanpbx-cli phone info [selector]${NC}"
                 echo -e "  Shows device information (vendor, model, firmware)."
-                echo -e "  ${DIM}Example: rayanpbx-cli phone info --ip=192.168.1.100 --password=admin${NC}"
-                echo -e "  ${DIM}Example: rayanpbx-cli phone info --id=1${NC} (using database ID)\n"
-                echo -e "${YELLOW}rayanpbx-cli phone sip --id=<id>${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone info --id=1${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone info --mac=00:0b:82:xx:xx:xx${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone sip [selector]${NC}"
                 echo -e "  Shows SIP account configuration on the phone."
                 echo -e "  ${DIM}Example: rayanpbx-cli phone sip --id=1${NC}"
-                echo -e "  ${DIM}Example: rayanpbx-cli phone sip --ip=192.168.1.100 --password=admin${NC}\n"
-                echo -e "${YELLOW}rayanpbx-cli phone provision [options]${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone sip --ext=101${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone provision [selector] [options]${NC}"
                 echo -e "  Configures SIP extension on the phone."
                 echo -e "  Required: --extension, --sip-password, --sip-server"
                 echo -e "  Optional: --display-name"
-                echo -e "  ${DIM}Example: rayanpbx-cli phone provision --ip=192.168.1.100 --password=admin \\${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone provision --id=1 \\${NC}"
                 echo -e "  ${DIM}         --extension=101 --sip-password=ext101 --sip-server=pbx.example.com${NC}\n"
                 echo -e "${YELLOW}rayanpbx-cli phone sync --id=<id>${NC}"
                 echo -e "  Synchronizes phone info to the database."
                 echo -e "  ${DIM}Example: rayanpbx-cli phone sync --id=1${NC}\n"
-                echo -e "${DIM}Common Options:${NC}"
-                echo -e "  --ip=<ip>         Phone IP address"
+                echo -e "${DIM}Selectors (use one):${NC}"
                 echo -e "  --id=<id>         Phone database ID"
-                echo -e "  --username=<user> Username (default: admin)"
+                echo -e "  --ip=<ip>         Phone IP address"
+                echo -e "  --mac=<mac>       Phone MAC address"
+                echo -e "  --ext=<ext>       Phone extension number"
+                echo -e ""
+                echo -e "${DIM}Authentication (optional if stored in database):${NC}"
+                echo -e "  --username=<user> Username (default: stored or admin)"
                 echo -e "  --password=<pass> Phone admin password"
                 echo -e "  --json            Output as JSON"
                 echo ""
@@ -2725,21 +2806,34 @@ main() {
                     shift
                     cmd_phone_sync "$@"
                     ;;
+                list)
+                    shift
+                    cmd_phone_list "$@"
+                    ;;
                 *)
                     print_error "Unknown phone command: ${1:-}"
                     echo ""
                     echo "Available commands:"
+                    echo "  list      - List all phones in database"
                     echo "  test      - Test phone authentication"
                     echo "  info      - Show device information"
                     echo "  sip       - Show SIP account configuration"
                     echo "  provision - Configure SIP extension on phone"
                     echo "  sync      - Sync phone info to database"
                     echo ""
+                    echo "Selectors:"
+                    echo "  --id=<id>     - Select by database ID"
+                    echo "  --ip=<ip>     - Select by IP address"
+                    echo "  --mac=<mac>   - Select by MAC address"
+                    echo "  --ext=<ext>   - Select by extension number"
+                    echo ""
                     echo "Examples:"
-                    echo "  rayanpbx-cli phone test --ip=192.168.1.100 --password=secret"
+                    echo "  rayanpbx-cli phone list"
+                    echo "  rayanpbx-cli phone info --id=1"
                     echo "  rayanpbx-cli phone info --ip=192.168.1.100 --password=secret"
-                    echo "  rayanpbx-cli phone sip --id=1"
-                    echo "  rayanpbx-cli phone provision --ip=192.168.1.100 --password=secret \\"
+                    echo "  rayanpbx-cli phone sip --mac=00:0b:82:xx:xx:xx"
+                    echo "  rayanpbx-cli phone test --ext=101"
+                    echo "  rayanpbx-cli phone provision --id=1 \\"
                     echo "      --extension=101 --sip-password=ext101 --sip-server=pbx.example.com"
                     exit 2
                     ;;

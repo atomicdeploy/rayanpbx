@@ -20,11 +20,13 @@ class RayanPBXPhone extends Command
      * The name and signature of the console command.
      */
     protected $signature = 'rayanpbx:phone
-                            {action : Action to perform (info, sip, provision, sync, test)}
+                            {action : Action to perform (list, info, sip, provision, sync, test)}
                             {--ip= : Phone IP address}
                             {--id= : Phone ID from database}
-                            {--username=admin : Username for authentication}
-                            {--password= : Password for authentication}
+                            {--mac= : Phone MAC address}
+                            {--ext= : Phone extension number}
+                            {--username= : Username for authentication (default: use stored or admin)}
+                            {--password= : Password for authentication (default: use stored credentials)}
                             {--extension= : SIP extension for provisioning}
                             {--sip-password= : SIP password for provisioning}
                             {--sip-server= : SIP server for provisioning}
@@ -44,6 +46,7 @@ class RayanPBXPhone extends Command
         $action = $this->argument('action');
 
         return match ($action) {
+            'list' => $this->listPhones(),
             'info' => $this->showInfo(),
             'sip' => $this->showSipConfig(),
             'provision' => $this->provisionPhone(),
@@ -54,13 +57,16 @@ class RayanPBXPhone extends Command
     }
 
     /**
-     * Get the phone to work with
+     * Get the phone to work with using multiple selectors
      */
     protected function getPhone(): ?VoipPhone
     {
         $id = $this->option('id');
         $ip = $this->option('ip');
+        $mac = $this->option('mac');
+        $ext = $this->option('ext');
 
+        // Find by database ID
         if ($id) {
             $phone = VoipPhone::find($id);
             if (! $phone) {
@@ -72,7 +78,39 @@ class RayanPBXPhone extends Command
             return $phone;
         }
 
+        // Find by MAC address
+        if ($mac) {
+            $phone = VoipPhone::where('mac', strtolower($mac))
+                ->orWhere('mac', strtoupper($mac))
+                ->first();
+            if (! $phone) {
+                $this->error("Phone with MAC {$mac} not found");
+
+                return null;
+            }
+
+            return $phone;
+        }
+
+        // Find by extension
+        if ($ext) {
+            $phone = VoipPhone::where('extension', $ext)->first();
+            if (! $phone) {
+                $this->error("Phone with extension {$ext} not found");
+
+                return null;
+            }
+
+            return $phone;
+        }
+
+        // Find by IP address in database first
         if ($ip) {
+            $phone = VoipPhone::where('ip', $ip)->first();
+            if ($phone) {
+                return $phone;
+            }
+
             // Create a temporary phone object for direct IP access
             // Note: This is a transient object NOT for database operations
             $phone = new VoipPhone([
@@ -87,20 +125,106 @@ class RayanPBXPhone extends Command
             return $phone;
         }
 
-        $this->error('Please provide either --ip or --id');
+        $this->error('Please provide a selector: --ip, --id, --mac, or --ext');
 
         return null;
     }
 
     /**
-     * Get credentials for the current operation
+     * Get credentials for the current operation.
+     * Uses stored credentials from database if not provided.
+     * Updates stored credentials if authentication succeeds with different creds.
      */
-    protected function getCredentials(): array
+    protected function getCredentials(?VoipPhone $phone = null): array
     {
+        $username = $this->option('username');
+        $password = $this->option('password');
+
+        // If phone exists and has stored credentials, use them as defaults
+        if ($phone && $phone->hasCredentials()) {
+            $stored = $phone->getCredentialsForApi();
+            $username = $username ?? $stored['username'] ?? 'admin';
+            $password = $password ?? $stored['password'] ?? null;
+        } else {
+            // Default username if not provided
+            $username = $username ?? 'admin';
+        }
+
         return [
-            'username' => $this->option('username') ?? 'admin',
-            'password' => $this->option('password'),
+            'username' => $username,
+            'password' => $password,
         ];
+    }
+
+    /**
+     * Update stored credentials if they differ from what was used.
+     */
+    protected function updateStoredCredentials(VoipPhone $phone, array $credentials): void
+    {
+        // Skip if this is a temporary phone object (id = -1)
+        if ($phone->id <= 0 || ! $phone->exists) {
+            return;
+        }
+
+        $stored = $phone->getCredentialsForApi();
+
+        // Check if credentials differ
+        if (
+            ($stored['username'] ?? 'admin') !== $credentials['username'] ||
+            ($stored['password'] ?? '') !== $credentials['password']
+        ) {
+            $phone->credentials = $credentials;
+            $phone->save();
+            $this->info('Updated stored credentials for phone.');
+        }
+    }
+
+    /**
+     * List all phones in a table
+     */
+    protected function listPhones(): int
+    {
+        $phones = VoipPhone::orderBy('id')->get();
+
+        if ($phones->isEmpty()) {
+            $this->warn('No phones found in database.');
+
+            return 0;
+        }
+
+        if ($this->option('json')) {
+            $this->line(json_encode($phones->toArray(), JSON_PRETTY_PRINT));
+
+            return 0;
+        }
+
+        $this->newLine();
+        $this->info('═══════════════════════════════════════════════════════════════════════════════');
+        $this->info('   VoIP Phones');
+        $this->info('═══════════════════════════════════════════════════════════════════════════════');
+        $this->newLine();
+
+        $headers = ['ID', 'IP', 'MAC', 'Ext', 'Name', 'Vendor', 'Model', 'Status'];
+        $rows = $phones->map(function ($phone) {
+            return [
+                $phone->id,
+                $phone->ip,
+                $phone->mac ?? '-',
+                $phone->extension ?? '-',
+                $phone->name ?? $phone->getDisplayName(),
+                $phone->vendor ?? '-',
+                $phone->model ?? '-',
+                $phone->status ?? 'unknown',
+            ];
+        })->toArray();
+
+        $this->table($headers, $rows);
+
+        $this->newLine();
+        $this->info("Total: {$phones->count()} phone(s)");
+        $this->newLine();
+
+        return 0;
     }
 
     /**
@@ -113,9 +237,9 @@ class RayanPBXPhone extends Command
             return 1;
         }
 
-        $credentials = $this->getCredentials();
-        if (empty($credentials['password']) && ! $phone->hasCredentials()) {
-            $this->error('Please provide --password for authentication');
+        $credentials = $this->getCredentials($phone);
+        if (empty($credentials['password'])) {
+            $this->error('No password available. Please provide --password or ensure credentials are stored for this phone.');
 
             return 1;
         }
@@ -129,6 +253,9 @@ class RayanPBXPhone extends Command
 
             return 1;
         }
+
+        // Update stored credentials if authentication succeeded
+        $this->updateStoredCredentials($phone, $credentials);
 
         $result = $this->grandstream->getDeviceInfo($phone);
 
@@ -182,9 +309,9 @@ class RayanPBXPhone extends Command
             return 1;
         }
 
-        $credentials = $this->getCredentials();
-        if (empty($credentials['password']) && ! $phone->hasCredentials()) {
-            $this->error('Please provide --password for authentication');
+        $credentials = $this->getCredentials($phone);
+        if (empty($credentials['password'])) {
+            $this->error('No password available. Please provide --password or ensure credentials are stored for this phone.');
 
             return 1;
         }
@@ -198,6 +325,9 @@ class RayanPBXPhone extends Command
 
             return 1;
         }
+
+        // Update stored credentials if authentication succeeded
+        $this->updateStoredCredentials($phone, $credentials);
 
         $result = $this->grandstream->getSipAccount($phone);
 
@@ -255,9 +385,9 @@ class RayanPBXPhone extends Command
             return 1;
         }
 
-        $credentials = $this->getCredentials();
-        if (empty($credentials['password']) && ! $phone->hasCredentials()) {
-            $this->error('Please provide --password for authentication');
+        $credentials = $this->getCredentials($phone);
+        if (empty($credentials['password'])) {
+            $this->error('No password available. Please provide --password or ensure credentials are stored for this phone.');
 
             return 1;
         }
@@ -280,6 +410,9 @@ class RayanPBXPhone extends Command
 
             return 1;
         }
+
+        // Update stored credentials if authentication succeeded
+        $this->updateStoredCredentials($phone, $credentials);
 
         $this->info("Provisioning extension {$extension} on phone...");
 
@@ -370,19 +503,21 @@ class RayanPBXPhone extends Command
      */
     protected function testAuthentication(): int
     {
-        $ip = $this->option('ip');
-        $username = $this->option('username') ?? 'admin';
-        $password = $this->option('password');
+        $phone = $this->getPhone();
+        if (! $phone) {
+            return 1;
+        }
 
-        if (! $ip || ! $password) {
-            $this->error('Test requires --ip and --password');
+        $credentials = $this->getCredentials($phone);
+        if (empty($credentials['password'])) {
+            $this->error('No password available. Please provide --password or ensure credentials are stored for this phone.');
 
             return 1;
         }
 
-        $this->info("Testing authentication with {$ip}...");
+        $this->info("Testing authentication with {$phone->ip}...");
 
-        $result = $this->grandstream->testAuthentication($ip, $username, $password);
+        $result = $this->grandstream->testAuthentication($phone->ip, $credentials['username'], $credentials['password']);
 
         if ($this->option('json')) {
             $this->line(json_encode($result, JSON_PRETTY_PRINT));
@@ -391,6 +526,9 @@ class RayanPBXPhone extends Command
         }
 
         if ($result['success']) {
+            // Update stored credentials if authentication succeeded
+            $this->updateStoredCredentials($phone, $credentials);
+
             $this->info('═══════════════════════════════════════════════════════');
             $this->info('   Authentication Successful');
             $this->info('═══════════════════════════════════════════════════════');
@@ -416,17 +554,31 @@ class RayanPBXPhone extends Command
     {
         $this->error('Unknown action. Available actions:');
         $this->newLine();
+        $this->line('  <comment>list</comment>      - List all phones in database');
         $this->line('  <comment>info</comment>      - Show device information');
         $this->line('  <comment>sip</comment>       - Show SIP account configuration');
         $this->line('  <comment>provision</comment> - Configure SIP extension on phone');
         $this->line('  <comment>sync</comment>      - Sync phone info to database');
         $this->line('  <comment>test</comment>      - Test authentication');
         $this->newLine();
+        $this->line('Selectors (use one):');
+        $this->line('  --id=<id>     - Select by database ID');
+        $this->line('  --ip=<ip>     - Select by IP address');
+        $this->line('  --mac=<mac>   - Select by MAC address');
+        $this->line('  --ext=<ext>   - Select by extension number');
+        $this->newLine();
+        $this->line('Authentication:');
+        $this->line('  --username=<user>  - Username (default: stored or admin)');
+        $this->line('  --password=<pass>  - Password (default: stored credentials)');
+        $this->newLine();
         $this->line('Examples:');
-        $this->line('  php artisan rayanpbx:phone info --ip=192.168.1.100 --password=secret');
-        $this->line('  php artisan rayanpbx:phone sip --id=1');
-        $this->line('  php artisan rayanpbx:phone provision --ip=192.168.1.100 --password=secret \\');
-        $this->line('      --extension=101 --sip-password=ext101 --sip-server=pbx.example.com');
+        $this->line('  rayanpbx-cli phone list');
+        $this->line('  rayanpbx-cli phone info --id=1');
+        $this->line('  rayanpbx-cli phone info --ip=192.168.1.100 --password=secret');
+        $this->line('  rayanpbx-cli phone sip --mac=00:0b:82:xx:xx:xx');
+        $this->line('  rayanpbx-cli phone test --ext=101');
+        $this->line('  rayanpbx-cli phone provision --id=1 --extension=101 \\');
+        $this->line('      --sip-password=ext101 --sip-server=pbx.example.com');
 
         return 1;
     }
