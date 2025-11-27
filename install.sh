@@ -3041,9 +3041,9 @@ if next_step "RayanPBX Source Code" "source"; then
 
     # Now configure AMI if needed
     # First, check if manager.conf already has valid AMI credentials
-    local ami_configured=false
-    local existing_ami_secret=""
-    local existing_ami_username=""
+    ami_configured=false
+    existing_ami_secret=""
+    existing_ami_username=""
     
     # Initialize global AMI credential variables with defaults
     RAYANPBX_AMI_USERNAME="${RAYANPBX_AMI_USERNAME:-admin}"
