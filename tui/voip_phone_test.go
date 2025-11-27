@@ -330,19 +330,19 @@ func TestInitManualIPInput(t *testing.T) {
 		t.Error("Input mode should be enabled")
 	}
 	
-	if len(m.inputFields) != 3 {
-		t.Errorf("Expected 3 input fields, got %d", len(m.inputFields))
+	if len(m.inputFields) != 5 {
+		t.Errorf("Expected 5 input fields, got %d", len(m.inputFields))
 	}
 	
-	expectedFields := []string{"IP Address", "Username", "Password"}
+	expectedFields := []string{"IP Address", "Name", "Extension", "Username", "Password"}
 	for i, field := range expectedFields {
 		if m.inputFields[i] != field {
 			t.Errorf("Expected field %s, got %s", field, m.inputFields[i])
 		}
 	}
 	
-	// Check default username
-	if m.inputValues[1] != "admin" {
+	// Check default username (index 3 in new field order)
+	if m.inputValues[3] != "admin" {
 		t.Error("Default username should be 'admin'")
 	}
 }
@@ -459,8 +459,8 @@ func TestInitManualIPInputWithIP(t *testing.T) {
 		t.Error("Input mode should be enabled")
 	}
 	
-	if len(m.inputFields) != 3 {
-		t.Errorf("Expected 3 input fields, got %d", len(m.inputFields))
+	if len(m.inputFields) != 5 {
+		t.Errorf("Expected 5 input fields, got %d", len(m.inputFields))
 	}
 	
 	// Check IP is pre-filled
@@ -468,13 +468,13 @@ func TestInitManualIPInputWithIP(t *testing.T) {
 		t.Errorf("IP should be pre-filled with %s, got %s", testIP, m.inputValues[0])
 	}
 	
-	// Check cursor is on Username field (index 1)
+	// Check cursor is on Name field (index 1) since IP is already filled
 	if m.inputCursor != 1 {
-		t.Errorf("Cursor should be on Username field (1), got %d", m.inputCursor)
+		t.Errorf("Cursor should be on Name field (1), got %d", m.inputCursor)
 	}
 	
-	// Check default username
-	if m.inputValues[1] != "admin" {
+	// Check default username (index 3 in new field order)
+	if m.inputValues[3] != "admin" {
 		t.Error("Default username should be 'admin'")
 	}
 	

@@ -180,7 +180,7 @@ func (m model) renderVoIPPhoneDetails() string {
 		content += "\n" + successStyle.Render("🔑 Credentials: Configured") + "\n"
 	} else {
 		content += "\n" + warningStyle.Render("🔑 Credentials: Not configured") + "\n"
-		content += helpStyle.Render("   Press 'i' to add credentials for phone control") + "\n"
+		content += helpStyle.Render("   Press 'e' to edit phone and add credentials") + "\n"
 	}
 	
 	// Show phone status details if available
@@ -216,7 +216,7 @@ func (m model) renderVoIPPhoneDetails() string {
 		}
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Press 'i' for credentials, 'c' for control menu, 'r' to refresh, ESC to go back")
+	content += "\n" + helpStyle.Render("💡 Press 'e' to edit, 'c' for control menu, 'r' to refresh, ESC to go back")
 	
 	return menuStyle.Render(content)
 }
@@ -275,19 +275,19 @@ func (m model) renderVoIPPhoneControl() string {
 	return menuStyle.Render(content)
 }
 
-// renderVoIPManualIP renders the manual IP input screen (used for both adding new phones and editing credentials)
+// renderVoIPManualIP renders the phone edit/add screen (unified form for adding new phones and editing existing ones)
 func (m model) renderVoIPManualIP() string {
 	var title string
 	var helpText string
 	
 	if m.voipEditingExistingIP != "" {
-		// Editing credentials for existing phone
-		title = fmt.Sprintf("🔑 Edit Credentials: %s", m.voipEditingExistingIP)
-		helpText = "💡 Enter credentials to control this phone"
+		// Editing existing phone
+		title = fmt.Sprintf("✏️  Edit Phone: %s", m.voipEditingExistingIP)
+		helpText = "💡 Update phone information and credentials"
 	} else {
 		// Adding new phone
-		title = "📱 Add Phone by IP Address"
-		helpText = "💡 Enter IP address and credentials to add and control the phone"
+		title = "📱 Add New Phone"
+		helpText = "💡 Enter phone details to add and control the phone"
 	}
 	
 	content := infoStyle.Render(title) + "\n\n"
@@ -311,6 +311,10 @@ func (m model) renderVoIPManualIP() string {
 			switch field {
 			case "IP Address":
 				value = helpStyle.Render("<enter IP address>")
+			case "Name":
+				value = helpStyle.Render("<friendly name, optional>")
+			case "Extension":
+				value = helpStyle.Render("<extension number, optional>")
 			case "Username":
 				value = helpStyle.Render("<admin username, default: admin>")
 			case "Password":
@@ -520,8 +524,8 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "c":
 			// Control menu
 			m.initVoIPControlMenu()
-		case "i":
-			// Add/edit credentials for the current phone
+		case "e":
+			// Edit phone (including credentials)
 			if m.selectedPhoneIdx < len(m.voipPhones) {
 				phone := m.voipPhones[m.selectedPhoneIdx]
 				m.initManualIPInputWithIP(phone.IP)
@@ -591,12 +595,12 @@ func (m *model) initVoIPControlMenu() {
 	}
 }
 
-// initManualIPInput initializes manual IP input screen for adding a new phone
+// initManualIPInput initializes the phone edit screen for adding a new phone
 func (m *model) initManualIPInput() {
 	m.currentScreen = voipManualIPScreen
 	m.inputMode = true
-	m.inputFields = []string{"IP Address", "Username", "Password"}
-	m.inputValues = []string{"", "admin", ""}
+	m.inputFields = []string{"IP Address", "Name", "Extension", "Username", "Password"}
+	m.inputValues = []string{"", "", "", "admin", ""}
 	m.inputCursor = 0
 	m.voipPhoneOutput = ""
 	m.errorMsg = ""
@@ -604,13 +608,26 @@ func (m *model) initManualIPInput() {
 	m.voipEditingExistingIP = "" // Not editing existing phone
 }
 
-// initManualIPInputWithIP initializes manual IP input screen for editing credentials of an existing phone
+// initManualIPInputWithIP initializes the phone edit screen for editing an existing phone
 func (m *model) initManualIPInputWithIP(ip string) {
 	m.currentScreen = voipManualIPScreen
 	m.inputMode = true
-	m.inputFields = []string{"IP Address", "Username", "Password"}
-	// Pre-fill IP and set cursor to Username field
+	m.inputFields = []string{"IP Address", "Name", "Extension", "Username", "Password"}
+	
+	// Pre-fill existing values
+	existingName := ""
+	existingExtension := ""
 	existingUsername := "admin"
+	
+	// Find existing phone data
+	for _, phone := range m.voipPhones {
+		if phone.IP == ip {
+			existingExtension = phone.Extension
+			break
+		}
+	}
+	
+	// Get existing credentials
 	if m.phoneCredentials != nil {
 		if creds, ok := m.phoneCredentials[ip]; ok {
 			if username, hasUser := creds["username"]; hasUser && username != "" {
@@ -618,8 +635,9 @@ func (m *model) initManualIPInputWithIP(ip string) {
 			}
 		}
 	}
-	m.inputValues = []string{ip, existingUsername, ""}
-	m.inputCursor = 1 // Start at Username field since IP is already filled
+	
+	m.inputValues = []string{ip, existingName, existingExtension, existingUsername, ""}
+	m.inputCursor = 1 // Start at Name field since IP is already filled
 	m.voipPhoneOutput = ""
 	m.errorMsg = ""
 	m.successMsg = ""
@@ -1239,24 +1257,28 @@ func (m *model) executeVoIPControlAction() {
 	}
 }
 
-// executeManualIPAdd executes the manual IP add action
+// executeManualIPAdd executes the phone add/edit action
 func (m *model) executeManualIPAdd() {
-	if len(m.inputValues) < 3 {
-		m.errorMsg = "All fields are required"
+	if len(m.inputValues) < 5 {
+		m.errorMsg = "Form initialization error"
 		return
 	}
 	
 	ip := m.inputValues[0]
-	username := m.inputValues[1]
-	password := m.inputValues[2]
+	name := m.inputValues[1]
+	extension := m.inputValues[2]
+	username := m.inputValues[3]
+	password := m.inputValues[4]
 	
 	if ip == "" {
 		m.errorMsg = "IP address is required"
 		return
 	}
 	
-	if password == "" {
-		m.errorMsg = "Password is required"
+	// Password is only required for new phones or when explicitly changing it
+	isEditing := m.voipEditingExistingIP != ""
+	if !isEditing && password == "" {
+		m.errorMsg = "Password is required for new phones"
 		return
 	}
 	
@@ -1274,6 +1296,13 @@ func (m *model) executeManualIPAdd() {
 			phoneExists = true
 			// Update existing phone info
 			m.voipPhones[i].UserAgent = strings.ToUpper(vendor)
+			if name != "" {
+				// Store name in UserAgent if provided (TUI limitation)
+				m.voipPhones[i].UserAgent = name
+			}
+			if extension != "" {
+				m.voipPhones[i].Extension = extension
+			}
 			m.voipPhones[i].Status = "Manual"
 			break
 		}
@@ -1281,28 +1310,36 @@ func (m *model) executeManualIPAdd() {
 	
 	if !phoneExists {
 		// Add to phone list
+		displayName := name
+		if displayName == "" {
+			displayName = strings.ToUpper(vendor)
+		}
 		newPhone := PhoneInfo{
-			Extension: "",
+			Extension: extension,
 			IP:        ip,
 			Status:    "Manual",
-			UserAgent: strings.ToUpper(vendor),
+			UserAgent: displayName,
 		}
 		m.voipPhones = append(m.voipPhones, newPhone)
 	}
 	
-	// Store credentials for future use
-	if m.phoneCredentials == nil {
-		m.phoneCredentials = make(map[string]map[string]string)
-	}
-	m.phoneCredentials[ip] = map[string]string{
-		"username": username,
-		"password": password,
+	// Store credentials for future use (only if password provided)
+	if password != "" {
+		if m.phoneCredentials == nil {
+			m.phoneCredentials = make(map[string]map[string]string)
+		}
+		m.phoneCredentials[ip] = map[string]string{
+			"username": username,
+			"password": password,
+		}
 	}
 	
 	// Save to database if available
 	if m.db != nil {
 		dbPhone := &VoIPPhoneDB{
 			IP:            ip,
+			Name:          name,
+			Extension:     extension,
 			Vendor:        vendor,
 			Status:        "discovered",
 			DiscoveryType: "manual",
@@ -1310,7 +1347,7 @@ func (m *model) executeManualIPAdd() {
 		}
 		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
 			// Non-fatal error, just log it
-			m.errorMsg = fmt.Sprintf("Phone updated but failed to save to database: %v", err)
+			m.errorMsg = fmt.Sprintf("Phone saved but database update failed: %v", err)
 			m.inputMode = false
 			m.currentScreen = voipPhonesScreen
 			return
@@ -1318,7 +1355,7 @@ func (m *model) executeManualIPAdd() {
 	}
 	
 	if phoneExists {
-		m.successMsg = fmt.Sprintf("Credentials updated for phone: %s (%s)", ip, vendor)
+		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, vendor)
 	} else {
 		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendor)
 	}
