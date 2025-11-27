@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+// Version constants for User-Agent
+const (
+	AppName    = "RayanPBX"
+	AppVersion = "2.0.0"
+)
+
+// GetUserAgent returns the User-Agent string for HTTP requests
+func GetUserAgent() string {
+	return fmt.Sprintf("%s/%s (Go TUI)", AppName, AppVersion)
+}
+
 // GrandStreamSession represents an authenticated session with a GrandStream phone
 type GrandStreamSession struct {
 	PhoneIP         string            `json:"phone_ip"`
@@ -116,7 +127,7 @@ func (m *GrandStreamSessionManager) Login(ip, username, password string) (*Grand
 	req.Header.Set("Origin", fmt.Sprintf("http://%s", ip))
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", fmt.Sprintf("http://%s/", ip))
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", GetUserAgent())
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
@@ -198,7 +209,7 @@ func (m *GrandStreamSessionManager) GetParameters(session *GrandStreamSession, p
 	req.Header.Set("Origin", fmt.Sprintf("http://%s", session.PhoneIP))
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", fmt.Sprintf("http://%s/", session.PhoneIP))
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", GetUserAgent())
 
 	// Set cookies
 	req.Header.Set("Cookie", session.GetCookieHeader())
@@ -383,7 +394,7 @@ func (m *GrandStreamSessionManager) SetParameters(session *GrandStreamSession, p
 	req.Header.Set("Origin", fmt.Sprintf("http://%s", session.PhoneIP))
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", fmt.Sprintf("http://%s/", session.PhoneIP))
-	req.Header.Set("User-Agent", "RayanPBX/2.0.0 (Go TUI)")
+	req.Header.Set("User-Agent", GetUserAgent())
 	req.Header.Set("Cookie", session.GetCookieHeader())
 
 	resp, err := m.httpClient.Do(req)

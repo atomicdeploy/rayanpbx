@@ -28,7 +28,9 @@ class GrandStreamSessionService
     protected const DEFAULT_SESSION_TTL = 1800; // 30 minutes
 
     protected const ENDPOINT_DOLOGIN = '/cgi-bin/dologin';
+
     protected const ENDPOINT_API_VALUES_GET = '/cgi-bin/api.values.get';
+
     protected const ENDPOINT_API_VALUES_POST = '/cgi-bin/api.values.post';
 
     protected const DEVICE_INFO_PARAMS = [
@@ -54,48 +56,7 @@ class GrandStreamSessionService
 
     public function __construct(?HttpClientService $httpClient = null)
     {
-        $this->httpClient = $httpClient ?? new HttpClientService();
-    }
-
-    /**
-     * Make an HTTP request using PHP's native stream functions.
-     *
-     * GrandStream phones return HTTP/1.0 responses with malformed headers
-     * that Guzzle/cURL cannot parse. Using PHP's native functions provides
-     * maximum compatibility.
-     */
-    protected function nativeHttpRequest(string $url, string $method, array $headers, ?string $body = null): array
-    {
-        $headerStrings = [];
-        foreach ($headers as $name => $value) {
-            $headerStrings[] = "{$name}: {$value}";
-        }
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => $method,
-                'header' => $headerStrings,
-                'content' => $body,
-                'timeout' => 15,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        // Use error suppression since we check the result
-        $response = @file_get_contents($url, false, $context);
-
-        if ($response === false) {
-            $error = error_get_last();
-            return [
-                'success' => false,
-                'error' => $error['message'] ?? 'Request failed',
-            ];
-        }
-
-        return [
-            'success' => true,
-            'body' => $response,
-        ];
+        $this->httpClient = $httpClient ?? new HttpClientService;
     }
 
     /**
@@ -117,6 +78,7 @@ class GrandStreamSessionService
 
         if ($result['success']) {
             $session = $this->storeSession($phone, $result);
+
             return [
                 'success' => true,
                 'session_id' => $session->id,
@@ -128,6 +90,7 @@ class GrandStreamSessionService
         }
 
         Log::warning('GrandStream login failed', ['phone_ip' => $phone->ip, 'error' => $result['error'] ?? 'Unknown error']);
+
         return $result;
     }
 
@@ -137,20 +100,18 @@ class GrandStreamSessionService
     protected function performDologin(string $ip, string $username, string $password): array
     {
         try {
-            $result = $this->nativeHttpRequest(
-                "http://{$ip}" . self::ENDPOINT_DOLOGIN,
-                'POST',
+            $result = $this->httpClient->nativePost(
+                "http://{$ip}".self::ENDPOINT_DOLOGIN,
+                http_build_query(['username' => $username, 'password' => $password]),
                 [
-                    'Content-Type' => 'application/x-www-form-urlencoded',
                     'Cookie' => 'HttpOnly',
-                    'User-Agent' => $this->httpClient->getUserAgent(),
                     'Origin' => "http://{$ip}",
                     'Referer' => "http://{$ip}/",
                 ],
-                http_build_query(['username' => $username, 'password' => $password])
+                15
             );
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 return $result;
             }
 
@@ -161,14 +122,14 @@ class GrandStreamSessionService
             }
 
             $data = json_decode($body, true);
-            if (!$data || ($data['response'] ?? '') !== 'success') {
+            if (! $data || ($data['response'] ?? '') !== 'success') {
                 return ['success' => false, 'error' => 'Login response was not successful', 'body' => $body];
             }
 
             $sid = $data['body']['sid'] ?? null;
             $role = $data['body']['role'] ?? 'admin';
 
-            if (!$sid) {
+            if (! $sid) {
                 return ['success' => false, 'error' => 'No session ID received'];
             }
 
@@ -181,7 +142,8 @@ class GrandStreamSessionService
             ];
         } catch (\Exception $e) {
             Log::error('GrandStream dologin exception', ['ip' => $ip, 'error' => $e->getMessage()]);
-            return ['success' => false, 'error' => 'Exception during login: ' . $e->getMessage()];
+
+            return ['success' => false, 'error' => 'Exception during login: '.$e->getMessage()];
         }
     }
 
@@ -198,7 +160,7 @@ class GrandStreamSessionService
             'last_used_at' => now(),
         ]);
 
-        if (!empty($authResult['cookies'])) {
+        if (! empty($authResult['cookies'])) {
             $session->setCookiesFromArray($authResult['cookies']);
             $session->save();
         }
@@ -211,8 +173,10 @@ class GrandStreamSessionService
         $session = PhoneSession::getValidSession($phone->id);
         if ($session) {
             $session->markUsed();
+
             return $session;
         }
+
         return null;
     }
 
@@ -226,6 +190,7 @@ class GrandStreamSessionService
         $loginResult = $this->login($phone, $credentials);
         if ($loginResult['success']) {
             $session = PhoneSession::find($loginResult['session_id']);
+
             return ['success' => true, 'session' => $session, 'reused' => false];
         }
 
@@ -244,6 +209,7 @@ class GrandStreamSessionService
         foreach ($cookies as $name => $value) {
             $parts[] = $value ? "{$name}={$value}" : $name;
         }
+
         return implode('; ', $parts);
     }
 
@@ -257,25 +223,24 @@ class GrandStreamSessionService
             $cookies = $session->getCookiesArray();
             $sid = $cookies['session-identity'] ?? $session->session_id;
 
-            $result = $this->nativeHttpRequest(
-                "http://{$ip}" . self::ENDPOINT_API_VALUES_GET,
-                'POST',
+            $result = $this->httpClient->nativePost(
+                "http://{$ip}".self::ENDPOINT_API_VALUES_GET,
+                'request='.implode(':', $parameters).'&sid='.$sid,
                 [
-                    'Content-Type' => 'application/x-www-form-urlencoded',
                     'Cookie' => $this->buildCookieHeader($session),
-                    'User-Agent' => $this->httpClient->getUserAgent(),
                     'Origin' => "http://{$ip}",
                 ],
-                'request=' . implode(':', $parameters) . '&sid=' . $sid
+                15
             );
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 return $result;
             }
 
             $body = $result['body'];
             if (str_contains($body, 'session-expired')) {
                 $session->revoke();
+
                 return ['success' => false, 'error' => 'Session expired', 'session_expired' => true];
             }
 
@@ -304,29 +269,28 @@ class GrandStreamSessionService
 
             $formParts = [];
             foreach ($parameters as $name => $value) {
-                $formParts[] = urlencode($name) . '=' . urlencode((string) $value);
+                $formParts[] = urlencode($name).'='.urlencode((string) $value);
             }
-            $formParts[] = 'sid=' . urlencode($sid);
+            $formParts[] = 'sid='.urlencode($sid);
 
-            $result = $this->nativeHttpRequest(
-                "http://{$ip}" . self::ENDPOINT_API_VALUES_POST,
-                'POST',
+            $result = $this->httpClient->nativePost(
+                "http://{$ip}".self::ENDPOINT_API_VALUES_POST,
+                implode('&', $formParts),
                 [
-                    'Content-Type' => 'application/x-www-form-urlencoded',
                     'Cookie' => $this->buildCookieHeader($session),
-                    'User-Agent' => $this->httpClient->getUserAgent(),
                     'Origin' => "http://{$ip}",
                 ],
-                implode('&', $formParts)
+                15
             );
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 return $result;
             }
 
             $body = $result['body'];
             if (str_contains($body, 'session-expired')) {
                 $session->revoke();
+
                 return ['success' => false, 'error' => 'Session expired', 'session_expired' => true];
             }
 
@@ -342,6 +306,7 @@ class GrandStreamSessionService
             ];
         } catch (\Exception $e) {
             Log::error('GrandStream setParameters failed', ['ip' => $ip, 'error' => $e->getMessage()]);
+
             return ['success' => false, 'error' => $e->getMessage()];
         }
     }
@@ -349,16 +314,17 @@ class GrandStreamSessionService
     public function getDeviceInfo(VoipPhone $phone): array
     {
         $sessionResult = $this->getOrCreateSession($phone);
-        if (!$sessionResult['success']) {
-            return ['success' => false, 'error' => 'Failed to establish session: ' . ($sessionResult['error'] ?? 'Unknown error')];
+        if (! $sessionResult['success']) {
+            return ['success' => false, 'error' => 'Failed to establish session: '.($sessionResult['error'] ?? 'Unknown error')];
         }
 
         $result = $this->getParameters($phone->ip, self::DEVICE_INFO_PARAMS, $sessionResult['session']);
-        if (!$result['success']) {
+        if (! $result['success']) {
             return $result;
         }
 
         $data = $result['data'];
+
         return [
             'success' => true,
             'device_info' => [
@@ -378,17 +344,18 @@ class GrandStreamSessionService
     public function getTR069Config(VoipPhone $phone): array
     {
         $sessionResult = $this->getOrCreateSession($phone);
-        if (!$sessionResult['success']) {
+        if (! $sessionResult['success']) {
             return ['success' => false, 'error' => 'Failed to establish session'];
         }
 
         $tr069Params = ['P8020', 'P8021', 'P8023', 'P8024', 'P8025'];
         $result = $this->getParameters($phone->ip, $tr069Params, $sessionResult['session']);
-        if (!$result['success']) {
+        if (! $result['success']) {
             return $result;
         }
 
         $data = $result['data'];
+
         return [
             'success' => true,
             'tr069_config' => [
@@ -405,7 +372,7 @@ class GrandStreamSessionService
     public function syncPhoneInfo(VoipPhone $phone): array
     {
         $deviceInfo = $this->getDeviceInfo($phone);
-        if (!$deviceInfo['success']) {
+        if (! $deviceInfo['success']) {
             return $deviceInfo;
         }
 
@@ -424,16 +391,17 @@ class GrandStreamSessionService
     public function getSipAccount(VoipPhone $phone, int $accountNumber = 1): array
     {
         $sessionResult = $this->getOrCreateSession($phone);
-        if (!$sessionResult['success']) {
-            return ['success' => false, 'error' => 'Failed to establish session: ' . ($sessionResult['error'] ?? 'Unknown')];
+        if (! $sessionResult['success']) {
+            return ['success' => false, 'error' => 'Failed to establish session: '.($sessionResult['error'] ?? 'Unknown')];
         }
 
         $result = $this->getParameters($phone->ip, array_values(self::SIP_ACCOUNT_PARAMS), $sessionResult['session']);
-        if (!$result['success']) {
+        if (! $result['success']) {
             return $result;
         }
 
         $data = $result['data'];
+
         return [
             'success' => true,
             'account_number' => $accountNumber,
@@ -458,8 +426,8 @@ class GrandStreamSessionService
     public function setSipAccount(VoipPhone $phone, array $config, int $accountNumber = 1): array
     {
         $sessionResult = $this->getOrCreateSession($phone);
-        if (!$sessionResult['success']) {
-            return ['success' => false, 'error' => 'Failed to establish session: ' . ($sessionResult['error'] ?? 'Unknown')];
+        if (! $sessionResult['success']) {
+            return ['success' => false, 'error' => 'Failed to establish session: '.($sessionResult['error'] ?? 'Unknown')];
         }
 
         $configMapping = [
@@ -485,7 +453,7 @@ class GrandStreamSessionService
         }
 
         $result = $this->setParameters($phone->ip, $params, $sessionResult['session']);
-        if (!$result['success']) {
+        if (! $result['success']) {
             return $result;
         }
 
@@ -511,6 +479,7 @@ class GrandStreamSessionService
     public function testAuthentication(string $ip, string $username, string $password): array
     {
         $result = $this->performDologin($ip, $username, $password);
+
         return [
             'success' => $result['success'],
             'sid' => $result['sid'] ?? null,
