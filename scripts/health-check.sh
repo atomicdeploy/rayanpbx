@@ -613,15 +613,13 @@ check_laravel_health() {
         fi
     fi
     
+    # Define critical classes to test - centralized list
+    local critical_classes="App\\\\Adapters\\\\AsteriskAdapter,App\\\\Helpers\\\\AsteriskConfig,App\\\\Helpers\\\\AsteriskSection,App\\\\Helpers\\\\AsteriskConfigHelper"
+    
     # Test critical class loading using PHP
     local test_result=$(cd "$backend_dir" && php -r "
         require 'vendor/autoload.php';
-        \$classes = [
-            'App\\\\Adapters\\\\AsteriskAdapter',
-            'App\\\\Helpers\\\\AsteriskConfig',
-            'App\\\\Helpers\\\\AsteriskSection',
-            'App\\\\Helpers\\\\AsteriskConfigHelper'
-        ];
+        \$classes = explode(',', '$critical_classes');
         \$failed = [];
         foreach (\$classes as \$class) {
             if (!class_exists(\$class, true)) {
@@ -645,15 +643,10 @@ check_laravel_health() {
         if [ "$auto_fix" = "true" ]; then
             print_info "Regenerating Composer autoload..."
             if cd "$backend_dir" && composer dump-autoload -o 2>/dev/null; then
-                # Retry the test
+                # Retry the test with same class list
                 local retry_result=$(php -r "
                     require 'vendor/autoload.php';
-                    \$classes = [
-                        'App\\\\Adapters\\\\AsteriskAdapter',
-                        'App\\\\Helpers\\\\AsteriskConfig',
-                        'App\\\\Helpers\\\\AsteriskSection',
-                        'App\\\\Helpers\\\\AsteriskConfigHelper'
-                    ];
+                    \$classes = explode(',', '$critical_classes');
                     foreach (\$classes as \$class) {
                         if (!class_exists(\$class, true)) {
                             echo 'FAIL';
