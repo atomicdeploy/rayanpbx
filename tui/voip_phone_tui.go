@@ -1282,12 +1282,15 @@ func (m *model) executeManualIPAdd() {
 		return
 	}
 	
-	// Detect vendor
-	vendor, err := m.phoneManager.DetectPhoneVendor(ip)
+	// Detect vendor and model
+	vendorAndModel, err := m.phoneManager.DetectPhoneVendorAndModel(ip)
 	if err != nil {
 		m.errorMsg = fmt.Sprintf("Failed to connect to phone: %v", err)
 		return
 	}
+	
+	vendor := vendorAndModel.Vendor
+	model := vendorAndModel.Model
 	
 	// Check if phone already exists, update if so
 	phoneExists := false
@@ -1295,7 +1298,11 @@ func (m *model) executeManualIPAdd() {
 		if existing.IP == ip {
 			phoneExists = true
 			// Update existing phone info
-			m.voipPhones[i].UserAgent = strings.ToUpper(vendor)
+			userAgent := strings.ToUpper(vendor)
+			if model != "" {
+				userAgent = fmt.Sprintf("%s %s", strings.ToUpper(vendor), model)
+			}
+			m.voipPhones[i].UserAgent = userAgent
 			if name != "" {
 				// Store name in UserAgent if provided (TUI limitation)
 				m.voipPhones[i].UserAgent = name
@@ -1313,6 +1320,9 @@ func (m *model) executeManualIPAdd() {
 		displayName := name
 		if displayName == "" {
 			displayName = strings.ToUpper(vendor)
+			if model != "" {
+				displayName = fmt.Sprintf("%s %s", displayName, model)
+			}
 		}
 		newPhone := PhoneInfo{
 			Extension: extension,
@@ -1336,14 +1346,19 @@ func (m *model) executeManualIPAdd() {
 	
 	// Save to database if available
 	if m.db != nil {
+		userAgent := strings.ToUpper(vendor)
+		if model != "" {
+			userAgent = fmt.Sprintf("%s %s", strings.ToUpper(vendor), model)
+		}
 		dbPhone := &VoIPPhoneDB{
 			IP:            ip,
 			Name:          name,
 			Extension:     extension,
 			Vendor:        vendor,
+			Model:         model,
 			Status:        "discovered",
 			DiscoveryType: "manual",
-			UserAgent:     strings.ToUpper(vendor),
+			UserAgent:     userAgent,
 		}
 		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
 			// Non-fatal error, just log it
@@ -1354,10 +1369,16 @@ func (m *model) executeManualIPAdd() {
 		}
 	}
 	
+	// Create message with model if available
+	displayInfo := vendor
+	if model != "" {
+		displayInfo = fmt.Sprintf("%s %s", vendor, model)
+	}
+	
 	if phoneExists {
-		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, vendor)
+		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, displayInfo)
 	} else {
-		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendor)
+		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, displayInfo)
 	}
 	m.inputMode = false
 	m.currentScreen = voipPhonesScreen

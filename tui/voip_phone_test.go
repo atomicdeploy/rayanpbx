@@ -121,6 +121,118 @@ func TestDetectPhoneVendor(t *testing.T) {
 	}
 }
 
+// TestDetectPhoneVendorAndModel tests vendor and model detection from HTTP response
+func TestDetectPhoneVendorAndModel(t *testing.T) {
+	tests := []struct {
+		name           string
+		header         string
+		body           string
+		expectedVendor string
+		expectedModel  string
+	}{
+		{
+			name:           "GrandStream GXP1630 in body",
+			header:         "",
+			body:           "<html><body>GrandStream GXP1630 IP Phone</body></html>",
+			expectedVendor: "grandstream",
+			expectedModel:  "GXP1630",
+		},
+		{
+			name:           "GrandStream GXP1625 in body with version",
+			header:         "",
+			body:           "<html><title>GXP1625 1.0.7.64</title></html>",
+			expectedVendor: "grandstream",
+			expectedModel:  "GXP1625",
+		},
+		{
+			name:           "Yealink SIP-T46S in body",
+			header:         "",
+			body:           "<html><body>Yealink SIP-T46S VoIP Phone</body></html>",
+			expectedVendor: "yealink",
+			expectedModel:  "SIP-T46S",
+		},
+		{
+			name:           "GrandStream in header with model in body",
+			header:         "GrandStream/1.0",
+			body:           "<html><body>Model: GXP1628</body></html>",
+			expectedVendor: "grandstream",
+			expectedModel:  "GXP1628",
+		},
+		{
+			name:           "GrandStream GRP series",
+			header:         "",
+			body:           "<html><body>GrandStream GRP2612 IP Phone</body></html>",
+			expectedVendor: "grandstream",
+			expectedModel:  "GRP2612",
+		},
+		{
+			name:           "GrandStream GXV video phone",
+			header:         "",
+			body:           "<html><body>GrandStream GXV3370 Video Phone</body></html>",
+			expectedVendor: "grandstream",
+			expectedModel:  "GXV3370",
+		},
+		{
+			name:           "Polycom VVX in body",
+			header:         "",
+			body:           "<html><body>Polycom VVX411 Business Phone</body></html>",
+			expectedVendor: "polycom",
+			expectedModel:  "VVX411",
+		},
+		{
+			name:           "Cisco SPA in body",
+			header:         "",
+			body:           "<html><body>Cisco SPA504G IP Phone</body></html>",
+			expectedVendor: "cisco",
+			expectedModel:  "SPA504G",
+		},
+		{
+			name:           "GrandStream vendor only no model",
+			header:         "GrandStream/1.0",
+			body:           "<html><body>Generic page</body></html>",
+			expectedVendor: "grandstream",
+			expectedModel:  "",
+		},
+		{
+			name:           "Unknown vendor",
+			header:         "Generic/1.0",
+			body:           "Generic phone",
+			expectedVendor: "unknown",
+			expectedModel:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test server
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.header != "" {
+					w.Header().Set("Server", tt.header)
+				}
+				w.Write([]byte(tt.body))
+			}))
+			defer ts.Close()
+
+			pm := NewPhoneManager(NewAsteriskManager())
+			// Extract just the host:port from test server URL
+			ip := ts.URL[7:] // Remove "http://"
+
+			result, err := pm.DetectPhoneVendorAndModel(ip)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if result.Vendor != tt.expectedVendor {
+				t.Errorf("Expected vendor %s, got %s", tt.expectedVendor, result.Vendor)
+			}
+
+			if result.Model != tt.expectedModel {
+				t.Errorf("Expected model %s, got %s", tt.expectedModel, result.Model)
+			}
+		})
+	}
+}
+
 // TestCreatePhone tests creating phone instances
 func TestCreatePhone(t *testing.T) {
 	pm := NewPhoneManager(NewAsteriskManager())
