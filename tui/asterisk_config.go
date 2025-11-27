@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
@@ -27,79 +26,117 @@ func NewAsteriskConfigManager(verbose bool) *AsteriskConfigManager {
 
 // GeneratePjsipEndpoint generates PJSIP configuration for an extension
 // Uses best-practice defaults from "Config #2" style while allowing customization
-func (acm *AsteriskConfigManager) GeneratePjsipEndpoint(ext Extension) string {
-	var config strings.Builder
-
-	config.WriteString(fmt.Sprintf("\n; BEGIN MANAGED - Extension %s\n", ext.ExtensionNumber))
-	
-	// Endpoint section
-	config.WriteString(fmt.Sprintf("[%s]\n", ext.ExtensionNumber))
-	config.WriteString("type=endpoint\n")
-	config.WriteString(fmt.Sprintf("context=%s\n", ext.Context))
-	config.WriteString("disallow=all\n")
-	
-	// Add codecs from user configuration or defaults
-	// Default codecs provide good compatibility: ulaw (US), alaw (EU), g722 (HD audio)
+// Returns the sections that should be added to the config
+func (acm *AsteriskConfigManager) GeneratePjsipEndpoint(ext Extension) []*AsteriskSection {
+	// Parse codecs
 	codecList := []string{"ulaw", "alaw", "g722"}
 	if ext.Codecs != "" {
-		// Parse user-specified codecs
 		codecList = strings.Split(ext.Codecs, ",")
 	}
-	for _, codec := range codecList {
-		codec = strings.TrimSpace(codec)
-		if codec != "" {
-			config.WriteString(fmt.Sprintf("allow=%s\n", codec))
-		}
-	}
-	
-	config.WriteString(fmt.Sprintf("transport=%s\n", ext.Transport))
-	config.WriteString(fmt.Sprintf("auth=%s\n", ext.ExtensionNumber))
-	config.WriteString(fmt.Sprintf("aors=%s\n", ext.ExtensionNumber))
-	
-	// direct_media: Controls whether RTP goes directly between endpoints
-	// "no" is recommended for NAT/firewall scenarios (safer default)
-	// "yes" can be used in pure LAN environments for reduced server load
+
+	// Set default direct_media if not specified
 	directMedia := ext.DirectMedia
 	if directMedia == "" {
 		directMedia = "no"
 	}
-	config.WriteString(fmt.Sprintf("direct_media=%s\n", directMedia))
-	
-	if ext.CallerID != "" {
-		config.WriteString(fmt.Sprintf("callerid=%s\n", ext.CallerID))
-	}
-	
-	// Auth section
-	config.WriteString(fmt.Sprintf("\n[%s]\n", ext.ExtensionNumber))
-	config.WriteString("type=auth\n")
-	config.WriteString("auth_type=userpass\n")
-	config.WriteString(fmt.Sprintf("username=%s\n", ext.ExtensionNumber))
-	config.WriteString(fmt.Sprintf("password=%s\n", ext.Secret))
-	
-	// AOR section (Address of Record)
-	config.WriteString(fmt.Sprintf("\n[%s]\n", ext.ExtensionNumber))
-	config.WriteString("type=aor\n")
-	config.WriteString(fmt.Sprintf("max_contacts=%d\n", ext.MaxContacts))
-	
-	// remove_existing=yes: Clears old registrations when a new one arrives
-	// This helps avoid stale registration issues
-	config.WriteString("remove_existing=yes\n")
-	
-	// qualify_frequency: How often Asterisk pings the device to check if it's alive
-	// 60 seconds is a good balance between responsiveness and overhead
-	// 0 = disabled (user explicitly chose to disable)
-	qualifyFreq := ext.QualifyFrequency
-	// Only use default if qualify_frequency is 0 and wasn't explicitly set
-	// We check if it equals the default value from the struct (which is 0 when not set)
-	// and the user didn't provide it in the form
-	config.WriteString(fmt.Sprintf("qualify_frequency=%d\n", qualifyFreq))
-	
-	config.WriteString(fmt.Sprintf("; END MANAGED - Extension %s\n", ext.ExtensionNumber))
-	
-	return config.String()
+
+	// Create sections using the helper function
+	return CreatePjsipEndpointSections(
+		ext.ExtensionNumber,
+		ext.Secret,
+		ext.Context,
+		ext.Transport,
+		codecList,
+		directMedia,
+		ext.CallerID,
+		ext.MaxContacts,
+		ext.QualifyFrequency,
+		ext.VoicemailEnabled,
+	)
 }
 
-// WritePjsipConfig writes or updates PJSIP configuration
+// GeneratePjsipEndpointString generates PJSIP configuration for an extension as a string
+// This maintains backward compatibility with code that expects a string output
+func (acm *AsteriskConfigManager) GeneratePjsipEndpointString(ext Extension) string {
+	sections := acm.GeneratePjsipEndpoint(ext)
+	var sb strings.Builder
+
+	for i, section := range sections {
+		sb.WriteString(section.String())
+		if i < len(sections)-1 {
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// WritePjsipConfigSections writes or updates PJSIP configuration using sections
+func (acm *AsteriskConfigManager) WritePjsipConfigSections(sections []*AsteriskSection, identifier string) error {
+	cyan := color.New(color.FgCyan)
+	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
+	red := color.New(color.FgRed)
+
+	if acm.verbose {
+		cyan.Printf("📝 Updating configuration file: %s\n", acm.pjsipConfigPath)
+		cyan.Printf("   Identifier: %s\n", identifier)
+	}
+
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(acm.pjsipConfigPath); os.IsNotExist(statErr) {
+		// Create new config with header
+		yellow.Printf("⚠️  Config file not found, creating: %s\n", acm.pjsipConfigPath)
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX PJSIP Configuration", "; Generated by RayanPBX TUI", ""},
+			Sections:    []*AsteriskSection{},
+			FilePath:    acm.pjsipConfigPath,
+		}
+	} else {
+		config, err = ParseAsteriskConfig(acm.pjsipConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to read config file: %v", err)
+		}
+	}
+
+	// Remove any existing sections with this identifier (extension number)
+	// The identifier could be "Extension 101" format, extract the extension number
+	extNumber := identifier
+	if strings.HasPrefix(identifier, "Extension ") {
+		extNumber = strings.TrimPrefix(identifier, "Extension ")
+	}
+	config.RemoveSectionsByName(extNumber)
+
+	// Add new sections
+	for _, section := range sections {
+		config.AddSection(section)
+	}
+
+	// Write to file
+	err = config.Save()
+	if err != nil {
+		red.Printf("❌ Failed to write config file: %v\n", err)
+		yellow.Println("💡 Tip: Make sure the TUI has write permissions to /etc/asterisk/")
+		yellow.Println("💡 Try running with: sudo rayanpbx-tui")
+		return fmt.Errorf("failed to write config file: %v", err)
+	}
+
+	if acm.verbose {
+		green.Printf("✅ Configuration updated successfully\n")
+		green.Printf("   File: %s\n", acm.pjsipConfigPath)
+	}
+
+	// Commit changes to Git repository
+	acm.CommitConfigChange("pjsip-update", fmt.Sprintf("Updated PJSIP config: %s", identifier))
+
+	return nil
+}
+
+// WritePjsipConfig writes or updates PJSIP configuration for an extension
+// Accepts string content for backward compatibility
 func (acm *AsteriskConfigManager) WritePjsipConfig(content, identifier string) error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
@@ -111,29 +148,45 @@ func (acm *AsteriskConfigManager) WritePjsipConfig(content, identifier string) e
 		cyan.Printf("   Identifier: %s\n", identifier)
 	}
 
-	// Check if file exists
-	existingContent, err := os.ReadFile(acm.pjsipConfigPath)
-	if err != nil {
-		// If file doesn't exist, try to create it with proper header
-		if os.IsNotExist(err) {
-			yellow.Printf("⚠️  Config file not found, creating: %s\n", acm.pjsipConfigPath)
-			header := "; RayanPBX PJSIP Configuration\n; Generated by RayanPBX TUI\n\n"
-			existingContent = []byte(header)
-		} else {
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(acm.pjsipConfigPath); os.IsNotExist(statErr) {
+		// Create new config with header
+		yellow.Printf("⚠️  Config file not found, creating: %s\n", acm.pjsipConfigPath)
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX PJSIP Configuration", "; Generated by RayanPBX TUI", ""},
+			Sections:    []*AsteriskSection{},
+			FilePath:    acm.pjsipConfigPath,
+		}
+	} else {
+		config, err = ParseAsteriskConfig(acm.pjsipConfigPath)
+		if err != nil {
 			return fmt.Errorf("failed to read config file: %v", err)
 		}
 	}
 
-	// Remove old managed section for this identifier
-	pattern := fmt.Sprintf(`(?s); BEGIN MANAGED - %s.*?; END MANAGED - %s\n`, regexp.QuoteMeta(identifier), regexp.QuoteMeta(identifier))
-	re := regexp.MustCompile(pattern)
-	newContent := re.ReplaceAllString(string(existingContent), "")
+	// Remove any existing sections with this identifier (extension number)
+	// The identifier could be "Extension 101" format, extract the extension number
+	extNumber := identifier
+	if strings.HasPrefix(identifier, "Extension ") {
+		extNumber = strings.TrimPrefix(identifier, "Extension ")
+	}
+	config.RemoveSectionsByName(extNumber)
 
-	// Append new config
-	newContent += content
+	// Parse the new content as sections and add them
+	newConfig, err := ParseAsteriskConfigContent(content, "")
+	if err != nil {
+		return fmt.Errorf("failed to parse new config content: %v", err)
+	}
+
+	for _, section := range newConfig.Sections {
+		config.AddSection(section)
+	}
 
 	// Write to file
-	err = os.WriteFile(acm.pjsipConfigPath, []byte(newContent), 0644)
+	err = config.Save()
 	if err != nil {
 		red.Printf("❌ Failed to write config file: %v\n", err)
 		yellow.Println("💡 Tip: Make sure the TUI has write permissions to /etc/asterisk/")
@@ -162,25 +215,36 @@ func (acm *AsteriskConfigManager) RemovePjsipConfig(identifier string) error {
 		cyan.Printf("🗑️  Removing configuration for: %s\n", identifier)
 	}
 
-	existingContent, err := os.ReadFile(acm.pjsipConfigPath)
+	config, err := ParseAsteriskConfig(acm.pjsipConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	// Remove managed section
-	pattern := fmt.Sprintf(`(?s); BEGIN MANAGED - %s.*?; END MANAGED - %s\n`, regexp.QuoteMeta(identifier), regexp.QuoteMeta(identifier))
-	re := regexp.MustCompile(pattern)
-	newContent := re.ReplaceAllString(string(existingContent), "")
+	// Extract the section name from the identifier
+	// The identifier could be "Extension 101" format
+	sectionName := identifier
+	if strings.HasPrefix(identifier, "Extension ") {
+		sectionName = strings.TrimPrefix(identifier, "Extension ")
+	}
+
+	// Remove all sections with this name (endpoint, auth, aor)
+	removed := config.RemoveSectionsByName(sectionName)
+
+	if removed == 0 {
+		if acm.verbose {
+			cyan.Printf("   No sections found for: %s\n", sectionName)
+		}
+	}
 
 	// Write back
-	err = os.WriteFile(acm.pjsipConfigPath, []byte(newContent), 0644)
+	err = config.Save()
 	if err != nil {
 		red.Printf("❌ Failed to write config file: %v\n", err)
 		return fmt.Errorf("failed to write config file: %v", err)
 	}
 
 	if acm.verbose {
-		green.Printf("✅ Configuration removed successfully\n")
+		green.Printf("✅ Configuration removed successfully (%d sections)\n", removed)
 	}
 
 	// Commit changes to Git repository
@@ -242,29 +306,17 @@ func (acm *AsteriskConfigManager) ReloadAsterisk() error {
 
 // GenerateTransportConfig generates complete PJSIP transport configuration
 func (acm *AsteriskConfigManager) GenerateTransportConfig() string {
-	var config strings.Builder
+	sections := CreateTransportSections()
+	var sb strings.Builder
 
-	config.WriteString("; BEGIN MANAGED - RayanPBX Transports\n")
-	config.WriteString("; Generated by RayanPBX - SIP Transports Configuration\n\n")
-	
-	// UDP Transport (primary - most common)
-	config.WriteString("[transport-udp]\n")
-	config.WriteString("type=transport\n")
-	config.WriteString("protocol=udp\n")
-	config.WriteString("bind=0.0.0.0:5060\n")
-	config.WriteString("allow_reload=yes\n")
-	config.WriteString("\n")
-	
-	// TCP Transport (for reliability and NAT traversal)
-	config.WriteString("[transport-tcp]\n")
-	config.WriteString("type=transport\n")
-	config.WriteString("protocol=tcp\n")
-	config.WriteString("bind=0.0.0.0:5060\n")
-	config.WriteString("allow_reload=yes\n")
-	
-	config.WriteString("; END MANAGED - RayanPBX Transports\n")
-	
-	return config.String()
+	for i, section := range sections {
+		sb.WriteString(section.String())
+		if i < len(sections)-1 {
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
 }
 
 // EnsureTransportConfig ensures transport configuration exists in pjsip.conf
@@ -278,32 +330,31 @@ func (acm *AsteriskConfigManager) EnsureTransportConfig() error {
 		cyan.Println("📡 Checking PJSIP transport configuration...")
 	}
 
-	// Read existing config
-	existingContent, err := os.ReadFile(acm.pjsipConfigPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Create new file with transport config
-			if acm.verbose {
-				yellow.Printf("⚠️  Config file not found, creating: %s\n", acm.pjsipConfigPath)
-			}
-			header := "; RayanPBX PJSIP Configuration\n; Generated by RayanPBX\n\n"
-			transportConfig := acm.GenerateTransportConfig()
-			if err := os.WriteFile(acm.pjsipConfigPath, []byte(header+transportConfig), 0644); err != nil {
-				return err
-			}
-			// Commit changes to Git repository
-			acm.CommitConfigChange("transport-init", "Created pjsip.conf with transport configuration")
-			return nil
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(acm.pjsipConfigPath); os.IsNotExist(statErr) {
+		// Create new file with transport config
+		if acm.verbose {
+			yellow.Printf("⚠️  Config file not found, creating: %s\n", acm.pjsipConfigPath)
 		}
-		return fmt.Errorf("failed to read config file: %v", err)
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX PJSIP Configuration", "; Generated by RayanPBX", ""},
+			Sections:    []*AsteriskSection{},
+			FilePath:    acm.pjsipConfigPath,
+		}
+	} else {
+		config, err = ParseAsteriskConfig(acm.pjsipConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to read config file: %v", err)
+		}
 	}
 
-	content := string(existingContent)
-	
-	// Check if transport configuration exists
-	hasUDPTransport := strings.Contains(content, "[transport-udp]") && strings.Contains(content, "type=transport")
-	hasTCPTransport := strings.Contains(content, "[transport-tcp]") && strings.Contains(content, "type=transport")
-	
+	// Check if both transports exist
+	hasUDPTransport := config.HasSectionWithType("transport-udp", "transport")
+	hasTCPTransport := config.HasSectionWithType("transport-tcp", "transport")
+
 	if hasUDPTransport && hasTCPTransport {
 		if acm.verbose {
 			green.Println("✅ PJSIP transports already configured")
@@ -315,40 +366,21 @@ func (acm *AsteriskConfigManager) EnsureTransportConfig() error {
 		yellow.Println("⚠️  Transport configuration incomplete, updating...")
 	}
 
-	// Remove old RayanPBX transport section if exists
-	pattern := `(?s); BEGIN MANAGED - RayanPBX Transports.*?; END MANAGED - RayanPBX Transports\n`
-	re := regexp.MustCompile(pattern)
-	content = re.ReplaceAllString(content, "")
+	// Remove old transport sections if they exist (to ensure clean state)
+	config.RemoveSectionsByName("transport-udp")
+	config.RemoveSectionsByName("transport-tcp")
 
-	// Add transport config at the beginning (after any header comments)
-	transportConfig := acm.GenerateTransportConfig()
+	// Add new transport sections at the beginning of sections
+	transportSections := CreateTransportSections()
 	
-	// Find a good place to insert - after initial comments or at the beginning
-	if strings.HasPrefix(content, ";") {
-		// Find end of initial comments
-		lines := strings.Split(content, "\n")
-		insertIdx := 0
-		for i, line := range lines {
-			if !strings.HasPrefix(strings.TrimSpace(line), ";") && strings.TrimSpace(line) != "" {
-				insertIdx = i
-				break
-			}
-			insertIdx = i + 1
-		}
-		
-		// Insert transport config
-		beforeInsert := strings.Join(lines[:insertIdx], "\n")
-		if insertIdx > 0 {
-			beforeInsert += "\n\n"
-		}
-		afterInsert := strings.Join(lines[insertIdx:], "\n")
-		content = beforeInsert + transportConfig + "\n" + afterInsert
-	} else {
-		content = transportConfig + "\n" + content
-	}
+	// Prepend transport sections
+	newSections := make([]*AsteriskSection, 0, len(transportSections)+len(config.Sections))
+	newSections = append(newSections, transportSections...)
+	newSections = append(newSections, config.Sections...)
+	config.Sections = newSections
 
 	// Write updated config
-	err = os.WriteFile(acm.pjsipConfigPath, []byte(content), 0644)
+	err = config.Save()
 	if err != nil {
 		red.Printf("❌ Failed to write transport config: %v\n", err)
 		return fmt.Errorf("failed to write config file: %v", err)
@@ -368,8 +400,7 @@ func (acm *AsteriskConfigManager) EnsureTransportConfig() error {
 func (acm *AsteriskConfigManager) GenerateInternalDialplan(extensions []Extension) string {
 	var config strings.Builder
 
-	config.WriteString("\n; BEGIN MANAGED - RayanPBX Internal Extensions\n")
-	config.WriteString("[internal]\n")
+	config.WriteString("\n[internal]\n")
 	
 	// Add individual extension rules
 	for _, ext := range extensions {
@@ -392,9 +423,7 @@ func (acm *AsteriskConfigManager) GenerateInternalDialplan(extensions []Extensio
 	config.WriteString("; Pattern match for all extensions\n")
 	config.WriteString("exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})\n")
 	config.WriteString(" same => n,Dial(PJSIP/${EXTEN},30)\n")
-	config.WriteString(" same => n,Hangup()\n\n")
-	
-	config.WriteString("; END MANAGED - RayanPBX Internal Extensions\n")
+	config.WriteString(" same => n,Hangup()\n")
 	
 	return config.String()
 }
@@ -413,29 +442,40 @@ func (acm *AsteriskConfigManager) WriteDialplanConfig(content, identifier string
 		cyan.Printf("   Identifier: %s\n", identifier)
 	}
 
-	// Check if file exists
-	existingContent, err := os.ReadFile(extensionsConfigPath)
-	if err != nil {
-		// If file doesn't exist, try to create it with proper header
-		if os.IsNotExist(err) {
-			yellow.Printf("⚠️  Dialplan file not found, creating: %s\n", extensionsConfigPath)
-			header := "; RayanPBX Dialplan Configuration\n; Generated by RayanPBX TUI\n\n"
-			existingContent = []byte(header)
-		} else {
+	// Parse existing config or create new one
+	var config *AsteriskConfig
+	var err error
+
+	if _, statErr := os.Stat(extensionsConfigPath); os.IsNotExist(statErr) {
+		yellow.Printf("⚠️  Dialplan file not found, creating: %s\n", extensionsConfigPath)
+		config = &AsteriskConfig{
+			HeaderLines: []string{"; RayanPBX Dialplan Configuration", "; Generated by RayanPBX TUI", ""},
+			Sections:    []*AsteriskSection{},
+			FilePath:    extensionsConfigPath,
+		}
+	} else {
+		config, err = ParseAsteriskConfig(extensionsConfigPath)
+		if err != nil {
 			return fmt.Errorf("failed to read dialplan file: %v", err)
 		}
 	}
 
-	// Remove old managed section for this identifier
-	pattern := fmt.Sprintf(`(?s); BEGIN MANAGED - %s.*?; END MANAGED - %s\n`, regexp.QuoteMeta(identifier), regexp.QuoteMeta(identifier))
-	re := regexp.MustCompile(pattern)
-	newContent := re.ReplaceAllString(string(existingContent), "")
+	// For dialplan, we replace the [internal] context with the new content
+	// Remove existing internal context
+	config.RemoveSectionsByName("internal")
 
-	// Append new config
-	newContent += content
+	// Parse the new content and add it
+	newConfig, err := ParseAsteriskConfigContent(content, "")
+	if err != nil {
+		return fmt.Errorf("failed to parse new dialplan content: %v", err)
+	}
+
+	for _, section := range newConfig.Sections {
+		config.AddSection(section)
+	}
 
 	// Write to file
-	err = os.WriteFile(extensionsConfigPath, []byte(newContent), 0644)
+	err = config.Save()
 	if err != nil {
 		red.Printf("❌ Failed to write dialplan file: %v\n", err)
 		yellow.Println("💡 Tip: Make sure the TUI has write permissions to /etc/asterisk/")

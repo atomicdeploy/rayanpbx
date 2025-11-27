@@ -2566,8 +2566,8 @@ func (m *model) createExtension() {
 	}
 
 	// Generate and write PJSIP configuration
-	config := m.configManager.GeneratePjsipEndpoint(ext)
-	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+	sections := m.configManager.GeneratePjsipEndpoint(ext)
+	if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
 		m.errorMsg = fmt.Sprintf("Extension created in DB but failed to write config: %v", err)
 		m.successMsg = fmt.Sprintf("Extension %s created (DB only - config write failed)", m.inputValues[extFieldNumber])
 	} else {
@@ -2701,8 +2701,8 @@ func (m *model) editExtension() {
 	}
 	
 	// Generate and write updated config
-	config := m.configManager.GeneratePjsipEndpoint(ext)
-	if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+	sections := m.configManager.GeneratePjsipEndpoint(ext)
+	if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
 		m.errorMsg = fmt.Sprintf("Extension updated in DB but failed to write config: %v", err)
 		m.successMsg = fmt.Sprintf("Extension %s updated (config write failed)", newNumber)
 	} else {
@@ -2797,8 +2797,8 @@ func (m *model) toggleExtension() {
 	
 	if newEnabled {
 		// Extension is being enabled - write PJSIP config
-		config := m.configManager.GeneratePjsipEndpoint(updatedExt)
-		if err := m.configManager.WritePjsipConfig(config, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+		sections := m.configManager.GeneratePjsipEndpoint(updatedExt)
+		if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
 			m.errorMsg = fmt.Sprintf("Extension toggled in DB but failed to write config: %v", err)
 			m.successMsg = fmt.Sprintf("Extension %s enabled (config write failed)", ext.ExtensionNumber)
 		} else {

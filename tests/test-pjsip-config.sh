@@ -46,7 +46,7 @@ if [[ -f /etc/asterisk/pjsip.conf ]]; then
         
         cat >> /etc/asterisk/pjsip.conf << 'EOF'
 
-; BEGIN MANAGED - RayanPBX Transports
+; RayanPBX SIP Transports Configuration
 [transport-udp]
 type=transport
 protocol=udp
@@ -58,7 +58,7 @@ type=transport
 protocol=tcp
 bind=0.0.0.0:5060
 allow_reload=yes
-; END MANAGED - RayanPBX Transports
+
 EOF
         echo -e "${GREEN}   ✓ Transport configuration added${NC}"
     fi
@@ -74,7 +74,7 @@ type=global
 max_forwards=70
 keep_alive_interval=90
 
-; BEGIN MANAGED - RayanPBX Transports
+; RayanPBX SIP Transports Configuration
 [transport-udp]
 type=transport
 protocol=udp
@@ -86,7 +86,6 @@ type=transport
 protocol=tcp
 bind=0.0.0.0:5060
 allow_reload=yes
-; END MANAGED - RayanPBX Transports
 
 EOF
     echo -e "${GREEN}   ✓ Basic pjsip.conf created${NC}"
@@ -106,13 +105,13 @@ if [[ -f /etc/asterisk/extensions.conf ]]; then
         
         cat >> /etc/asterisk/extensions.conf << 'EOF'
 
-; BEGIN MANAGED - RayanPBX Internal Extensions
+; RayanPBX Internal Extensions
 [internal]
 ; Pattern match for all extensions
 exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})
  same => n,Dial(PJSIP/${EXTEN},30)
  same => n,Hangup()
-; END MANAGED - RayanPBX Internal Extensions
+
 EOF
         echo -e "${GREEN}   ✓ Internal context added${NC}"
     fi

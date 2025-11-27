@@ -392,8 +392,8 @@ func (esm *ExtensionSyncManager) SyncDatabaseToAsterisk(extNumber string) error 
 	}
 	
 	// Generate and write PJSIP config
-	config := esm.asteriskConfigMgr.GeneratePjsipEndpoint(*ext)
-	err = esm.asteriskConfigMgr.WritePjsipConfig(config, fmt.Sprintf("Extension %s", extNumber))
+	sections := esm.asteriskConfigMgr.GeneratePjsipEndpoint(*ext)
+	err = esm.asteriskConfigMgr.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", extNumber))
 	if err != nil {
 		return fmt.Errorf("failed to write PJSIP config: %w", err)
 	}

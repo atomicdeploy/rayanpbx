@@ -28,26 +28,41 @@ func TestGenerateHelloWorldExtension(t *testing.T) {
 	configManager := NewAsteriskConfigManager(false)
 	setup := NewHelloWorldSetup(configManager, asteriskManager, false)
 
-	config := setup.GenerateHelloWorldExtension()
+	sections := setup.GenerateHelloWorldExtension()
 
-	// Check for expected content
-	expectedStrings := []string{
-		"; BEGIN MANAGED - RayanPBX Hello World Extension",
-		"[101]",
-		"type=endpoint",
-		"context=from-internal",
-		"type=auth",
-		"password=101pass",
-		"username=101",
-		"type=aor",
-		"max_contacts=1",
-		"; END MANAGED - RayanPBX Hello World Extension",
+	// Check that we get 3 sections (endpoint, auth, aor)
+	if len(sections) != 3 {
+		t.Errorf("Expected 3 sections, got %d", len(sections))
 	}
 
-	for _, expected := range expectedStrings {
-		if !strings.Contains(config, expected) {
-			t.Errorf("Expected config to contain '%s'", expected)
-		}
+	// Check endpoint section
+	endpoint := sections[0]
+	if endpoint.Name != "101" || endpoint.Type != "endpoint" {
+		t.Errorf("Expected endpoint section for 101, got %s/%s", endpoint.Name, endpoint.Type)
+	}
+	ctx, _ := endpoint.GetProperty("context")
+	if ctx != "from-internal" {
+		t.Errorf("Expected context 'from-internal', got '%s'", ctx)
+	}
+
+	// Check auth section
+	auth := sections[1]
+	if auth.Name != "101" || auth.Type != "auth" {
+		t.Errorf("Expected auth section for 101, got %s/%s", auth.Name, auth.Type)
+	}
+	pass, _ := auth.GetProperty("password")
+	if pass != "101pass" {
+		t.Errorf("Expected password '101pass', got '%s'", pass)
+	}
+
+	// Check aor section
+	aor := sections[2]
+	if aor.Name != "101" || aor.Type != "aor" {
+		t.Errorf("Expected aor section for 101, got %s/%s", aor.Name, aor.Type)
+	}
+	maxContacts, _ := aor.GetProperty("max_contacts")
+	if maxContacts != "1" {
+		t.Errorf("Expected max_contacts '1', got '%s'", maxContacts)
 	}
 }
 
@@ -58,15 +73,13 @@ func TestGenerateHelloWorldDialplan(t *testing.T) {
 
 	config := setup.GenerateHelloWorldDialplan()
 
-	// Check for expected content
+	// Check for expected content (dialplan is still string-based)
 	expectedStrings := []string{
-		"; BEGIN MANAGED - RayanPBX Hello World Dialplan",
 		"[from-internal]",
 		"exten = 100,1,Answer()",
 		"same = n,Wait(1)",
 		"same = n,Playback(hello-world)",
 		"same = n,Hangup()",
-		"; END MANAGED - RayanPBX Hello World Dialplan",
 	}
 
 	for _, expected := range expectedStrings {
@@ -81,22 +94,27 @@ func TestGenerateTransportConfig(t *testing.T) {
 	configManager := NewAsteriskConfigManager(false)
 	setup := NewHelloWorldSetup(configManager, asteriskManager, false)
 
-	config := setup.GenerateTransportConfig()
+	sections := setup.GenerateTransportConfig()
 
-	// Check for expected content
-	expectedStrings := []string{
-		"; BEGIN MANAGED - RayanPBX Transport",
-		"[transport-udp]",
-		"type=transport",
-		"protocol=udp",
-		"bind=0.0.0.0",
-		"; END MANAGED - RayanPBX Transport",
+	// Check that we get 2 sections (UDP and TCP transports)
+	if len(sections) != 2 {
+		t.Errorf("Expected 2 transport sections, got %d", len(sections))
 	}
 
-	for _, expected := range expectedStrings {
-		if !strings.Contains(config, expected) {
-			t.Errorf("Expected transport config to contain '%s'", expected)
-		}
+	// Check UDP transport
+	udp := sections[0]
+	if udp.Name != "transport-udp" || udp.Type != "transport" {
+		t.Errorf("Expected transport-udp section, got %s/%s", udp.Name, udp.Type)
+	}
+	proto, _ := udp.GetProperty("protocol")
+	if proto != "udp" {
+		t.Errorf("Expected protocol 'udp', got '%s'", proto)
+	}
+
+	// Check TCP transport
+	tcp := sections[1]
+	if tcp.Name != "transport-tcp" || tcp.Type != "transport" {
+		t.Errorf("Expected transport-tcp section, got %s/%s", tcp.Name, tcp.Type)
 	}
 }
 
