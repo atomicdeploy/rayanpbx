@@ -1117,6 +1117,23 @@ cmd_diag_reapply_ami() {
     fi
 }
 
+# Check Laravel backend health (autoload, classes, etc.)
+cmd_diag_check_laravel() {
+    local auto_fix="${1:-true}"
+    
+    print_header "🔍 Laravel Backend Health Check"
+    
+    local script_path="$SCRIPT_DIR/health-check.sh"
+    
+    if [ ! -f "$script_path" ]; then
+        print_error "Health check script not found at $script_path"
+        exit 1
+    fi
+    
+    # Run the check-laravel command from health-check.sh
+    bash "$script_path" check-laravel "/opt/rayanpbx/backend" "$auto_fix"
+}
+
 # SIP Testing commands
 cmd_sip_test_tools() {
     print_header "🔧 SIP Testing Tools"
@@ -2112,6 +2129,7 @@ cmd_help() {
         echo -e "   ${GREEN}health-check${NC}                      Run system health check"
         echo -e "   ${GREEN}check-sip${NC} [port] [auto-fix]       Check SIP port is listening (validates connection)"
         echo -e "   ${GREEN}check-ami${NC} [auto-fix]              Check AMI socket health and optionally auto-fix"
+        echo -e "   ${GREEN}check-laravel${NC} [auto-fix]          Check Laravel autoload and class loading"
         echo -e "   ${GREEN}fix-ami${NC}                           Fix AMI credentials (extract from manager.conf → .env)"
         echo -e "   ${GREEN}reapply-ami${NC}                       Reapply AMI credentials from .env to manager.conf"
         echo ""
@@ -2366,6 +2384,7 @@ main() {
                 health-check) cmd_diag_health_check ;;
                 check-sip) cmd_diag_check_sip "${3:-}" "${4:-}" ;;
                 check-ami) cmd_diag_check_ami "${3:-true}" ;;
+                check-laravel) cmd_diag_check_laravel "${3:-true}" ;;
                 fix-ami) shift 2; cmd_diag_fix_ami "$@" ;;
                 reapply-ami) cmd_diag_reapply_ami ;;
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
