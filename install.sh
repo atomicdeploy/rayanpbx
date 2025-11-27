@@ -16,7 +16,7 @@ readonly SCRIPT_VERSION
 # Configuration Variables
 # ════════════════════════════════════════════════════════════════════════
 
-VERBOSE=false
+export VERBOSE=false
 DRY_RUN=false
 UPGRADE_MODE=false
 CREATE_BACKUP=false
