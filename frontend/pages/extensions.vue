@@ -218,7 +218,7 @@
     </div>
 
     <!-- Modal for Add/Edit -->
-    <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="showModal = false">
+    <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="closeModal">
       <div class="flex items-center justify-center min-h-screen px-4">
         <div class="fixed inset-0 bg-black opacity-50"></div>
         <div class="relative card max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -227,13 +227,25 @@
           </h2>
 
           <form @submit.prevent="saveExtension" class="space-y-4">
+            <!-- Error message -->
+            <div v-if="saveError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
+              <div class="flex items-center space-x-2">
+                <span class="text-red-600 dark:text-red-400 text-xl">⚠️</span>
+                <div>
+                  <h3 class="font-semibold text-red-700 dark:text-red-300">{{ $t('common.error') }}</h3>
+                  <p class="text-sm text-red-600 dark:text-red-400">{{ saveError }}</p>
+                </div>
+              </div>
+            </div>
+
             <!-- Basic Information -->
+            <fieldset :disabled="saving" class="space-y-4">
             <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-4">
               <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">📱 Basic Information</h3>
               <div class="grid grid-cols-2 gap-4">
                 <div>
                   <label class="label">{{ $t('extensions.number') }}</label>
-                  <input v-model="form.extension_number" type="text" class="input" required :disabled="editMode" placeholder="e.g., 101" />
+                  <input v-model="form.extension_number" type="text" class="input" required :disabled="editMode || saving" placeholder="e.g., 101" />
                 </div>
                 <div>
                   <label class="label">{{ $t('extensions.name') }}</label>
@@ -354,9 +366,10 @@
               <label class="label">{{ $t('extensions.notes') }}</label>
               <textarea v-model="form.notes" class="input" rows="2" placeholder="Optional notes about this extension"></textarea>
             </div>
+            </fieldset>
 
             <div class="flex justify-end space-x-4">
-              <button type="button" @click="showModal = false" class="btn btn-secondary">
+              <button type="button" @click="closeModal" class="btn btn-secondary" :disabled="saving">
                 {{ $t('extensions.cancel') }}
               </button>
               <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -673,6 +686,7 @@ const loading = ref(false)
 const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
+const saveError = ref('')
 const showAdvanced = ref(false)
 const togglingExtension = ref<number | null>(null)
 
@@ -969,6 +983,7 @@ const deleteExtension = async (ext: any) => {
 
 const saveExtension = async () => {
   saving.value = true
+  saveError.value = ''
   try {
     if (editMode.value) {
       await api.updateExtension(form.value.id!, form.value)
@@ -978,8 +993,10 @@ const saveExtension = async () => {
     showModal.value = false
     resetForm()
     // WebSocket will trigger refresh via event
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving extension:', error)
+    // Extract error message from various error formats
+    saveError.value = error.data?.message || error.message || t('common.error')
   }
   saving.value = false
 }
@@ -1004,6 +1021,12 @@ const resetForm = () => {
   }
   editMode.value = false
   showAdvanced.value = false
+  saveError.value = ''
+}
+
+const closeModal = () => {
+  showModal.value = false
+  saveError.value = ''
 }
 
 // Sync functions
