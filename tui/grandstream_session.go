@@ -22,6 +22,15 @@ func GetUserAgent() string {
 	return fmt.Sprintf("%s/%s (Go TUI)", AppName, AppVersion)
 }
 
+// buildBaseURL constructs the base URL for a phone IP, supporting both http and https
+// If the IP already includes a scheme, it uses that; otherwise defaults to http
+func buildBaseURL(ip string) string {
+	if strings.HasPrefix(ip, "http://") || strings.HasPrefix(ip, "https://") {
+		return strings.TrimSuffix(ip, "/")
+	}
+	return "http://" + ip
+}
+
 // GrandStreamSession represents an authenticated session with a GrandStream phone
 type GrandStreamSession struct {
 	PhoneIP         string            `json:"phone_ip"`
@@ -112,21 +121,16 @@ func (m *GrandStreamSessionManager) Login(ip, username, password string) (*Grand
 	formData.Set("username", username)
 	formData.Set("password", password)
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/cgi-bin/dologin", ip), strings.NewReader(formData.Encode()))
+	baseURL := buildBaseURL(ip)
+	req, err := http.NewRequest("POST", baseURL+"/cgi-bin/dologin", strings.NewReader(formData.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set required headers
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Cache-Control", "max-age=0")
-	req.Header.Set("Connection", "keep-alive")
+	// Set required headers (minimal set - Referer is required for login)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Cookie", "HttpOnly")
-	req.Header.Set("Origin", fmt.Sprintf("http://%s", ip))
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", fmt.Sprintf("http://%s/", ip))
+	req.Header.Set("Referer", baseURL+"/")
 	req.Header.Set("User-Agent", GetUserAgent())
 
 	resp, err := m.httpClient.Do(req)
@@ -195,24 +199,16 @@ func (m *GrandStreamSessionManager) GetParameters(session *GrandStreamSession, p
 	requestParams := strings.Join(parameters, ":")
 	formBody := fmt.Sprintf("request=%s&sid=%s", requestParams, session.SessionID)
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/cgi-bin/api.values.get", session.PhoneIP), strings.NewReader(formBody))
+	baseURL := buildBaseURL(session.PhoneIP)
+	req, err := http.NewRequest("POST", baseURL+"/cgi-bin/api.values.get", strings.NewReader(formBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Cache-Control", "max-age=0")
-	req.Header.Set("Connection", "keep-alive")
+	// Set headers (minimal set)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Origin", fmt.Sprintf("http://%s", session.PhoneIP))
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", fmt.Sprintf("http://%s/", session.PhoneIP))
-	req.Header.Set("User-Agent", GetUserAgent())
-
-	// Set cookies
 	req.Header.Set("Cookie", session.GetCookieHeader())
+	req.Header.Set("User-Agent", GetUserAgent())
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
@@ -380,22 +376,16 @@ func (m *GrandStreamSessionManager) SetParameters(session *GrandStreamSession, p
 	formParts = append(formParts, fmt.Sprintf("sid=%s", url.QueryEscape(session.SessionID)))
 	formBody := strings.Join(formParts, "&")
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/cgi-bin/api.values.post", session.PhoneIP), strings.NewReader(formBody))
+	baseURL := buildBaseURL(session.PhoneIP)
+	req, err := http.NewRequest("POST", baseURL+"/cgi-bin/api.values.post", strings.NewReader(formBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Cache-Control", "max-age=0")
-	req.Header.Set("Connection", "keep-alive")
+	// Set headers (minimal set)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Origin", fmt.Sprintf("http://%s", session.PhoneIP))
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", fmt.Sprintf("http://%s/", session.PhoneIP))
-	req.Header.Set("User-Agent", GetUserAgent())
 	req.Header.Set("Cookie", session.GetCookieHeader())
+	req.Header.Set("User-Agent", GetUserAgent())
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

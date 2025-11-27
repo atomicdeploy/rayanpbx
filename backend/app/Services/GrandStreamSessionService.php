@@ -95,18 +95,32 @@ class GrandStreamSessionService
     }
 
     /**
+     * Build base URL for a phone IP, supporting both http and https.
+     * If IP already includes a scheme, use it; otherwise default to http.
+     */
+    protected function buildBaseUrl(string $ip): string
+    {
+        if (str_starts_with($ip, 'http://') || str_starts_with($ip, 'https://')) {
+            return rtrim($ip, '/');
+        }
+
+        return 'http://'.$ip;
+    }
+
+    /**
      * Perform authentication via /cgi-bin/dologin endpoint.
      */
     protected function performDologin(string $ip, string $username, string $password): array
     {
         try {
+            $baseUrl = $this->buildBaseUrl($ip);
+
             $result = $this->httpClient->nativePost(
-                "http://{$ip}".self::ENDPOINT_DOLOGIN,
+                $baseUrl.self::ENDPOINT_DOLOGIN,
                 http_build_query(['username' => $username, 'password' => $password]),
                 [
                     'Cookie' => 'HttpOnly',
-                    'Origin' => "http://{$ip}",
-                    'Referer' => "http://{$ip}/",
+                    'Referer' => $baseUrl.'/',
                 ],
                 15
             );
@@ -222,13 +236,13 @@ class GrandStreamSessionService
         try {
             $cookies = $session->getCookiesArray();
             $sid = $cookies['session-identity'] ?? $session->session_id;
+            $baseUrl = $this->buildBaseUrl($ip);
 
             $result = $this->httpClient->nativePost(
-                "http://{$ip}".self::ENDPOINT_API_VALUES_GET,
+                $baseUrl.self::ENDPOINT_API_VALUES_GET,
                 'request='.implode(':', $parameters).'&sid='.$sid,
                 [
                     'Cookie' => $this->buildCookieHeader($session),
-                    'Origin' => "http://{$ip}",
                 ],
                 15
             );
@@ -266,6 +280,7 @@ class GrandStreamSessionService
         try {
             $cookies = $session->getCookiesArray();
             $sid = $cookies['session-identity'] ?? $session->session_id;
+            $baseUrl = $this->buildBaseUrl($ip);
 
             $formParts = [];
             foreach ($parameters as $name => $value) {
@@ -274,11 +289,10 @@ class GrandStreamSessionService
             $formParts[] = 'sid='.urlencode($sid);
 
             $result = $this->httpClient->nativePost(
-                "http://{$ip}".self::ENDPOINT_API_VALUES_POST,
+                $baseUrl.self::ENDPOINT_API_VALUES_POST,
                 implode('&', $formParts),
                 [
                     'Cookie' => $this->buildCookieHeader($session),
-                    'Origin' => "http://{$ip}",
                 ],
                 15
             );
