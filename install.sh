@@ -74,7 +74,7 @@ declare -a ALL_STEPS=(
     "go:Go 1.23 Installation"
     "asterisk:Asterisk 22 Installation"
     "asterisk-ami:Asterisk AMI Configuration"
-    "asterisk-git:Asterisk Config Version Control"
+    "conf-git:Asterisk Config Version Control"
     "source:RayanPBX Source Code"
     "env-config:Environment Configuration"
     "backend:Backend API Setup"
@@ -2925,7 +2925,7 @@ if next_step "Asterisk AMI Configuration" "asterisk-ami"; then
 fi
 
 # Initialize /etc/asterisk as a Git repository for version control
-if next_step "Asterisk Config Version Control" "asterisk-git"; then
+if next_step "Asterisk Config Version Control" "conf-git"; then
     print_info "Setting up version control for Asterisk configuration..."
     
     ASTERISK_CONFIG_DIR="/etc/asterisk"
@@ -2941,10 +2941,22 @@ if next_step "Asterisk Config Version Control" "asterisk-git"; then
         else
             print_progress "Initializing Git repository in $ASTERISK_CONFIG_DIR..."
             
-            cd "$ASTERISK_CONFIG_DIR"
+            cd "$ASTERISK_CONFIG_DIR" || {
+                print_error "Failed to change to $ASTERISK_CONFIG_DIR"
+                exit 1
+            }
             
             # Initialize Git repository
-            git init > /dev/null 2>&1
+            if ! git init > /dev/null 2>&1; then
+                print_error "Failed to initialize Git repository in $ASTERISK_CONFIG_DIR"
+                exit 1
+            fi
+            
+            # Verify the .git directory was created
+            if [ ! -d "$ASTERISK_CONFIG_DIR/.git" ]; then
+                print_error "Git repository initialization failed - .git directory not created"
+                exit 1
+            fi
             
             # Create .gitignore to exclude backups directory and other non-essential files
             cat > "$ASTERISK_CONFIG_DIR/.gitignore" << 'GITIGNORE_EOF'
