@@ -5,27 +5,33 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\VoipPhone;
 use App\Services\GrandStreamProvisioningService;
+use App\Services\SystemctlService;
 use App\Services\TR069Service;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Phone Management Controller
- * 
+ *
  * Provides unified interface for managing VoIP phones (GXP1625, GXP1630)
  * Supports web management, API, webhooks, and TR-069
  */
 class PhoneController extends Controller
 {
     protected $grandstreamService;
+
     protected $tr069Service;
+
+    protected $systemctlService;
 
     public function __construct(
         GrandStreamProvisioningService $grandstreamService,
-        TR069Service $tr069Service
+        TR069Service $tr069Service,
+        SystemctlService $systemctlService
     ) {
         $this->grandstreamService = $grandstreamService;
         $this->tr069Service = $tr069Service;
+        $this->systemctlService = $systemctlService;
     }
 
     /**
@@ -35,11 +41,11 @@ class PhoneController extends Controller
     {
         // Get phones from database
         $dbPhones = VoipPhone::orderBy('last_seen', 'desc')->get();
-        
+
         // Get phones from Asterisk registrations
         $discoveredPhones = $this->grandstreamService->discoverPhones();
         $sipPhones = $discoveredPhones['phones'] ?? [];
-        
+
         // Merge database phones with discovered phones
         $phones = $dbPhones->map(function ($phone) {
             return [
@@ -60,18 +66,18 @@ class PhoneController extends Controller
                 'source' => 'database',
             ];
         })->toArray();
-        
+
         // Add any SIP-registered phones not in database
         foreach ($sipPhones as $sipPhone) {
             $exists = collect($phones)->firstWhere('ip', $sipPhone['ip'] ?? null);
-            if (!$exists && !empty($sipPhone['ip'])) {
+            if (! $exists && ! empty($sipPhone['ip'])) {
                 $phones[] = array_merge($sipPhone, [
                     'source' => 'asterisk',
                     'status' => 'registered',
                 ]);
             }
         }
-        
+
         return response()->json([
             'success' => true,
             'phones' => array_values($phones),
@@ -134,11 +140,11 @@ class PhoneController extends Controller
             ->orWhere('mac', $identifier)
             ->orWhere('extension', $identifier)
             ->first();
-        
+
         // Fallback to IP resolution for SIP-only phones
         $ip = $phone ? $phone->ip : $this->resolvePhoneIP($identifier);
-        
-        if (!$ip) {
+
+        if (! $ip) {
             return response()->json([
                 'success' => false,
                 'error' => 'Phone not found',
@@ -172,9 +178,9 @@ class PhoneController extends Controller
     public function update(Request $request, $id)
     {
         $phone = VoipPhone::findOrFail($id);
-        
+
         $request->validate([
-            'ip' => 'sometimes|ip|unique:voip_phones,ip,' . $phone->id,
+            'ip' => 'sometimes|ip|unique:voip_phones,ip,'.$phone->id,
             'mac' => 'nullable|string|max:17',
             'extension' => 'nullable|string|max:32',
             'name' => 'nullable|string|max:100',
@@ -184,7 +190,7 @@ class PhoneController extends Controller
         ]);
 
         $phone->update($request->only([
-            'ip', 'mac', 'extension', 'name', 'vendor', 'model', 'credentials'
+            'ip', 'mac', 'extension', 'name', 'vendor', 'model', 'credentials',
         ]));
 
         return response()->json([
@@ -223,13 +229,13 @@ class PhoneController extends Controller
 
         $ip = $request->input('ip');
         $action = $request->input('action');
-        
+
         // Try to get credentials from database
         $phone = VoipPhone::where('ip', $ip)->first();
         $credentials = $phone ? $phone->getCredentialsForApi() : $request->input('credentials', []);
 
         // Additional validation for destructive actions
-        if ($action === 'factory_reset' && !$request->input('confirm_destructive', false)) {
+        if ($action === 'factory_reset' && ! $request->input('confirm_destructive', false)) {
             return response()->json([
                 'success' => false,
                 'error' => 'Confirmation required for factory reset',
@@ -237,7 +243,7 @@ class PhoneController extends Controller
             ], 400);
         }
 
-        $result = match($action) {
+        $result = match ($action) {
             'reboot' => $this->grandstreamService->rebootPhone($ip, $credentials),
             'factory_reset' => $this->grandstreamService->factoryResetPhone($ip, $credentials),
             'get_config' => $this->grandstreamService->getPhoneConfig($ip, $credentials),
@@ -266,11 +272,11 @@ class PhoneController extends Controller
         ]);
 
         $extension = \App\Models\Extension::findOrFail($request->extension_id);
-        
+
         // Get phone from database to use stored credentials
         $phone = VoipPhone::where('ip', $request->input('ip'))->first();
         $credentials = $phone ? $phone->getCredentialsForApi() : $request->input('credentials', []);
-        
+
         $result = $this->grandstreamService->provisionExtensionToPhone(
             $request->input('ip'),
             $extension->toArray(),
@@ -305,7 +311,7 @@ class PhoneController extends Controller
         $action = $request->input('action');
 
         try {
-            $result = match($action) {
+            $result = match ($action) {
                 'get_params' => $this->tr069Service->getParameterValues(
                     $serialNumber,
                     $request->input('parameters', [])
@@ -358,17 +364,17 @@ class PhoneController extends Controller
         $event = $request->input('event');
         $data = $request->input('data', []);
 
-        Log::info("Phone webhook received", [
+        Log::info('Phone webhook received', [
             'event' => $event,
             'data' => $data,
         ]);
 
         // Update phone status based on event
-        if (!empty($data['ip'])) {
+        if (! empty($data['ip'])) {
             $phone = VoipPhone::where('ip', $data['ip'])->first();
             if ($phone) {
                 $phone->update(['last_seen' => now()]);
-                
+
                 // Update status based on event
                 if (in_array($event, ['registration', 'registered'])) {
                     $phone->update(['status' => 'registered']);
@@ -405,31 +411,51 @@ class PhoneController extends Controller
      */
     public function lldpNeighbors(Request $request)
     {
+        // Check if lldpd service is running
+        $lldpdRunning = $this->systemctlService->isRunning('lldpd');
+
         try {
             $phones = $this->grandstreamService->discoverPhones();
-            
+
             // Filter for LLDP-discovered devices only
             $lldpDevices = array_filter($phones['devices'] ?? [], function ($device) {
                 return ($device['discovery_type'] ?? '') === 'lldp';
             });
-            
+
+            // Build appropriate message based on service status and results
+            if (count($lldpDevices) > 0) {
+                $message = 'LLDP neighbors discovered successfully';
+            } elseif (! $lldpdRunning) {
+                $message = 'No LLDP neighbors found. The lldpd service is not running.';
+            } else {
+                $message = 'No LLDP neighbors found. lldpd is running but no VoIP phones were discovered via LLDP.';
+            }
+
             return response()->json([
                 'success' => true,
                 'neighbors' => array_values($lldpDevices),
                 'total' => count($lldpDevices),
-                'message' => count($lldpDevices) > 0 
-                    ? 'LLDP neighbors discovered successfully' 
-                    : 'No LLDP neighbors found. Ensure lldpd is running.',
+                'lldpd_running' => $lldpdRunning,
+                'message' => $message,
             ]);
         } catch (\Exception $e) {
             Log::warning('LLDP discovery failed', ['error' => $e->getMessage()]);
-            
+
+            // Build more informative error message
+            $errorMessage = 'LLDP discovery failed.';
+            if (! $lldpdRunning) {
+                $errorMessage .= ' The lldpd service is not running. Start it with: sudo systemctl start lldpd';
+            } else {
+                $errorMessage .= ' Error: '.$e->getMessage();
+            }
+
             return response()->json([
                 'success' => false,
                 'neighbors' => [],
                 'total' => 0,
+                'lldpd_running' => $lldpdRunning,
                 'error' => $e->getMessage(),
-                'message' => 'LLDP discovery failed. Ensure lldpd is installed and running.',
+                'message' => $errorMessage,
             ]);
         }
     }
@@ -441,23 +467,23 @@ class PhoneController extends Controller
     {
         try {
             $phones = $this->grandstreamService->discoverPhones();
-            
+
             // Filter for ARP-discovered devices only
             $arpDevices = array_filter($phones['devices'] ?? [], function ($device) {
                 return ($device['discovery_type'] ?? '') === 'arp';
             });
-            
+
             return response()->json([
                 'success' => true,
                 'neighbors' => array_values($arpDevices),
                 'total' => count($arpDevices),
-                'message' => count($arpDevices) > 0 
-                    ? 'ARP neighbors discovered successfully' 
+                'message' => count($arpDevices) > 0
+                    ? 'ARP neighbors discovered successfully'
                     : 'No ARP entries found.',
             ]);
         } catch (\Exception $e) {
             Log::warning('ARP discovery failed', ['error' => $e->getMessage()]);
-            
+
             return response()->json([
                 'success' => false,
                 'neighbors' => [],
@@ -475,10 +501,10 @@ class PhoneController extends Controller
     {
         try {
             $result = $this->grandstreamService->discoverPhones();
-            
+
             // Auto-add discovered GrandStream phones to database
             foreach ($result['devices'] ?? [] as $device) {
-                if (!empty($device['ip']) && ($device['vendor'] ?? '') === 'GrandStream') {
+                if (! empty($device['ip']) && ($device['vendor'] ?? '') === 'GrandStream') {
                     VoipPhone::updateOrCreate(
                         ['ip' => $device['ip']],
                         [
@@ -492,7 +518,7 @@ class PhoneController extends Controller
                     );
                 }
             }
-            
+
             return response()->json([
                 'success' => true,
                 'devices' => $result['devices'] ?? [],
@@ -502,7 +528,7 @@ class PhoneController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::warning('Phone discovery failed', ['error' => $e->getMessage()]);
-            
+
             return response()->json([
                 'success' => false,
                 'devices' => [],
@@ -526,7 +552,7 @@ class PhoneController extends Controller
 
         // Try to find phone by extension or MAC
         $phones = $this->grandstreamService->discoverPhones();
-        
+
         foreach ($phones['phones'] ?? [] as $phone) {
             if ($phone['extension'] === $identifier) {
                 return $phone['ip'];
