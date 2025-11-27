@@ -452,11 +452,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = len(m.asteriskMenu) - 1
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// Navigate system settings with rollover (6 options now)
+				// Navigate system settings with rollover (7 options: indices 0-6)
 				if m.cursor > 0 {
 					m.cursor--
 				} else {
-					m.cursor = 5
+					m.cursor = 6
 				}
 			} else if m.currentScreen == resetConfigurationScreen {
 				// Navigate reset configuration menu with rollover
@@ -536,8 +536,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = 0
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				// System settings has 6 options with rollover
-				if m.cursor < 5 {
+				// Navigate system settings with rollover (7 options: indices 0-6)
+				if m.cursor < 6 {
 					m.cursor++
 				} else {
 					m.cursor = 0
@@ -625,7 +625,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor = len(m.asteriskMenu) - 1
 				}
 			} else if m.currentScreen == systemSettingsScreen {
-				m.cursor = 5
+				m.cursor = 6  // Last option index (7 options: 0-6)
 			} else if m.currentScreen == resetConfigurationScreen {
 				if len(m.resetMenu) > 0 {
 					m.cursor = len(m.resetMenu) - 1
