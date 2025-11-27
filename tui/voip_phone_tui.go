@@ -2,19 +2,65 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"sync"
+	"time"
 )
+
+// Discovery state for background scanning
+type discoveryState struct {
+	isScanning      bool
+	lastScanTime    time.Time
+	scanError       string
+	lldpError       string
+	mutex           sync.Mutex
+}
+
+// Global discovery state
+var voipDiscoveryState = &discoveryState{}
+
+// isRunningAsRoot checks if the current process is running as root
+func isRunningAsRoot() bool {
+	return os.Geteuid() == 0
+}
 
 // renderVoIPPhones renders the VoIP phones list screen
 func (m model) renderVoIPPhones() string {
 	content := infoStyle.Render("📱 VoIP Phones Management") + "\n"
 	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
+	// Show discovery status
+	voipDiscoveryState.mutex.Lock()
+	isScanning := voipDiscoveryState.isScanning
+	scanError := voipDiscoveryState.scanError
+	lldpError := voipDiscoveryState.lldpError
+	voipDiscoveryState.mutex.Unlock()
+	
+	if isScanning {
+		content += warningStyle.Render("🔍 Discovering phones on the network...") + "\n\n"
+	}
+	
+	// Show LLDP warning only if not running as root
+	if !isRunningAsRoot() {
+		content += errorStyle.Render("⚠️  LLDP discovery requires root/sudo") + "\n\n"
+	}
+	
+	if scanError != "" {
+		content += errorStyle.Render("❌ Scan error: "+scanError) + "\n"
+	}
+	if lldpError != "" && isRunningAsRoot() {
+		content += errorStyle.Render("❌ LLDP error: "+lldpError) + "\n"
+	}
+	
 	if m.voipPhones == nil || len(m.voipPhones) == 0 {
 		content += "📭 No phones detected\n\n"
-		content += helpStyle.Render("💡 Phones are detected from SIP registrations") + "\n"
+		content += helpStyle.Render("💡 Phones are detected automatically via:") + "\n"
+		content += helpStyle.Render("   • SIP registrations from Asterisk") + "\n"
+		content += helpStyle.Render("   • LLDP network discovery") + "\n"
+		content += helpStyle.Render("   • Network scanning (VoIP phone OUI detection)") + "\n\n"
 		content += helpStyle.Render("   Press 'a' to manually add a phone by IP address") + "\n"
-		content += helpStyle.Render("   Press 'd' to discover phones on the network")
+		content += helpStyle.Render("   Press 'A' to add all discovered phones")
 		return menuStyle.Render(content)
 	}
 	
@@ -67,8 +113,8 @@ func (m model) renderVoIPPhones() string {
 	}
 	
 	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
-	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details    a  Add manually") + "\n"
-	content += helpStyle.Render("   d    Discover        r      Refresh         ESC  Back")
+	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details/Add credentials") + "\n"
+	content += helpStyle.Render("   a    Add manually    A      Add all discovered    r  Refresh    ESC  Back")
 	
 	return menuStyle.Render(content)
 }
@@ -119,6 +165,21 @@ func (m model) renderVoIPPhoneDetails() string {
 	}
 	content += "└─────────────────────────────────────┘\n"
 	
+	// Show credential status
+	hasCredentials := false
+	if m.phoneCredentials != nil {
+		if creds, ok := m.phoneCredentials[phone.IP]; ok && creds["password"] != "" {
+			hasCredentials = true
+		}
+	}
+	
+	if hasCredentials {
+		content += "\n" + successStyle.Render("🔑 Credentials: Configured") + "\n"
+	} else {
+		content += "\n" + warningStyle.Render("🔑 Credentials: Not configured") + "\n"
+		content += helpStyle.Render("   Press 'i' to add credentials for phone control") + "\n"
+	}
+	
 	// Show phone status details if available
 	if m.currentPhoneStatus != nil {
 		content += "\n" + infoStyle.Render("🔧 Device Information") + "\n"
@@ -152,7 +213,7 @@ func (m model) renderVoIPPhoneDetails() string {
 		}
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Press 'c' for control menu, 'r' to refresh, ESC to go back")
+	content += "\n" + helpStyle.Render("💡 Press 'i' for credentials, 'c' for control menu, 'r' to refresh, ESC to go back")
 	
 	return menuStyle.Render(content)
 }
@@ -312,8 +373,16 @@ func (m *model) initVoIPPhonesScreen() {
 	m.successMsg = ""
 	m.currentPhoneStatus = nil
 	
-	// Load registered phones
-	m.loadRegisteredPhones()
+	// Initialize phone discovery
+	if m.phoneDiscovery == nil {
+		if m.phoneManager == nil {
+			m.phoneManager = NewPhoneManager(m.asteriskManager)
+		}
+		m.phoneDiscovery = NewPhoneDiscovery(m.phoneManager)
+	}
+	
+	// Load registered phones and trigger background discovery
+	m.loadRegisteredPhonesWithDiscovery()
 }
 
 // loadRegisteredPhones loads phones from Asterisk registrations and database
@@ -395,20 +464,37 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 				m.selectedPhoneIdx = 0
 			}
 		case "enter":
-			// Show phone details
+			// Show phone details or go to add credentials if no phones
 			if len(m.voipPhones) > 0 {
-				m.currentScreen = voipPhoneDetailsScreen
-				m.refreshPhoneStatus()
+				// Check if this phone has credentials, if not redirect to add credentials
+				phone := m.voipPhones[m.selectedPhoneIdx]
+				hasCredentials := false
+				if m.phoneCredentials != nil {
+					if creds, ok := m.phoneCredentials[phone.IP]; ok && creds["password"] != "" {
+						hasCredentials = true
+					}
+				}
+				
+				if !hasCredentials {
+					// Redirect to add credentials page with IP pre-filled
+					m.initManualIPInputWithIP(phone.IP)
+				} else {
+					m.currentScreen = voipPhoneDetailsScreen
+					m.refreshPhoneStatus()
+				}
+			} else {
+				// No phones, go to add screen
+				m.initManualIPInput()
 			}
 		case "a":
 			// Manual IP input (add phone)
 			m.initManualIPInput()
-		case "d":
-			// Phone discovery
-			m.initVoIPDiscoveryScreen()
+		case "A":
+			// Add all discovered phones
+			m.addAllDiscoveredPhones()
 		case "r":
-			// Refresh phone list
-			m.loadRegisteredPhones()
+			// Refresh phone list with background discovery
+			m.loadRegisteredPhonesWithDiscovery()
 		}
 		
 	case voipPhoneDetailsScreen:
@@ -416,6 +502,12 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "c":
 			// Control menu
 			m.initVoIPControlMenu()
+		case "i":
+			// Add/edit credentials for the current phone
+			if m.selectedPhoneIdx < len(m.voipPhones) {
+				phone := m.voipPhones[m.selectedPhoneIdx]
+				m.initManualIPInputWithIP(phone.IP)
+			}
 		case "r":
 			// Refresh phone status
 			m.refreshPhoneStatus()
@@ -493,6 +585,193 @@ func (m *model) initManualIPInput() {
 	m.successMsg = ""
 }
 
+// initManualIPInputWithIP initializes manual IP input screen with a pre-filled IP
+func (m *model) initManualIPInputWithIP(ip string) {
+	m.currentScreen = voipManualIPScreen
+	m.inputMode = true
+	m.inputFields = []string{"IP Address", "Username", "Password"}
+	// Pre-fill IP and set cursor to Username field
+	existingUsername := "admin"
+	if m.phoneCredentials != nil {
+		if creds, ok := m.phoneCredentials[ip]; ok {
+			if username, hasUser := creds["username"]; hasUser && username != "" {
+				existingUsername = username
+			}
+		}
+	}
+	m.inputValues = []string{ip, existingUsername, ""}
+	m.inputCursor = 1 // Start at Username field since IP is already filled
+	m.voipPhoneOutput = ""
+	m.errorMsg = ""
+	m.successMsg = ""
+}
+
+// addAllDiscoveredPhones adds all phones from discoveredPhones to voipPhones and saves to DB
+func (m *model) addAllDiscoveredPhones() {
+	if len(m.discoveredPhones) == 0 {
+		m.errorMsg = "No discovered phones to add"
+		return
+	}
+	
+	addedCount := 0
+	for _, discovered := range m.discoveredPhones {
+		// Check if phone already exists in the list
+		exists := false
+		for _, existing := range m.voipPhones {
+			if existing.IP == discovered.IP {
+				exists = true
+				break
+			}
+		}
+		
+		if !exists {
+			// Add to in-memory list
+			phoneInfo := PhoneInfo{
+				Extension: "",
+				IP:        discovered.IP,
+				Status:    "discovered",
+				UserAgent: fmt.Sprintf("%s %s", discovered.Vendor, discovered.Model),
+				Online:    discovered.Online,
+			}
+			m.voipPhones = append(m.voipPhones, phoneInfo)
+			
+			// Save to database
+			if m.db != nil {
+				dbPhone := &VoIPPhoneDB{
+					IP:            discovered.IP,
+					MAC:           discovered.MAC,
+					Vendor:        discovered.Vendor,
+					Model:         discovered.Model,
+					Status:        "discovered",
+					DiscoveryType: discovered.DiscoveryType,
+					UserAgent:     fmt.Sprintf("%s %s", discovered.Vendor, discovered.Model),
+				}
+				SaveVoIPPhone(m.db, dbPhone)
+			}
+			addedCount++
+		}
+	}
+	
+	if addedCount > 0 {
+		m.successMsg = fmt.Sprintf("Added %d phone(s) to the list", addedCount)
+	} else {
+		m.successMsg = "All discovered phones are already in the list"
+	}
+}
+
+// loadRegisteredPhonesWithDiscovery loads phones and triggers background discovery
+func (m *model) loadRegisteredPhonesWithDiscovery() {
+	// First, load registered phones normally
+	m.loadRegisteredPhones()
+	
+	// Initialize phone discovery if not already done
+	if m.phoneDiscovery == nil {
+		if m.phoneManager == nil {
+			m.phoneManager = NewPhoneManager(m.asteriskManager)
+		}
+		m.phoneDiscovery = NewPhoneDiscovery(m.phoneManager)
+	}
+	
+	// Run discovery in background
+	go m.runBackgroundDiscovery()
+}
+
+// runBackgroundDiscovery runs LLDP and network discovery in background
+func (m *model) runBackgroundDiscovery() {
+	voipDiscoveryState.mutex.Lock()
+	if voipDiscoveryState.isScanning {
+		voipDiscoveryState.mutex.Unlock()
+		return // Already scanning
+	}
+	voipDiscoveryState.isScanning = true
+	voipDiscoveryState.scanError = ""
+	voipDiscoveryState.lldpError = ""
+	voipDiscoveryState.mutex.Unlock()
+	
+	defer func() {
+		voipDiscoveryState.mutex.Lock()
+		voipDiscoveryState.isScanning = false
+		voipDiscoveryState.lastScanTime = time.Now()
+		voipDiscoveryState.mutex.Unlock()
+	}()
+	
+	// Get network subnet from config
+	network := "192.168.1.0/24"
+	if m.config != nil && m.config.NetworkSubnet != "" {
+		network = m.config.NetworkSubnet
+	}
+	
+	// Try LLDP discovery (only works as root)
+	if isRunningAsRoot() {
+		lldpPhones, err := m.phoneDiscovery.GetLLDPNeighbors()
+		if err != nil {
+			voipDiscoveryState.mutex.Lock()
+			voipDiscoveryState.lldpError = err.Error()
+			voipDiscoveryState.mutex.Unlock()
+		} else {
+			m.mergeDiscoveredPhones(lldpPhones)
+		}
+	}
+	
+	// Try network scanning
+	scanPhones, err := m.phoneDiscovery.DiscoverPhones(network)
+	if err != nil {
+		voipDiscoveryState.mutex.Lock()
+		voipDiscoveryState.scanError = err.Error()
+		voipDiscoveryState.mutex.Unlock()
+	} else {
+		m.mergeDiscoveredPhones(scanPhones)
+	}
+}
+
+// mergeDiscoveredPhones merges discovered phones into the existing list and saves to DB
+func (m *model) mergeDiscoveredPhones(discovered []DiscoveredPhone) {
+	for _, disc := range discovered {
+		// Check if phone already exists
+		exists := false
+		for i, existing := range m.voipPhones {
+			if existing.IP == disc.IP {
+				// Update existing phone info if we have better data
+				if disc.Vendor != "" && (existing.UserAgent == "" || existing.UserAgent == "Unknown") {
+					m.voipPhones[i].UserAgent = fmt.Sprintf("%s %s", disc.Vendor, disc.Model)
+				}
+				if disc.Online {
+					m.voipPhones[i].Online = true
+				}
+				exists = true
+				break
+			}
+		}
+		
+		if !exists {
+			// Add new discovered phone
+			phoneInfo := PhoneInfo{
+				Extension: "",
+				IP:        disc.IP,
+				Status:    "discovered",
+				UserAgent: fmt.Sprintf("%s %s", disc.Vendor, disc.Model),
+				Online:    disc.Online,
+			}
+			m.voipPhones = append(m.voipPhones, phoneInfo)
+			m.discoveredPhones = append(m.discoveredPhones, disc)
+			
+			// Save to database
+			if m.db != nil {
+				dbPhone := &VoIPPhoneDB{
+					IP:            disc.IP,
+					MAC:           disc.MAC,
+					Vendor:        disc.Vendor,
+					Model:         disc.Model,
+					Status:        "discovered",
+					DiscoveryType: disc.DiscoveryType,
+					UserAgent:     fmt.Sprintf("%s %s", disc.Vendor, disc.Model),
+				}
+				SaveVoIPPhone(m.db, dbPhone)
+			}
+		}
+	}
+}
+
 // initVoIPProvisionScreen initializes the provision screen
 func (m *model) initVoIPProvisionScreen() {
 	m.currentScreen = voipPhoneProvisionScreen
@@ -543,10 +822,10 @@ func (m *model) refreshPhoneStatus() {
 		}
 	}
 	
-	// If no stored credentials, prompt user to add phone manually first
+	// If no stored credentials, redirect to add credentials page
 	if credentials["password"] == "" {
-		m.errorMsg = "No credentials available. Please add phone manually with 'a' to provide credentials."
 		m.voipPhoneOutput = ""
+		m.initManualIPInputWithIP(phone.IP)
 		return
 	}
 	
@@ -590,9 +869,9 @@ func (m *model) executeVoIPControlAction() {
 		}
 	}
 	
-	// Check if we have credentials
+	// Check if we have credentials - if not, redirect to add credentials page
 	if credentials["password"] == "" {
-		m.errorMsg = "No credentials available. Please add phone manually with 'a' to provide credentials."
+		m.initManualIPInputWithIP(phone.IP)
 		return
 	}
 	
@@ -924,6 +1203,11 @@ func (m *model) executeManualIPAdd() {
 		return
 	}
 	
+	if password == "" {
+		m.errorMsg = "Password is required"
+		return
+	}
+	
 	// Detect vendor
 	vendor, err := m.phoneManager.DetectPhoneVendor(ip)
 	if err != nil {
@@ -931,18 +1215,28 @@ func (m *model) executeManualIPAdd() {
 		return
 	}
 	
-	// Add to phone list
-	newPhone := PhoneInfo{
-		Extension: "Manual",
-		IP:        ip,
-		Status:    "Manual",
-		UserAgent: strings.ToUpper(vendor),
+	// Check if phone already exists, update if so
+	phoneExists := false
+	for i, existing := range m.voipPhones {
+		if existing.IP == ip {
+			phoneExists = true
+			// Update existing phone info
+			m.voipPhones[i].UserAgent = strings.ToUpper(vendor)
+			m.voipPhones[i].Status = "Manual"
+			break
+		}
 	}
 	
-	m.voipPhones = append(m.voipPhones, newPhone)
-	m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendor)
-	m.inputMode = false
-	m.currentScreen = voipPhonesScreen
+	if !phoneExists {
+		// Add to phone list
+		newPhone := PhoneInfo{
+			Extension: "",
+			IP:        ip,
+			Status:    "Manual",
+			UserAgent: strings.ToUpper(vendor),
+		}
+		m.voipPhones = append(m.voipPhones, newPhone)
+	}
 	
 	// Store credentials for future use
 	if m.phoneCredentials == nil {
@@ -964,9 +1258,20 @@ func (m *model) executeManualIPAdd() {
 		}
 		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
 			// Non-fatal error, just log it
-			m.errorMsg = fmt.Sprintf("Phone added but failed to save to database: %v", err)
+			m.errorMsg = fmt.Sprintf("Phone updated but failed to save to database: %v", err)
+			m.inputMode = false
+			m.currentScreen = voipPhonesScreen
+			return
 		}
 	}
+	
+	if phoneExists {
+		m.successMsg = fmt.Sprintf("Credentials updated for phone: %s (%s)", ip, vendor)
+	} else {
+		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendor)
+	}
+	m.inputMode = false
+	m.currentScreen = voipPhonesScreen
 }
 
 // executeVoIPProvision executes the phone provisioning action
@@ -1001,9 +1306,9 @@ func (m *model) executeVoIPProvision() {
 		}
 	}
 	
-	// Check if we have credentials
+	// Check if we have credentials - if not, redirect to add credentials page
 	if credentials["password"] == "" {
-		m.errorMsg = "No credentials available. Please add phone manually with 'a' to provide credentials."
+		m.initManualIPInputWithIP(phone.IP)
 		return
 	}
 	
