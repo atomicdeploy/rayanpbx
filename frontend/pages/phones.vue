@@ -129,19 +129,39 @@
     <!-- Phone Details -->
     <div v-else class="phone-details">
       <div class="details-header">
-        <button @click="selectedPhone = null" class="btn btn-back">
+        <button @click="goBackToList" class="btn btn-back">
           ← Back
         </button>
         <h2>Phone: {{ selectedPhone.extension || selectedPhone.ip }}</h2>
-        <button @click="refreshPhoneStatus" class="btn btn-primary">
-          🔄 Refresh Status
-        </button>
+        <div class="header-actions">
+          <button @click="showCredentialsModal = true" class="btn btn-secondary">
+            🔐 Credentials
+          </button>
+          <button @click="refreshPhoneStatus" class="btn btn-primary" :disabled="!isAuthenticated">
+            🔄 Refresh Status
+          </button>
+        </div>
+      </div>
+
+      <!-- Authentication Required Banner -->
+      <div v-if="!isAuthenticated" class="auth-required-banner">
+        <div class="banner-content">
+          <span class="banner-icon">🔒</span>
+          <div class="banner-text">
+            <h4>Authentication Required</h4>
+            <p>Please enter valid credentials to access the phone's control panel and features.</p>
+            <p v-if="authError" class="error-message">{{ authError }}</p>
+          </div>
+          <button @click="showCredentialsModal = true" class="btn btn-primary">
+            🔐 Enter Credentials
+          </button>
+        </div>
       </div>
 
       <!-- Status Panel -->
       <div class="status-panel">
         <h3>📊 Status</h3>
-        <div v-if="phoneStatus" class="status-grid">
+        <div v-if="phoneStatus && isAuthenticated" class="status-grid">
           <div class="status-item">
             <span class="label">IP Address:</span>
             <span class="value">{{ phoneStatus.ip }}</span>
@@ -169,29 +189,35 @@
             </span>
           </div>
         </div>
+        <div v-else-if="!isAuthenticated" class="status-placeholder">
+          <p>🔒 Authenticate to view phone status</p>
+        </div>
+        <div v-else class="status-placeholder">
+          <p>Loading status...</p>
+        </div>
       </div>
 
-      <!-- Control Panel -->
-      <div class="control-panel">
+      <!-- Control Panel - Only show when authenticated -->
+      <div v-if="isAuthenticated" class="control-panel">
         <h3>🎛️ Control</h3>
         <div class="control-buttons">
           <button @click="performAction('reboot')" class="btn btn-warning">
             🔄 Reboot
           </button>
-          <button @click="performAction('factory_reset')" class="btn btn-danger">
+          <button @click="performAction('factory_reset')" class="btn btn-danger" :disabled="!isAuthenticated">
             🏭 Factory Reset
           </button>
-          <button @click="performAction('get_config')" class="btn btn-info">
+          <button @click="performAction('get_config')" class="btn btn-info" :disabled="!isAuthenticated">
             📋 Get Config
           </button>
-          <button @click="showProvisionModal = true" class="btn btn-success">
+          <button @click="showProvisionModal = true" class="btn btn-success" :disabled="!isAuthenticated">
             🔧 Provision
           </button>
         </div>
       </div>
 
-      <!-- CTI/CSTA Control Panel - Beautiful Design -->
-      <div class="cti-panel">
+      <!-- CTI/CSTA Control Panel - Beautiful Design - Only show when authenticated -->
+      <div v-if="isAuthenticated" class="cti-panel">
         <div class="panel-header-section">
           <h3>📞 CTI/CSTA Controls</h3>
           <div class="cti-status-indicators">
@@ -370,8 +396,8 @@
         </div>
       </div>
 
-      <!-- Action URLs Panel -->
-      <div class="action-urls-panel">
+      <!-- Action URLs Panel - Only show when authenticated -->
+      <div v-if="isAuthenticated" class="action-urls-panel">
         <h3>📡 Action URLs</h3>
         <div class="action-urls-actions">
           <button @click="checkActionUrls" class="btn btn-info">
@@ -399,9 +425,52 @@
       </div>
 
       <!-- Configuration Panel -->
-      <div v-if="phoneConfig" class="config-panel">
+      <div v-if="phoneConfig && isAuthenticated" class="config-panel">
         <h3>⚙️ Configuration</h3>
         <pre class="config-content">{{ JSON.stringify(phoneConfig, null, 2) }}</pre>
+      </div>
+
+      <!-- Credentials Modal -->
+      <div v-if="showCredentialsModal" class="modal-overlay">
+        <div class="modal-content credentials-form">
+          <h3>🔐 Phone Credentials</h3>
+          <p class="help-text">Enter the admin credentials for this phone to enable remote management.</p>
+          <div class="form-group">
+            <label class="label">Username</label>
+            <input
+              v-model="credentials.username"
+              type="text"
+              placeholder="Username (default: admin)"
+              class="input"
+            />
+          </div>
+          <div class="form-group">
+            <label class="label">Password</label>
+            <input
+              v-model="credentials.password"
+              type="password"
+              placeholder="Password"
+              class="input"
+            />
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" v-model="saveCredentialsToDb" />
+              Save credentials for this phone
+            </label>
+          </div>
+          <div v-if="credentialsError" class="error-message">
+            {{ credentialsError }}
+          </div>
+          <div class="modal-actions">
+            <button @click="verifyAndApplyCredentials" class="btn btn-primary" :disabled="verifyingCredentials">
+              {{ verifyingCredentials ? '🔄 Verifying...' : '✅ Verify & Apply' }}
+            </button>
+            <button @click="showCredentialsModal = false" class="btn btn-secondary">
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- LCD Message Modal -->
@@ -457,33 +526,6 @@
               ❌ Disable Forward
             </button>
             <button @click="showForwardModal = false" class="btn btn-secondary">
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Credentials Input -->
-      <div v-if="needsCredentials" class="credentials-modal">
-        <div class="modal-content">
-          <h3>Enter Phone Credentials</h3>
-          <input
-            v-model="credentials.username"
-            type="text"
-            placeholder="Username (default: admin)"
-            class="input"
-          />
-          <input
-            v-model="credentials.password"
-            type="password"
-            placeholder="Password"
-            class="input"
-          />
-          <div class="modal-actions">
-            <button @click="submitCredentials" class="btn btn-primary">
-              Submit
-            </button>
-            <button @click="needsCredentials = false" class="btn btn-secondary">
               Cancel
             </button>
           </div>
@@ -580,7 +622,6 @@ const selectedPhone = ref(null)
 const phoneStatus = ref(null)
 const phoneConfig = ref(null)
 const loading = ref(false)
-const needsCredentials = ref(false)
 const showProvisionModal = ref(false)
 const showActionUrlConfirmModal = ref(false)
 const extensions = ref([])
@@ -612,6 +653,14 @@ const lcdDuration = ref(10)
 const forwardType = ref('unconditional')
 const forwardTarget = ref('')
 let ctiRefreshInterval = null
+
+// Authentication state
+const isAuthenticated = ref(false)
+const authError = ref('')
+const showCredentialsModal = ref(false)
+const verifyingCredentials = ref(false)
+const credentialsError = ref('')
+const saveCredentialsToDb = ref(true)
 
 // Computed property for current discovery list based on tab
 const currentDiscoveryList = computed(() => {
@@ -781,23 +830,156 @@ async function refreshPhones() {
 
 async function selectPhone(phone) {
   selectedPhone.value = phone
-  await refreshPhoneStatus()
-  await refreshCTIStatus()
+  // Reset auth state when selecting a new phone
+  isAuthenticated.value = false
+  authError.value = ''
+  phoneStatus.value = null
+  phoneConfig.value = null
+  phoneState.value = null
+  ctiStatus.value = { cti_working: false, snmp_enabled: false }
   
-  // Start real-time status polling
+  // Check if phone has stored credentials
+  if (phone.id) {
+    try {
+      const phoneData = await api.getPhone(phone.ip)
+      if (phoneData.phone?.hasCredentials || (phoneData.phone?.credentials?.password)) {
+        // Phone has stored credentials, try to authenticate
+        credentials.value = phoneData.phone.credentials || { username: 'admin', password: '' }
+        await verifyPhoneAuth(false) // Silent verification
+      }
+    } catch (e) {
+      // No stored credentials, show credentials modal
+      console.log('No stored credentials for this phone')
+    }
+  }
+  
+  // If not authenticated, prompt for credentials
+  if (!isAuthenticated.value) {
+    showCredentialsModal.value = true
+  }
+}
+
+// Go back to the phone list and cleanup
+function goBackToList() {
   if (ctiRefreshInterval) {
     clearInterval(ctiRefreshInterval)
+    ctiRefreshInterval = null
   }
-  ctiRefreshInterval = setInterval(async () => {
-    if (selectedPhone.value) {
+  selectedPhone.value = null
+  isAuthenticated.value = false
+  phoneStatus.value = null
+  phoneConfig.value = null
+  phoneState.value = null
+}
+
+// Verify credentials and authenticate to phone
+async function verifyPhoneAuth(showErrors = true) {
+  if (!selectedPhone.value) return false
+  
+  try {
+    const data = await api.verifyPhoneCredentials(selectedPhone.value.ip, credentials.value)
+    
+    if (data.success && data.authenticated) {
+      isAuthenticated.value = true
+      authError.value = ''
+      
+      // Update phone info from verification response
+      if (data.phone_info) {
+        phoneStatus.value = {
+          ...phoneStatus.value,
+          ...data.phone_info,
+          ip: selectedPhone.value.ip,
+          status: 'online'
+        }
+      }
+      
+      // Now fetch full status and start polling
+      await refreshPhoneStatus()
       await refreshCTIStatus()
+      
+      // Start real-time status polling
+      if (ctiRefreshInterval) {
+        clearInterval(ctiRefreshInterval)
+      }
+      ctiRefreshInterval = setInterval(async () => {
+        if (selectedPhone.value && isAuthenticated.value) {
+          await refreshCTIStatus()
+        }
+      }, 5000) // Poll every 5 seconds
+      
+      return true
+    } else {
+      isAuthenticated.value = false
+      if (showErrors) {
+        authError.value = data.message || data.error_details || 'Authentication failed'
+      }
+      return false
     }
-  }, 5000) // Poll every 5 seconds
+  } catch (error) {
+    isAuthenticated.value = false
+    if (showErrors) {
+      authError.value = error?.data?.message || error?.message || 'Failed to verify credentials'
+    }
+    return false
+  }
+}
+
+// Verify and apply credentials from the modal
+async function verifyAndApplyCredentials() {
+  if (!selectedPhone.value) return
+  
+  verifyingCredentials.value = true
+  credentialsError.value = ''
+  
+  try {
+    // If saving to DB, use the save endpoint which also verifies
+    if (saveCredentialsToDb.value) {
+      const data = await api.savePhoneCredentials(
+        selectedPhone.value.ip,
+        credentials.value,
+        true // verify before saving
+      )
+      
+      if (data.success) {
+        isAuthenticated.value = true
+        authError.value = ''
+        showCredentialsModal.value = false
+        showNotification('Credentials verified and saved successfully', 'success')
+        
+        // Refresh phone data
+        await refreshPhoneStatus()
+        await refreshCTIStatus()
+        
+        // Start polling
+        if (ctiRefreshInterval) clearInterval(ctiRefreshInterval)
+        ctiRefreshInterval = setInterval(async () => {
+          if (selectedPhone.value && isAuthenticated.value) {
+            await refreshCTIStatus()
+          }
+        }, 5000)
+      } else {
+        credentialsError.value = data.message || 'Authentication failed'
+      }
+    } else {
+      // Just verify without saving
+      const success = await verifyPhoneAuth(false)
+      if (success) {
+        showCredentialsModal.value = false
+        showNotification('Credentials verified successfully', 'success')
+      } else {
+        credentialsError.value = authError.value || 'Authentication failed'
+      }
+    }
+  } catch (error) {
+    credentialsError.value = error?.data?.message || error?.message || 'Failed to verify credentials'
+  } finally {
+    verifyingCredentials.value = false
+  }
 }
 
 // CTI/CSTA Functions
 async function refreshCTIStatus() {
-  if (!selectedPhone.value) return
+  if (!selectedPhone.value || !isAuthenticated.value) return
   
   try {
     const data = await api.getCTIStatus(selectedPhone.value.ip, credentials.value)
@@ -819,7 +1001,7 @@ async function refreshCTIStatus() {
 }
 
 async function executeCTI(operation, params = {}) {
-  if (!selectedPhone.value) return
+  if (!selectedPhone.value || !isAuthenticated.value) return
   
   try {
     const data = await api.executeCTIOperation(
@@ -959,7 +1141,7 @@ async function testCTI() {
 }
 
 async function refreshPhoneStatus() {
-  if (!selectedPhone.value) return
+  if (!selectedPhone.value || !isAuthenticated.value) return
   
   try {
     const data = await api.controlPhone(
@@ -969,8 +1151,17 @@ async function refreshPhoneStatus() {
     )
     if (data.success !== false) {
       phoneStatus.value = data
-    } else if (data.error && data.error.includes('401')) {
-      needsCredentials.value = true
+    } else if (data.error) {
+      // Show more verbose error message
+      const errorMsg = data.message || data.error
+      showNotification(errorMsg, 'error')
+      
+      // If authentication error, reset auth state
+      if (data.error.includes('401') || data.error.includes('403')) {
+        isAuthenticated.value = false
+        authError.value = 'Authentication expired. Please re-enter credentials.'
+        showCredentialsModal.value = true
+      }
     }
   } catch (error) {
     // Only log error message to avoid exposing sensitive data
@@ -979,7 +1170,7 @@ async function refreshPhoneStatus() {
 }
 
 async function performAction(action) {
-  if (!selectedPhone.value) return
+  if (!selectedPhone.value || !isAuthenticated.value) return
 
   const confirmActions = ['factory_reset', 'reboot']
   if (confirmActions.includes(action)) {
@@ -1005,20 +1196,20 @@ async function performAction(action) {
       }
       showNotification(`Action ${action} completed successfully`, 'success')
     } else {
-      if (data.error && data.error.includes('401')) {
-        needsCredentials.value = true
-      } else {
-        showNotification(data.error || data.message || 'Action failed', 'error')
+      // Show verbose error message
+      const errorMsg = data.message || data.error || 'Action failed'
+      showNotification(errorMsg, 'error')
+      
+      // Handle authentication errors
+      if (data.error && (data.error.includes('401') || data.error.includes('403'))) {
+        isAuthenticated.value = false
+        authError.value = 'Authentication failed. Please re-enter credentials.'
+        showCredentialsModal.value = true
       }
     }
   } catch (error) {
     showNotification('Action failed', 'error')
   }
-}
-
-async function submitCredentials() {
-  needsCredentials.value = false
-  await refreshPhoneStatus()
 }
 
 async function loadExtensions() {
@@ -1171,10 +1362,23 @@ function showNotification(message, type = 'info') {
 </script>
 
 <style scoped>
+/* CSS Custom Properties for dark mode support */
 .phones-container {
   padding: 20px;
   max-width: 1400px;
   margin: 0 auto;
+  
+  /* Light mode defaults */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #f0f0f0;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --text-muted: #888888;
+  --border-color: #e0e0e0;
+  --panel-bg: #ffffff;
+  --card-bg: #fafafa;
+  --modal-bg: #ffffff;
 }
 
 .header {
@@ -1347,7 +1551,7 @@ function showNotification(message, type = 'info') {
 }
 
 .phone-details {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 8px;
   padding: 30px;
 }
@@ -1358,13 +1562,13 @@ function showNotification(message, type = 'info') {
   align-items: center;
   margin-bottom: 30px;
   padding-bottom: 20px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .status-panel, .control-panel, .config-panel {
   margin-bottom: 30px;
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border-radius: 8px;
 }
 
@@ -1378,15 +1582,28 @@ function showNotification(message, type = 'info') {
 .status-item {
   display: flex;
   justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border-radius: 4px;
 }
 
 .status-item .label {
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .status-item .value {
   font-weight: 600;
+  color: var(--text-primary);
+}
+
+.status-placeholder {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  margin-top: 15px;
 }
 
 .control-buttons {
@@ -1397,12 +1614,13 @@ function showNotification(message, type = 'info') {
 }
 
 .config-content {
-  background: #fff;
+  background: var(--bg-primary);
   padding: 15px;
   border-radius: 4px;
   overflow-x: auto;
   font-size: 12px;
   margin-top: 15px;
+  color: var(--text-primary);
 }
 
 .credentials-modal, .provision-modal, .action-url-confirm-modal {
@@ -1419,7 +1637,8 @@ function showNotification(message, type = 'info') {
 }
 
 .modal-content {
-  background: white;
+  background: var(--modal-bg);
+  color: var(--text-primary);
   padding: 30px;
   border-radius: 8px;
   min-width: 400px;
@@ -1430,15 +1649,18 @@ function showNotification(message, type = 'info') {
 
 .modal-content h3 {
   margin: 0 0 20px 0;
+  color: var(--text-primary);
 }
 
 .input {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   margin-bottom: 15px;
   font-size: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .checkbox-group {
@@ -1450,6 +1672,7 @@ function showNotification(message, type = 'info') {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  color: var(--text-primary);
 }
 
 .modal-actions {
@@ -1462,7 +1685,7 @@ function showNotification(message, type = 'info') {
 .action-urls-panel {
   margin-bottom: 30px;
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border-radius: 8px;
 }
 
@@ -1475,7 +1698,7 @@ function showNotification(message, type = 'info') {
 .action-urls-status {
   margin-top: 15px;
   padding: 15px;
-  background: white;
+  background: var(--bg-primary);
   border-radius: 4px;
 }
 
@@ -2004,6 +2227,74 @@ function showNotification(message, type = 'info') {
   gap: 8px;
 }
 
+/* Auth Required Banner */
+.auth-required-banner {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.banner-icon {
+  font-size: 40px;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.banner-text h4 {
+  margin: 0 0 8px 0;
+  color: #92400e;
+  font-size: 18px;
+}
+
+.banner-text p {
+  margin: 0 0 4px 0;
+  color: #78350f;
+  font-size: 14px;
+}
+
+.error-message {
+  color: #dc2626;
+  font-size: 14px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(220, 38, 38, 0.1);
+  border-radius: 4px;
+}
+
+/* Credentials Form */
+.credentials-form .help-text {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.credentials-form .form-group {
+  margin-bottom: 16px;
+}
+
+.credentials-form .label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Button disabled state */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Modal Overlay */
 .modal-overlay {
   position: fixed;
@@ -2034,12 +2325,17 @@ function showNotification(message, type = 'info') {
 /* Dark Mode Support */
 @media (prefers-color-scheme: dark) {
   .phones-container {
+    --bg-primary: #1e1e2e;
+    --bg-secondary: #2a2a3e;
+    --bg-tertiary: #252538;
+    --text-primary: #f0f0f0;
+    --text-secondary: #a0a0a0;
+    --text-muted: #888888;
+    --border-color: #3a3a4e;
     --panel-bg: #1e1e2e;
     --card-bg: #2a2a3e;
-    --border-color: #3a3a4e;
+    --modal-bg: #1e1e2e;
     --text-color: #e0e0e0;
-    --text-primary: #f0f0f0;
-    --text-muted: #a0a0a0;
     --tab-bg: #2a2a3e;
     --tab-hover-bg: #3a3a4e;
     --hover-bg: #3a3a4e;
@@ -2047,7 +2343,36 @@ function showNotification(message, type = 'info') {
     --badge-color: #e0e7ff;
     --capability-bg: #1a365d;
     --capability-color: #90cdf4;
-    --modal-bg: #1e1e2e;
+  }
+  
+  .phone-details {
+    background: var(--bg-primary);
+  }
+  
+  .phone-card {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+  }
+  
+  .phone-info h3 {
+    color: var(--text-primary);
+  }
+  
+  .phone-ip, .phone-model {
+    color: var(--text-muted);
+  }
+  
+  .auth-required-banner {
+    background: linear-gradient(135deg, #422006 0%, #713f12 100%);
+    border-color: #a16207;
+  }
+  
+  .banner-text h4 {
+    color: #fef3c7;
+  }
+  
+  .banner-text p {
+    color: #fde68a;
   }
   
   .discovery-panel,

@@ -187,17 +187,172 @@ class PhoneController extends Controller
             'vendor' => 'nullable|string|max:50',
             'model' => 'nullable|string|max:50',
             'credentials' => 'nullable|array',
+            'credentials.username' => 'nullable|string|max:50',
+            'credentials.password' => 'nullable|string|max:128',
         ]);
 
-        $phone->update($request->only([
-            'ip', 'mac', 'extension', 'name', 'vendor', 'model', 'credentials',
-        ]));
+        // Only allow expected credential fields
+        $updateData = $request->only(['ip', 'mac', 'extension', 'name', 'vendor', 'model']);
+
+        if ($request->has('credentials')) {
+            $creds = $request->input('credentials');
+            $updateData['credentials'] = array_intersect_key($creds, ['username' => true, 'password' => true]);
+        }
+
+        $phone->update($updateData);
 
         return response()->json([
             'success' => true,
             'phone' => $phone,
             'message' => 'Phone updated successfully',
         ]);
+    }
+
+    /**
+     * Verify phone credentials by attempting to authenticate
+     */
+    public function verifyCredentials(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'required|array',
+            'credentials.username' => 'required|string|max:50',
+            'credentials.password' => 'required|string|max:128',
+        ]);
+
+        $ip = $request->input('ip');
+        $credentials = $request->input('credentials');
+
+        // Try to get phone status with provided credentials
+        $result = $this->grandstreamService->getPhoneStatus($ip, $credentials);
+
+        // Check if we got a successful response (not just "reachable" which may mean auth failed)
+        $isAuthenticated = isset($result['status']) && $result['status'] === 'online';
+
+        // If we have a specific HTTP error, provide verbose feedback
+        $errorDetails = null;
+        if (! $isAuthenticated && isset($result['error'])) {
+            $errorDetails = $this->getVerboseHttpError($result['error']);
+        }
+
+        return response()->json([
+            'success' => $isAuthenticated,
+            'authenticated' => $isAuthenticated,
+            'ip' => $ip,
+            'status' => $result['status'] ?? 'unknown',
+            'message' => $isAuthenticated
+                ? 'Credentials verified successfully'
+                : ($errorDetails ?? 'Authentication failed - check username and password'),
+            'phone_info' => $isAuthenticated ? [
+                'model' => $result['model'] ?? null,
+                'firmware' => $result['firmware'] ?? null,
+                'mac' => $result['mac'] ?? null,
+            ] : null,
+            'error_details' => $errorDetails,
+        ]);
+    }
+
+    /**
+     * Save credentials for a phone and optionally verify them
+     */
+    public function saveCredentials(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'required|array',
+            'credentials.username' => 'required|string|max:50',
+            'credentials.password' => 'required|string|max:128',
+            'verify' => 'nullable|boolean',
+        ]);
+
+        $ip = $request->input('ip');
+        $credentials = $request->input('credentials');
+        $shouldVerify = $request->input('verify', true);
+
+        // Find or create phone record
+        $phone = VoipPhone::firstOrCreate(
+            ['ip' => $ip],
+            [
+                'vendor' => 'grandstream',
+                'status' => 'discovered',
+                'discovery_type' => 'manual',
+            ]
+        );
+
+        // Optionally verify credentials before saving
+        if ($shouldVerify) {
+            $verifyResult = $this->grandstreamService->getPhoneStatus($ip, $credentials);
+            $isAuthenticated = isset($verifyResult['status']) && $verifyResult['status'] === 'online';
+
+            if (! $isAuthenticated) {
+                $errorDetails = isset($verifyResult['error'])
+                    ? $this->getVerboseHttpError($verifyResult['error'])
+                    : 'Authentication failed - check username and password';
+
+                return response()->json([
+                    'success' => false,
+                    'authenticated' => false,
+                    'message' => $errorDetails,
+                    'ip' => $ip,
+                ], 401);
+            }
+
+            // Update phone info from verified response
+            $phone->update([
+                'credentials' => $credentials,
+                'status' => 'online',
+                'last_seen' => now(),
+                'model' => $verifyResult['model'] ?? $phone->model,
+                'firmware' => $verifyResult['firmware'] ?? $phone->firmware,
+                'mac' => $verifyResult['mac'] ?? $phone->mac,
+            ]);
+        } else {
+            // Just save credentials without verification
+            $phone->update([
+                'credentials' => $credentials,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'authenticated' => $shouldVerify,
+            'message' => $shouldVerify
+                ? 'Credentials verified and saved successfully'
+                : 'Credentials saved successfully (not verified)',
+            'phone' => $phone->fresh(),
+        ]);
+    }
+
+    /**
+     * Get verbose error message for HTTP errors
+     */
+    protected function getVerboseHttpError(string $error): string
+    {
+        // Extract HTTP status code if present
+        if (preg_match('/HTTP error:\s*(\d+)/i', $error, $matches)) {
+            $statusCode = (int) $matches[1];
+
+            return match ($statusCode) {
+                301, 302, 303, 307, 308 => "HTTP redirect ($statusCode) - The phone may require HTTPS instead of HTTP, or the URL path may be incorrect. Try accessing the phone's web interface directly to verify the correct URL.",
+                401 => 'Authentication failed (401) - Invalid username or password. Please check your credentials.',
+                403 => 'Access forbidden (403) - The credentials may be correct but you do not have permission to access this resource.',
+                404 => 'Not found (404) - The phone API endpoint was not found. This may not be a GrandStream phone or the firmware version may not support this API.',
+                500 => 'Server error (500) - The phone encountered an internal error. Try rebooting the phone.',
+                502, 503, 504 => "Service unavailable ($statusCode) - The phone may be busy or overloaded. Try again later.",
+                default => "HTTP error ($statusCode) - Unexpected response from phone. Check if the phone is accessible via web browser.",
+            };
+        }
+
+        // Handle connection errors
+        if (stripos($error, 'connection') !== false || stripos($error, 'timeout') !== false) {
+            return 'Connection failed - Cannot reach the phone. Verify the IP address and ensure the phone is powered on and connected to the network.';
+        }
+
+        if (stripos($error, 'ssl') !== false || stripos($error, 'certificate') !== false) {
+            return 'SSL/TLS error - The phone may require HTTPS with a valid certificate. Try the phone\'s web interface directly.';
+        }
+
+        return $error;
     }
 
     /**
