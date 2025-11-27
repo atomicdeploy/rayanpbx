@@ -218,7 +218,7 @@
     </div>
 
     <!-- Modal for Add/Edit -->
-    <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="showModal = false">
+    <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="closeModal">
       <div class="flex items-center justify-center min-h-screen px-4">
         <div class="fixed inset-0 bg-black opacity-50"></div>
         <div class="relative card max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -227,136 +227,149 @@
           </h2>
 
           <form @submit.prevent="saveExtension" class="space-y-4">
-            <!-- Basic Information -->
-            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-4">
-              <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">📱 Basic Information</h3>
-              <div class="grid grid-cols-2 gap-4">
+            <!-- Error message -->
+            <div v-if="saveError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
+              <div class="flex items-center space-x-2">
+                <span class="text-red-600 dark:text-red-400 text-xl">⚠️</span>
                 <div>
-                  <label class="label">{{ $t('extensions.number') }}</label>
-                  <input v-model="form.extension_number" type="text" class="input" required :disabled="editMode" placeholder="e.g., 101" />
+                  <h3 class="font-semibold text-red-700 dark:text-red-300">{{ $t('common.error') }}</h3>
+                  <p class="text-sm text-red-600 dark:text-red-400">{{ saveError }}</p>
                 </div>
-                <div>
-                  <label class="label">{{ $t('extensions.name') }}</label>
-                  <input v-model="form.name" type="text" class="input" required placeholder="e.g., John Doe" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="label">{{ $t('extensions.email') }}</label>
-                  <input v-model="form.email" type="email" class="input" placeholder="john@example.com" />
-                </div>
-                <div>
-                  <label class="label">{{ $t('extensions.password') }}</label>
-                  <input v-model="form.secret" type="password" class="input" :required="!editMode" placeholder="Min 8 characters" />
-                </div>
-              </div>
-
-              <div class="flex items-center space-x-4">
-                <label class="flex items-center space-x-2">
-                  <input v-model="form.enabled" type="checkbox" class="rounded" />
-                  <span class="text-sm">{{ $t('extensions.enabled') }}</span>
-                </label>
-                <label class="flex items-center space-x-2">
-                  <input v-model="form.voicemail_enabled" type="checkbox" class="rounded" />
-                  <span class="text-sm">Enable Voicemail</span>
-                </label>
               </div>
             </div>
 
-            <!-- Advanced PJSIP Configuration -->
-            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 space-y-4">
-              <div class="flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-blue-700 dark:text-blue-300">⚙️ Advanced PJSIP Configuration</h3>
-                <button type="button" @click="showAdvanced = !showAdvanced" class="text-blue-600 hover:text-blue-800 text-sm">
-                  {{ showAdvanced ? 'Hide Advanced' : 'Show Advanced' }}
-                </button>
-              </div>
-              
-              <div v-show="showAdvanced" class="space-y-4">
-                <!-- Codec Selection -->
-                <div>
-                  <label class="label flex items-center">
-                    🎵 Audio Codecs
-                    <span class="ml-2 text-xs text-gray-500">(Higher = better quality, more bandwidth)</span>
-                  </label>
-                  <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mt-2">
-                    <label v-for="codec in availableCodecs" :key="codec.id" 
-                           class="flex items-center space-x-2 p-2 border rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800"
-                           :class="{ 'bg-blue-100 dark:bg-blue-800 border-blue-500': form.codecs?.includes(codec.id) }">
-                      <input type="checkbox" :value="codec.id" v-model="form.codecs" class="rounded" />
-                      <div>
-                        <span class="text-sm font-medium">{{ codec.name }}</span>
-                        <span v-if="codec.hd" class="ml-1 px-1 py-0.5 text-xs bg-green-500 text-white rounded">HD</span>
-                        <div class="text-xs text-gray-500">{{ codec.desc }}</div>
-                      </div>
-                    </label>
+            <!-- Basic Information -->
+            <fieldset :disabled="saving" class="space-y-4">
+              <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-4">
+                <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">📱 Basic Information</h3>
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="label">{{ $t('extensions.number') }}</label>
+                    <input v-model="form.extension_number" type="text" class="input" required :disabled="editMode" placeholder="e.g., 101" />
+                  </div>
+                  <div>
+                    <label class="label">{{ $t('extensions.name') }}</label>
+                    <input v-model="form.name" type="text" class="input" required placeholder="e.g., John Doe" />
                   </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                   <div>
-                    <label class="label">📍 Context</label>
-                    <select v-model="form.context" class="input">
-                      <option value="from-internal">from-internal (Recommended)</option>
-                      <option value="internal">internal</option>
-                      <option value="default">default</option>
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">Dialplan context for calls from this extension</p>
+                    <label class="label">{{ $t('extensions.email') }}</label>
+                    <input v-model="form.email" type="email" class="input" placeholder="john@example.com" />
                   </div>
                   <div>
-                    <label class="label">🔌 Transport</label>
-                    <select v-model="form.transport" class="input">
-                      <option value="transport-udp">UDP (Recommended)</option>
-                      <option value="transport-tcp">TCP</option>
-                      <option value="transport-tls">TLS (Secure)</option>
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">SIP signaling transport protocol</p>
+                    <label class="label">{{ $t('extensions.password') }}</label>
+                    <input v-model="form.secret" type="password" class="input" :required="!editMode" placeholder="Min 8 characters" />
                   </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-4">
-                  <div>
-                    <label class="label">🔄 Direct Media</label>
-                    <select v-model="form.direct_media" class="input">
-                      <option value="no">No (NAT-safe, recommended)</option>
-                      <option value="yes">Yes (LAN only)</option>
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">Allow RTP to flow directly between endpoints</p>
-                  </div>
-                  <div>
-                    <label class="label">📞 Max Contacts</label>
-                    <input v-model.number="form.max_contacts" type="number" min="1" max="10" class="input" />
-                    <p class="text-xs text-gray-500 mt-1">Simultaneous registrations (1-10)</p>
-                  </div>
-                  <div>
-                    <label class="label">⏱️ Qualify Frequency</label>
-                    <input v-model.number="form.qualify_frequency" type="number" min="0" max="3600" class="input" />
-                    <p class="text-xs text-gray-500 mt-1">Keep-alive interval in seconds (0=disabled)</p>
-                  </div>
-                </div>
-
-                <!-- Info Box -->
-                <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded p-3 text-sm">
-                  <p class="font-semibold text-yellow-800 dark:text-yellow-300">💡 Configuration Tips:</p>
-                  <ul class="list-disc list-inside text-yellow-700 dark:text-yellow-400 mt-1 space-y-1">
-                    <li><strong>G.722</strong> provides HD audio (16kHz) - great for softphones</li>
-                    <li><strong>Direct Media = No</strong> is safer for NAT/firewall setups</li>
-                    <li><strong>Qualify Frequency = 60</strong> helps detect offline devices</li>
-                    <li>Use <strong>remove_existing=yes</strong> to avoid stale registrations (applied automatically)</li>
-                  </ul>
+                <div class="flex items-center space-x-4">
+                  <label class="flex items-center space-x-2">
+                    <input v-model="form.enabled" type="checkbox" class="rounded" />
+                    <span class="text-sm">{{ $t('extensions.enabled') }}</span>
+                  </label>
+                  <label class="flex items-center space-x-2">
+                    <input v-model="form.voicemail_enabled" type="checkbox" class="rounded" />
+                    <span class="text-sm">Enable Voicemail</span>
+                  </label>
                 </div>
               </div>
-            </div>
 
-            <!-- Notes -->
-            <div>
-              <label class="label">{{ $t('extensions.notes') }}</label>
-              <textarea v-model="form.notes" class="input" rows="2" placeholder="Optional notes about this extension"></textarea>
-            </div>
+              <!-- Advanced PJSIP Configuration -->
+              <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 space-y-4">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-lg font-semibold text-blue-700 dark:text-blue-300">⚙️ Advanced PJSIP Configuration</h3>
+                  <button type="button" @click="showAdvanced = !showAdvanced" class="text-blue-600 hover:text-blue-800 text-sm">
+                    {{ showAdvanced ? 'Hide Advanced' : 'Show Advanced' }}
+                  </button>
+                </div>
+                
+                <div v-show="showAdvanced" class="space-y-4">
+                  <!-- Codec Selection -->
+                  <div>
+                    <label class="label flex items-center">
+                      🎵 Audio Codecs
+                      <span class="ml-2 text-xs text-gray-500">(Higher = better quality, more bandwidth)</span>
+                    </label>
+                    <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mt-2">
+                      <label v-for="codec in availableCodecs" :key="codec.id" 
+                             class="flex items-center space-x-2 p-2 border rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800"
+                             :class="{ 'bg-blue-100 dark:bg-blue-800 border-blue-500': form.codecs?.includes(codec.id) }">
+                        <input type="checkbox" :value="codec.id" v-model="form.codecs" class="rounded" />
+                        <div>
+                          <span class="text-sm font-medium">{{ codec.name }}</span>
+                          <span v-if="codec.hd" class="ml-1 px-1 py-0.5 text-xs bg-green-500 text-white rounded">HD</span>
+                          <div class="text-xs text-gray-500">{{ codec.desc }}</div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <label class="label">📍 Context</label>
+                      <select v-model="form.context" class="input">
+                        <option value="from-internal">from-internal (Recommended)</option>
+                        <option value="internal">internal</option>
+                        <option value="default">default</option>
+                      </select>
+                      <p class="text-xs text-gray-500 mt-1">Dialplan context for calls from this extension</p>
+                    </div>
+                    <div>
+                      <label class="label">🔌 Transport</label>
+                      <select v-model="form.transport" class="input">
+                        <option value="transport-udp">UDP (Recommended)</option>
+                        <option value="transport-tcp">TCP</option>
+                        <option value="transport-tls">TLS (Secure)</option>
+                      </select>
+                      <p class="text-xs text-gray-500 mt-1">SIP signaling transport protocol</p>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-3 gap-4">
+                    <div>
+                      <label class="label">🔄 Direct Media</label>
+                      <select v-model="form.direct_media" class="input">
+                        <option value="no">No (NAT-safe, recommended)</option>
+                        <option value="yes">Yes (LAN only)</option>
+                      </select>
+                      <p class="text-xs text-gray-500 mt-1">Allow RTP to flow directly between endpoints</p>
+                    </div>
+                    <div>
+                      <label class="label">📞 Max Contacts</label>
+                      <input v-model.number="form.max_contacts" type="number" min="1" max="10" class="input" />
+                      <p class="text-xs text-gray-500 mt-1">Simultaneous registrations (1-10)</p>
+                    </div>
+                    <div>
+                      <label class="label">⏱️ Qualify Frequency</label>
+                      <input v-model.number="form.qualify_frequency" type="number" min="0" max="3600" class="input" />
+                      <p class="text-xs text-gray-500 mt-1">Keep-alive interval in seconds (0=disabled)</p>
+                    </div>
+                  </div>
+
+                  <!-- Info Box -->
+                  <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded p-3 text-sm">
+                    <p class="font-semibold text-yellow-800 dark:text-yellow-300">💡 Configuration Tips:</p>
+                    <ul class="list-disc list-inside text-yellow-700 dark:text-yellow-400 mt-1 space-y-1">
+                      <li><strong>G.722</strong> provides HD audio (16kHz) - great for softphones</li>
+                      <li><strong>Direct Media = No</strong> is safer for NAT/firewall setups</li>
+                      <li><strong>Qualify Frequency = 60</strong> helps detect offline devices</li>
+                      <li>Use <strong>remove_existing=yes</strong> to avoid stale registrations (applied automatically)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Notes -->
+              <div>
+                <label class="label">{{ $t('extensions.notes') }}</label>
+                <textarea v-model="form.notes" class="input" rows="2" placeholder="Optional notes about this extension"></textarea>
+              </div>
+            </fieldset>
 
             <div class="flex justify-end space-x-4">
-              <button type="button" @click="showModal = false" class="btn btn-secondary">
+              <button type="button" @click="closeModal" class="btn btn-secondary" :disabled="saving">
                 {{ $t('extensions.cancel') }}
               </button>
               <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -673,6 +686,7 @@ const loading = ref(false)
 const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
+const saveError = ref('')
 const showAdvanced = ref(false)
 const togglingExtension = ref<number | null>(null)
 
@@ -969,6 +983,7 @@ const deleteExtension = async (ext: any) => {
 
 const saveExtension = async () => {
   saving.value = true
+  saveError.value = ''
   try {
     if (editMode.value) {
       await api.updateExtension(form.value.id!, form.value)
@@ -978,8 +993,10 @@ const saveExtension = async () => {
     showModal.value = false
     resetForm()
     // WebSocket will trigger refresh via event
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving extension:', error)
+    // Extract error message from various error formats
+    saveError.value = error.data?.message || error.message || t('common.error')
   }
   saving.value = false
 }
@@ -1004,6 +1021,12 @@ const resetForm = () => {
   }
   editMode.value = false
   showAdvanced.value = false
+  saveError.value = ''
+}
+
+const closeModal = () => {
+  showModal.value = false
+  saveError.value = ''
 }
 
 // Sync functions
