@@ -477,6 +477,40 @@ func TestInitManualIPInputWithIP(t *testing.T) {
 	if m.inputValues[1] != "admin" {
 		t.Error("Default username should be 'admin'")
 	}
+	
+	// Check voipEditingExistingIP is set (new unified form behavior)
+	if m.voipEditingExistingIP != testIP {
+		t.Errorf("voipEditingExistingIP should be set to %s, got %s", testIP, m.voipEditingExistingIP)
+	}
+}
+
+// TestInitManualIPInputNewPhone tests that adding new phone clears editing IP
+func TestInitManualIPInputNewPhone(t *testing.T) {
+	config := &Config{
+		DBHost:     "localhost",
+		DBPort:     "3306",
+		DBDatabase: "rayanpbx",
+		DBUsername: "root",
+		DBPassword: "password",
+	}
+	
+	m := initialModel(nil, config, false)
+	
+	// First simulate editing an existing phone
+	m.voipEditingExistingIP = "192.168.1.100"
+	
+	// Now add a new phone
+	m.initManualIPInput()
+	
+	// voipEditingExistingIP should be cleared
+	if m.voipEditingExistingIP != "" {
+		t.Errorf("voipEditingExistingIP should be empty for new phone, got %s", m.voipEditingExistingIP)
+	}
+	
+	// Cursor should be on first field (IP Address)
+	if m.inputCursor != 0 {
+		t.Errorf("Cursor should be on first field (0) for new phone, got %d", m.inputCursor)
+	}
 }
 
 // TestIsRunningAsRoot tests the root detection function

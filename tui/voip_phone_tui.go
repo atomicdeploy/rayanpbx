@@ -275,9 +275,22 @@ func (m model) renderVoIPPhoneControl() string {
 	return menuStyle.Render(content)
 }
 
-// renderVoIPManualIP renders the manual IP input screen
+// renderVoIPManualIP renders the manual IP input screen (used for both adding new phones and editing credentials)
 func (m model) renderVoIPManualIP() string {
-	content := infoStyle.Render("📱 Add Phone by IP Address") + "\n\n"
+	var title string
+	var helpText string
+	
+	if m.voipEditingExistingIP != "" {
+		// Editing credentials for existing phone
+		title = fmt.Sprintf("🔑 Edit Credentials: %s", m.voipEditingExistingIP)
+		helpText = "💡 Enter credentials to control this phone"
+	} else {
+		// Adding new phone
+		title = "📱 Add Phone by IP Address"
+		helpText = "💡 Enter IP address and credentials to add and control the phone"
+	}
+	
+	content := infoStyle.Render(title) + "\n\n"
 	
 	if m.voipPhoneOutput != "" {
 		content += m.voipPhoneOutput + "\n\n"
@@ -312,7 +325,7 @@ func (m model) renderVoIPManualIP() string {
 		content += fmt.Sprintf("%s%s: %s\n", cursor, fieldText, value)
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Enter IP address and credentials to control the phone")
+	content += "\n" + helpStyle.Render(helpText)
 	
 	return menuStyle.Render(content)
 }
@@ -578,7 +591,7 @@ func (m *model) initVoIPControlMenu() {
 	}
 }
 
-// initManualIPInput initializes manual IP input screen
+// initManualIPInput initializes manual IP input screen for adding a new phone
 func (m *model) initManualIPInput() {
 	m.currentScreen = voipManualIPScreen
 	m.inputMode = true
@@ -588,9 +601,10 @@ func (m *model) initManualIPInput() {
 	m.voipPhoneOutput = ""
 	m.errorMsg = ""
 	m.successMsg = ""
+	m.voipEditingExistingIP = "" // Not editing existing phone
 }
 
-// initManualIPInputWithIP initializes manual IP input screen with a pre-filled IP
+// initManualIPInputWithIP initializes manual IP input screen for editing credentials of an existing phone
 func (m *model) initManualIPInputWithIP(ip string) {
 	m.currentScreen = voipManualIPScreen
 	m.inputMode = true
@@ -609,6 +623,7 @@ func (m *model) initManualIPInputWithIP(ip string) {
 	m.voipPhoneOutput = ""
 	m.errorMsg = ""
 	m.successMsg = ""
+	m.voipEditingExistingIP = ip // Track that we're editing existing phone
 }
 
 // addAllDiscoveredPhones adds all phones from discoveredPhones to voipPhones and saves to DB
