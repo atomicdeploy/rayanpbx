@@ -17,19 +17,19 @@ MANAGED_CONF_FILES=(
     "/etc/asterisk/cel.conf"
 )
 
-# Colors for output (if terminal supports it)
+# Colors for output (if terminal supports it and not already defined)
 if [ -t 1 ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    RESET='\033[0m'
+    [ -z "${RED+x}" ] && RED='\033[0;31m'
+    [ -z "${GREEN+x}" ] && GREEN='\033[0;32m'
+    [ -z "${YELLOW+x}" ] && YELLOW='\033[1;33m'
+    [ -z "${CYAN+x}" ] && CYAN='\033[0;36m'
+    [ -z "${RESET+x}" ] && RESET='\033[0m'
 else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    CYAN=''
-    RESET=''
+    [ -z "${RED+x}" ] && RED=''
+    [ -z "${GREEN+x}" ] && GREEN=''
+    [ -z "${YELLOW+x}" ] && YELLOW=''
+    [ -z "${CYAN+x}" ] && CYAN=''
+    [ -z "${RESET+x}" ] && RESET=''
 fi
 
 # Helper function to print messages

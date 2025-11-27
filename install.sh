@@ -3371,7 +3371,7 @@ if next_step "TUI (Terminal UI) Build" "tui"; then
     # WebSocket Server Setup
     print_progress "Building WebSocket server..."
     go mod download
-    go build -o /usr/local/bin/rayanpbx-ws websocket.go config.go
+    go build -tags websocket -o /usr/local/bin/rayanpbx-ws websocket.go config.go
     chmod +x /usr/local/bin/rayanpbx-ws
 
     print_success "WebSocket server built: /usr/local/bin/rayanpbx-ws"
