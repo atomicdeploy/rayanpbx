@@ -210,65 +210,26 @@ class PhoneController extends Controller
     }
 
     /**
-     * Verify phone credentials by attempting to authenticate
+     * Authenticate to a phone
+     * 
+     * Authenticates to the phone using either:
+     * 1. Supplied credentials (if provided)
+     * 2. Stored credentials from the database
+     * 
+     * If authentication succeeds with supplied credentials that differ
+     * from stored credentials, the database is updated with the new credentials.
      */
-    public function verifyCredentials(Request $request)
+    public function authenticate(Request $request)
     {
         $request->validate([
             'ip' => 'required|ip',
-            'credentials' => 'required|array',
-            'credentials.username' => 'required|string|max:50',
-            'credentials.password' => 'required|string|max:128',
+            'credentials' => 'nullable|array',
+            'credentials.username' => 'nullable|string|max:50',
+            'credentials.password' => 'nullable|string|max:128',
         ]);
 
         $ip = $request->input('ip');
-        $credentials = $request->input('credentials');
-
-        // Try to get phone status with provided credentials
-        $result = $this->grandstreamService->getPhoneStatus($ip, $credentials);
-
-        // Check if we got a successful response (not just "reachable" which may mean auth failed)
-        $isAuthenticated = isset($result['status']) && $result['status'] === 'online';
-
-        // If we have a specific HTTP error, provide verbose feedback
-        $errorDetails = null;
-        if (! $isAuthenticated && isset($result['error'])) {
-            $errorDetails = $this->getVerboseHttpError($result['error']);
-        }
-
-        return response()->json([
-            'success' => $isAuthenticated,
-            'authenticated' => $isAuthenticated,
-            'ip' => $ip,
-            'status' => $result['status'] ?? 'unknown',
-            'message' => $isAuthenticated
-                ? 'Credentials verified successfully'
-                : ($errorDetails ?? 'Authentication failed - check username and password'),
-            'phone_info' => $isAuthenticated ? [
-                'model' => $result['model'] ?? null,
-                'firmware' => $result['firmware'] ?? null,
-                'mac' => $result['mac'] ?? null,
-            ] : null,
-            'error_details' => $errorDetails,
-        ]);
-    }
-
-    /**
-     * Save credentials for a phone and optionally verify them
-     */
-    public function saveCredentials(Request $request)
-    {
-        $request->validate([
-            'ip' => 'required|ip',
-            'credentials' => 'required|array',
-            'credentials.username' => 'required|string|max:50',
-            'credentials.password' => 'required|string|max:128',
-            'verify' => 'nullable|boolean',
-        ]);
-
-        $ip = $request->input('ip');
-        $credentials = $request->input('credentials');
-        $shouldVerify = $request->input('verify', true);
+        $suppliedCredentials = $request->input('credentials');
 
         // Find or create phone record
         $phone = VoipPhone::firstOrCreate(
@@ -280,47 +241,79 @@ class PhoneController extends Controller
             ]
         );
 
-        // Optionally verify credentials before saving
-        if ($shouldVerify) {
-            $verifyResult = $this->grandstreamService->getPhoneStatus($ip, $credentials);
-            $isAuthenticated = isset($verifyResult['status']) && $verifyResult['status'] === 'online';
+        // Determine which credentials to use
+        $storedCredentials = $phone->getCredentialsForApi();
+        $credentialsToUse = $suppliedCredentials ?? $storedCredentials;
 
-            if (! $isAuthenticated) {
-                $errorDetails = isset($verifyResult['error'])
-                    ? $this->getVerboseHttpError($verifyResult['error'])
-                    : 'Authentication failed - check username and password';
+        // If no credentials available at all, return error
+        if (empty($credentialsToUse['password'])) {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'ip' => $ip,
+                'message' => 'No credentials provided and no stored credentials available',
+            ], 400);
+        }
 
-                return response()->json([
-                    'success' => false,
-                    'authenticated' => false,
-                    'message' => $errorDetails,
-                    'ip' => $ip,
-                ], 401);
-            }
+        // Try to authenticate with the phone
+        $result = $this->grandstreamService->getPhoneStatus($ip, $credentialsToUse);
 
-            // Update phone info from verified response
-            $phone->update([
-                'credentials' => $credentials,
+        // Check if we got a successful response
+        $isAuthenticated = isset($result['status']) && $result['status'] === 'online';
+
+        // If we have a specific HTTP error, provide verbose feedback
+        $errorDetails = null;
+        if (! $isAuthenticated && isset($result['error'])) {
+            $errorDetails = $this->getVerboseHttpError($result['error']);
+        }
+
+        // If authentication succeeded with supplied credentials, check if we need to update DB
+        if ($isAuthenticated && $suppliedCredentials) {
+            // Compare credentials using array comparison (only compare relevant keys)
+            $suppliedFiltered = Arr::only($suppliedCredentials, ['username', 'password']);
+            $storedFiltered = Arr::only($storedCredentials, ['username', 'password']);
+            $needsUpdate = $suppliedFiltered !== $storedFiltered;
+
+            // Update phone record with new credentials and status info
+            $updateData = [
                 'status' => 'online',
                 'last_seen' => now(),
-                'model' => $verifyResult['model'] ?? $phone->model,
-                'firmware' => $verifyResult['firmware'] ?? $phone->firmware,
-                'mac' => $verifyResult['mac'] ?? $phone->mac,
-            ]);
-        } else {
-            // Just save credentials without verification
+                'model' => $result['model'] ?? $phone->model,
+                'firmware' => $result['firmware'] ?? $phone->firmware,
+                'mac' => $result['mac'] ?? $phone->mac,
+            ];
+
+            if ($needsUpdate) {
+                $updateData['credentials'] = $suppliedFiltered;
+            }
+
+            $phone->update($updateData);
+        } elseif ($isAuthenticated) {
+            // Update phone status info even without credential changes
             $phone->update([
-                'credentials' => $credentials,
+                'status' => 'online',
+                'last_seen' => now(),
+                'model' => $result['model'] ?? $phone->model,
+                'firmware' => $result['firmware'] ?? $phone->firmware,
+                'mac' => $result['mac'] ?? $phone->mac,
             ]);
         }
 
         return response()->json([
-            'success' => true,
-            'authenticated' => $shouldVerify,
-            'message' => $shouldVerify
-                ? 'Credentials verified and saved successfully'
-                : 'Credentials saved successfully (not verified)',
-            'phone' => $phone->fresh(),
+            'success' => $isAuthenticated,
+            'authenticated' => $isAuthenticated,
+            'ip' => $ip,
+            'status' => $result['status'] ?? 'unknown',
+            'message' => $isAuthenticated
+                ? 'Authentication successful'
+                : ($errorDetails ?? 'Authentication failed - check username and password'),
+            'phone' => $isAuthenticated ? $phone->fresh() : null,
+            'phone_info' => $isAuthenticated ? [
+                'model' => $result['model'] ?? null,
+                'firmware' => $result['firmware'] ?? null,
+                'mac' => $result['mac'] ?? null,
+            ] : null,
+            'error_details' => $errorDetails,
         ]);
     }
 

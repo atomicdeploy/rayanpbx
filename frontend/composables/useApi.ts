@@ -175,17 +175,10 @@ export const useApi = () => {
       return apiFetch(`/phones/${identifier}`)
     },
 
-    async verifyPhoneCredentials(ip: string, credentials: any) {
-      return apiFetch('/phones/verify-credentials', {
+    async authenticatePhone(ip: string, credentials: any = null) {
+      return apiFetch('/phones/authenticate', {
         method: 'POST',
         body: { ip, credentials },
-      })
-    },
-
-    async savePhoneCredentials(ip: string, credentials: any, verify = true) {
-      return apiFetch('/phones/save-credentials', {
-        method: 'POST',
-        body: { ip, credentials, verify },
       })
     },
 

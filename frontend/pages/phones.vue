@@ -453,18 +453,13 @@
               class="input"
             />
           </div>
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" v-model="saveCredentialsToDb" />
-              Save credentials for this phone
-            </label>
-          </div>
+          <p class="help-text-small">Credentials will be saved automatically upon successful authentication.</p>
           <div v-if="credentialsError" class="error-message">
             {{ credentialsError }}
           </div>
           <div class="modal-actions">
             <button @click="verifyAndApplyCredentials" class="btn btn-primary" :disabled="verifyingCredentials">
-              {{ verifyingCredentials ? '🔄 Verifying...' : '✅ Verify & Apply' }}
+              {{ verifyingCredentials ? '🔄 Authenticating...' : '✅ Authenticate' }}
             </button>
             <button @click="showCredentialsModal = false" class="btn btn-secondary">
               Cancel
@@ -660,7 +655,6 @@ const authError = ref('')
 const showCredentialsModal = ref(false)
 const verifyingCredentials = ref(false)
 const credentialsError = ref('')
-const saveCredentialsToDb = ref(true)
 
 // Computed property for current discovery list based on tab
 const currentDiscoveryList = computed(() => {
@@ -837,19 +831,15 @@ async function selectPhone(phone) {
   phoneConfig.value = null
   phoneState.value = null
   ctiStatus.value = { cti_working: false, snmp_enabled: false }
+  credentials.value = { username: 'admin', password: '' }
   
-  // Check if phone has stored credentials
+  // Try to authenticate using stored credentials (the API will use them if available)
   if (phone.id) {
     try {
-      const phoneData = await api.getPhone(phone.ip)
-      if (phoneData.phone?.hasCredentials || (phoneData.phone?.credentials?.password)) {
-        // Phone has stored credentials, try to authenticate
-        credentials.value = phoneData.phone.credentials || { username: 'admin', password: '' }
-        await verifyPhoneAuth(false) // Silent verification
-      }
+      // Try silent authentication - API will use stored credentials if available
+      await authenticateToPhone(false)
     } catch (e) {
-      // No stored credentials, show credentials modal
-      console.log('No stored credentials for this phone')
+      console.log('Silent authentication failed, will prompt for credentials')
     }
   }
   
@@ -872,18 +862,24 @@ function goBackToList() {
   phoneState.value = null
 }
 
-// Verify credentials and authenticate to phone
-async function verifyPhoneAuth(showErrors = true) {
+// Authenticate to phone using the new /phones/authenticate endpoint
+async function authenticateToPhone(showErrors = true) {
   if (!selectedPhone.value) return false
   
   try {
-    const data = await api.verifyPhoneCredentials(selectedPhone.value.ip, credentials.value)
+    // Call authenticate API - it will use stored credentials if none provided
+    // Only send credentials if user has explicitly provided a password (not empty string)
+    const hasUserCredentials = credentials.value.password !== undefined && credentials.value.password !== ''
+    const data = await api.authenticatePhone(
+      selectedPhone.value.ip,
+      hasUserCredentials ? credentials.value : null
+    )
     
     if (data.success && data.authenticated) {
       isAuthenticated.value = true
       authError.value = ''
       
-      // Update phone info from verification response
+      // Update phone info from authentication response
       if (data.phone_info) {
         phoneStatus.value = {
           ...phoneStatus.value,
@@ -891,6 +887,11 @@ async function verifyPhoneAuth(showErrors = true) {
           ip: selectedPhone.value.ip,
           status: 'online'
         }
+      }
+      
+      // Update selectedPhone with fresh data if returned
+      if (data.phone) {
+        selectedPhone.value = { ...selectedPhone.value, ...data.phone }
       }
       
       // Now fetch full status and start polling
@@ -918,7 +919,7 @@ async function verifyPhoneAuth(showErrors = true) {
   } catch (error) {
     isAuthenticated.value = false
     if (showErrors) {
-      authError.value = error?.data?.message || error?.message || 'Failed to verify credentials'
+      authError.value = error?.data?.message || error?.message || 'Failed to authenticate'
     }
     return false
   }
@@ -932,46 +933,39 @@ async function verifyAndApplyCredentials() {
   credentialsError.value = ''
   
   try {
-    // If saving to DB, use the save endpoint which also verifies
-    if (saveCredentialsToDb.value) {
-      const data = await api.savePhoneCredentials(
-        selectedPhone.value.ip,
-        credentials.value,
-        true // verify before saving
-      )
+    // Use authenticate endpoint - it will auto-save credentials if they differ
+    const data = await api.authenticatePhone(
+      selectedPhone.value.ip,
+      credentials.value
+    )
+    
+    if (data.success && data.authenticated) {
+      isAuthenticated.value = true
+      authError.value = ''
+      showCredentialsModal.value = false
+      showNotification('Authentication successful', 'success')
       
-      if (data.success) {
-        isAuthenticated.value = true
-        authError.value = ''
-        showCredentialsModal.value = false
-        showNotification('Credentials verified and saved successfully', 'success')
-        
-        // Refresh phone data
-        await refreshPhoneStatus()
-        await refreshCTIStatus()
-        
-        // Start polling
-        if (ctiRefreshInterval) clearInterval(ctiRefreshInterval)
-        ctiRefreshInterval = setInterval(async () => {
-          if (selectedPhone.value && isAuthenticated.value) {
-            await refreshCTIStatus()
-          }
-        }, 5000)
-      } else {
-        credentialsError.value = data.message || 'Authentication failed'
+      // Update selectedPhone with fresh data if returned
+      if (data.phone) {
+        selectedPhone.value = { ...selectedPhone.value, ...data.phone }
       }
+      
+      // Refresh phone data
+      await refreshPhoneStatus()
+      await refreshCTIStatus()
+      
+      // Start polling
+      if (ctiRefreshInterval) clearInterval(ctiRefreshInterval)
+      ctiRefreshInterval = setInterval(async () => {
+        if (selectedPhone.value && isAuthenticated.value) {
+          await refreshCTIStatus()
+        }
+      }, 5000)
     } else {
-      // Just verify without saving
-      const success = await verifyPhoneAuth(false)
-      if (success) {
-        showCredentialsModal.value = false
-        showNotification('Credentials verified successfully', 'success')
-      } else {
-        credentialsError.value = authError.value || 'Authentication failed'
-      }
+      credentialsError.value = data.message || data.error_details || 'Authentication failed'
     }
   } catch (error) {
-    credentialsError.value = error?.data?.message || error?.message || 'Failed to verify credentials'
+    credentialsError.value = error?.data?.message || error?.message || 'Failed to authenticate'
   } finally {
     verifyingCredentials.value = false
   }
@@ -2276,6 +2270,13 @@ function showNotification(message, type = 'info') {
   color: var(--text-secondary);
   font-size: 14px;
   margin-bottom: 20px;
+}
+
+.credentials-form .help-text-small {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+  font-style: italic;
 }
 
 .credentials-form .form-group {

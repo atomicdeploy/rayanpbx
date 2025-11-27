@@ -163,6 +163,20 @@ class HttpClientService
             $request = $request->withHeaders($options['headers']);
         }
 
+        // Follow redirects by default (can be disabled with follow_redirects => false)
+        $followRedirects = $options['follow_redirects'] ?? true;
+        if ($followRedirects) {
+            $request = $request->withOptions([
+                'allow_redirects' => [
+                    'max' => 5,
+                    'strict' => true,
+                    'referer' => true,
+                    'protocols' => ['http', 'https'],
+                    'track_redirects' => true,
+                ],
+            ]);
+        }
+
         return $request;
     }
 
