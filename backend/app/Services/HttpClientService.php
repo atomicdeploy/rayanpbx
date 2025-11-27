@@ -195,6 +195,51 @@ class HttpClientService
     }
 
     /**
+     * Create a client configured for GrandStream phone requests.
+     *
+     * GrandStream phones return HTTP/1.0 responses with potentially malformed
+     * headers (e.g., "Set-Cookie: HttpOnly" without a value). This method
+     * configures Guzzle to handle these non-standard responses.
+     *
+     * @param  string  $ip  Phone IP address (for Origin/Referer headers)
+     * @param  string|null  $cookieHeader  Optional cookie header value
+     * @param  int  $timeout  Timeout in seconds (default: 15)
+     */
+    public function grandstreamClient(string $ip, ?string $cookieHeader = null, int $timeout = 15): PendingRequest
+    {
+        $headers = [
+            'User-Agent' => $this->getUserAgent(),
+            'Origin' => "http://{$ip}",
+            'Referer' => "http://{$ip}/",
+        ];
+
+        if ($cookieHeader !== null) {
+            $headers['Cookie'] = $cookieHeader;
+        }
+
+        $request = Http::withHeaders($headers)
+            ->timeout($timeout)
+            ->connectTimeout(10);
+
+        // Apply proxy configuration if available
+        $proxyConfig = $this->getProxyConfig();
+        if ($proxyConfig) {
+            $request = $request->withOptions([
+                'proxy' => $proxyConfig,
+            ]);
+        }
+
+        // Configure Guzzle to be lenient with malformed headers
+        $request = $request->withOptions([
+            'http_errors' => false,
+            // Don't follow redirects (GrandStream phones use 301 for some endpoints)
+            'allow_redirects' => false,
+        ]);
+
+        return $request;
+    }
+
+    /**
      * Make a GET request
      *
      * @param  array  $query  Query parameters
@@ -335,5 +380,169 @@ class HttpClientService
         $this->connectTimeout = $connectTimeout;
 
         return $this;
+    }
+
+    /**
+     * Make an HTTP request using PHP's native stream functions.
+     *
+     * This method provides an alternative to Guzzle for devices that return
+     * malformed HTTP headers (e.g., GrandStream phones with "Set-Cookie: HttpOnly"
+     * without a value). It uses PHP's file_get_contents with stream context.
+     *
+     * Features:
+     * - Consistent User-Agent header (RayanPBX/version)
+     * - Automatic proxy support via environment variables
+     * - Configurable timeout
+     * - Error handling with detailed error info
+     *
+     * @param  string  $url  Full URL to request
+     * @param  string  $method  HTTP method (GET, POST, etc.)
+     * @param  array  $headers  Additional headers (key => value)
+     * @param  string|null  $body  Request body content
+     * @param  int|null  $timeout  Timeout in seconds (default: class timeout)
+     * @return array{success: bool, body?: string, status_code?: int, error?: string, headers?: array}
+     */
+    public function nativeRequest(
+        string $url,
+        string $method = 'GET',
+        array $headers = [],
+        ?string $body = null,
+        ?int $timeout = null
+    ): array {
+        $timeout = $timeout ?? $this->timeout;
+
+        // Build headers array with User-Agent
+        $headerStrings = [];
+        $hasUserAgent = false;
+
+        foreach ($headers as $name => $value) {
+            $headerStrings[] = "{$name}: {$value}";
+            if (strtolower($name) === 'user-agent') {
+                $hasUserAgent = true;
+            }
+        }
+
+        // Add User-Agent if not provided
+        if (! $hasUserAgent) {
+            $headerStrings[] = 'User-Agent: '.$this->getUserAgent();
+        }
+
+        // Build stream context options
+        $httpOptions = [
+            'method' => strtoupper($method),
+            'header' => $headerStrings,
+            'timeout' => $timeout,
+            'ignore_errors' => true, // Get response body even on HTTP errors
+        ];
+
+        if ($body !== null) {
+            $httpOptions['content'] = $body;
+        }
+
+        // Add proxy configuration
+        $proxyConfig = $this->getProxyConfig();
+        if ($proxyConfig) {
+            // Determine which proxy to use based on URL scheme
+            $scheme = parse_url($url, PHP_URL_SCHEME) ?? 'http';
+            $proxyUrl = null;
+
+            if ($scheme === 'https' && isset($proxyConfig['https'])) {
+                $proxyUrl = $proxyConfig['https'];
+            } elseif (isset($proxyConfig['http'])) {
+                $proxyUrl = $proxyConfig['http'];
+            }
+
+            if ($proxyUrl) {
+                $httpOptions['proxy'] = $proxyUrl;
+                $httpOptions['request_fulluri'] = true;
+            }
+        }
+
+        $context = stream_context_create(['http' => $httpOptions]);
+
+        // Make the request
+        $response = @file_get_contents($url, false, $context);
+
+        if ($response === false) {
+            $error = error_get_last();
+
+            return [
+                'success' => false,
+                'error' => $error['message'] ?? 'Request failed',
+            ];
+        }
+
+        // Parse response headers from $http_response_header (set by file_get_contents)
+        $statusCode = 200;
+        $responseHeaders = [];
+
+        if (isset($http_response_header) && is_array($http_response_header)) {
+            foreach ($http_response_header as $header) {
+                if (preg_match('/^HTTP\/\d+\.?\d*\s+(\d+)/', $header, $matches)) {
+                    $statusCode = (int) $matches[1];
+                } elseif (str_contains($header, ':')) {
+                    [$name, $value] = explode(':', $header, 2);
+                    $responseHeaders[trim($name)] = trim($value);
+                }
+            }
+        }
+
+        return [
+            'success' => true,
+            'body' => $response,
+            'status_code' => $statusCode,
+            'headers' => $responseHeaders,
+        ];
+    }
+
+    /**
+     * Make a native POST request with form data.
+     *
+     * Convenience method for form-encoded POST requests using native streams.
+     *
+     * @param  string  $url  Full URL to request
+     * @param  array|string  $data  Form data (array will be encoded, string used as-is)
+     * @param  array  $headers  Additional headers
+     * @param  int|null  $timeout  Timeout in seconds
+     * @return array{success: bool, body?: string, status_code?: int, error?: string}
+     */
+    public function nativePost(string $url, array|string $data = [], array $headers = [], ?int $timeout = null): array
+    {
+        // Ensure Content-Type is set for form data
+        $hasContentType = false;
+        foreach ($headers as $name => $value) {
+            if (strtolower($name) === 'content-type') {
+                $hasContentType = true;
+                break;
+            }
+        }
+
+        if (! $hasContentType) {
+            $headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        }
+
+        $body = is_array($data) ? http_build_query($data) : $data;
+
+        return $this->nativeRequest($url, 'POST', $headers, $body, $timeout);
+    }
+
+    /**
+     * Make a native GET request.
+     *
+     * Convenience method for GET requests using native streams.
+     *
+     * @param  string  $url  Full URL to request
+     * @param  array  $query  Query parameters (will be appended to URL)
+     * @param  array  $headers  Additional headers
+     * @param  int|null  $timeout  Timeout in seconds
+     * @return array{success: bool, body?: string, status_code?: int, error?: string}
+     */
+    public function nativeGet(string $url, array $query = [], array $headers = [], ?int $timeout = null): array
+    {
+        if (! empty($query)) {
+            $url .= (str_contains($url, '?') ? '&' : '?').http_build_query($query);
+        }
+
+        return $this->nativeRequest($url, 'GET', $headers, null, $timeout);
     }
 }

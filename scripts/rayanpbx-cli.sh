@@ -1850,6 +1850,315 @@ cmd_tui() {
     exec "$tui_path" "$@"
 }
 
+# VoIP Phone Management Commands (GrandStream)
+# Uses php artisan rayanpbx:phone under the hood
+
+# List all phones
+cmd_phone_list() {
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    print_header "📱 VoIP Phones"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    php artisan rayanpbx:phone list $json_flag
+}
+
+# Test phone authentication
+cmd_phone_test() {
+    local ip=""
+    local id=""
+    local mac=""
+    local ext=""
+    local username=""
+    local password=""
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ip=*) ip="${1#*=}"; shift ;;
+            --ip) ip="$2"; shift 2 ;;
+            --id=*) id="${1#*=}"; shift ;;
+            --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
+            --username=*) username="${1#*=}"; shift ;;
+            --username) username="$2"; shift 2 ;;
+            --password=*) password="${1#*=}"; shift ;;
+            --password) password="$2"; shift 2 ;;
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        echo "Usage: rayanpbx-cli phone test --ip=<ip> [--password=<password>]"
+        echo "   or: rayanpbx-cli phone test --id=<id>"
+        echo "   or: rayanpbx-cli phone test --mac=<mac>"
+        echo "   or: rayanpbx-cli phone test --ext=<extension>"
+        exit 2
+    fi
+    
+    print_header "📱 Testing Phone Authentication"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    local args="test"
+    [ -n "$ip" ] && args="$args --ip=$ip"
+    [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
+    [ -n "$username" ] && args="$args --username=$username"
+    [ -n "$password" ] && args="$args --password=$password"
+    
+    php artisan rayanpbx:phone $args $json_flag
+}
+
+# Show phone device information
+cmd_phone_info() {
+    local ip=""
+    local id=""
+    local mac=""
+    local ext=""
+    local username=""
+    local password=""
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ip=*) ip="${1#*=}"; shift ;;
+            --ip) ip="$2"; shift 2 ;;
+            --id=*) id="${1#*=}"; shift ;;
+            --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
+            --username=*) username="${1#*=}"; shift ;;
+            --username) username="$2"; shift 2 ;;
+            --password=*) password="${1#*=}"; shift ;;
+            --password) password="$2"; shift 2 ;;
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        echo "Usage: rayanpbx-cli phone info --ip=<ip> [--password=<password>]"
+        echo "   or: rayanpbx-cli phone info --id=<id>"
+        echo "   or: rayanpbx-cli phone info --mac=<mac>"
+        echo "   or: rayanpbx-cli phone info --ext=<extension>"
+        exit 2
+    fi
+    
+    print_header "📱 Phone Device Information"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    local args="info"
+    [ -n "$ip" ] && args="$args --ip=$ip"
+    [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
+    [ -n "$username" ] && args="$args --username=$username"
+    [ -n "$password" ] && args="$args --password=$password"
+    
+    php artisan rayanpbx:phone $args $json_flag
+}
+
+# Show SIP account configuration
+cmd_phone_sip() {
+    local ip=""
+    local id=""
+    local mac=""
+    local ext=""
+    local username=""
+    local password=""
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ip=*) ip="${1#*=}"; shift ;;
+            --ip) ip="$2"; shift 2 ;;
+            --id=*) id="${1#*=}"; shift ;;
+            --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
+            --username=*) username="${1#*=}"; shift ;;
+            --username) username="$2"; shift 2 ;;
+            --password=*) password="${1#*=}"; shift ;;
+            --password) password="$2"; shift 2 ;;
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        echo "Usage: rayanpbx-cli phone sip --ip=<ip> [--password=<password>]"
+        echo "   or: rayanpbx-cli phone sip --id=<id>"
+        echo "   or: rayanpbx-cli phone sip --mac=<mac>"
+        echo "   or: rayanpbx-cli phone sip --ext=<extension>"
+        exit 2
+    fi
+    
+    print_header "📱 SIP Account Configuration"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    local args="sip"
+    [ -n "$ip" ] && args="$args --ip=$ip"
+    [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
+    [ -n "$username" ] && args="$args --username=$username"
+    [ -n "$password" ] && args="$args --password=$password"
+    
+    php artisan rayanpbx:phone $args $json_flag
+}
+
+# Provision SIP extension on phone
+cmd_phone_provision() {
+    local ip=""
+    local id=""
+    local mac=""
+    local ext=""
+    local username=""
+    local password=""
+    local extension=""
+    local sip_password=""
+    local sip_server=""
+    local display_name=""
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ip=*) ip="${1#*=}"; shift ;;
+            --ip) ip="$2"; shift 2 ;;
+            --id=*) id="${1#*=}"; shift ;;
+            --id) id="$2"; shift 2 ;;
+            --mac=*) mac="${1#*=}"; shift ;;
+            --mac) mac="$2"; shift 2 ;;
+            --ext=*) ext="${1#*=}"; shift ;;
+            --ext) ext="$2"; shift 2 ;;
+            --username=*) username="${1#*=}"; shift ;;
+            --username) username="$2"; shift 2 ;;
+            --password=*) password="${1#*=}"; shift ;;
+            --password) password="$2"; shift 2 ;;
+            --extension=*) extension="${1#*=}"; shift ;;
+            --extension) extension="$2"; shift 2 ;;
+            --sip-password=*) sip_password="${1#*=}"; shift ;;
+            --sip-password) sip_password="$2"; shift 2 ;;
+            --sip-server=*) sip_server="${1#*=}"; shift ;;
+            --sip-server) sip_server="$2"; shift 2 ;;
+            --display-name=*) display_name="${1#*=}"; shift ;;
+            --display-name) display_name="$2"; shift 2 ;;
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    if [ -z "$ip" ] && [ -z "$id" ] && [ -z "$mac" ] && [ -z "$ext" ]; then
+        print_error "Please provide a selector: --ip, --id, --mac, or --ext"
+        exit 2
+    fi
+    
+    if [ -z "$extension" ] || [ -z "$sip_password" ] || [ -z "$sip_server" ]; then
+        print_error "Provisioning requires --extension, --sip-password, and --sip-server"
+        echo "Usage: rayanpbx-cli phone provision --id=<id> \\"
+        echo "         --extension=101 --sip-password=ext101 --sip-server=pbx.example.com"
+        exit 2
+    fi
+    
+    print_header "📱 Provisioning SIP Extension"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    local args="provision"
+    [ -n "$ip" ] && args="$args --ip=$ip"
+    [ -n "$id" ] && args="$args --id=$id"
+    [ -n "$mac" ] && args="$args --mac=$mac"
+    [ -n "$ext" ] && args="$args --ext=$ext"
+    [ -n "$username" ] && args="$args --username=$username"
+    [ -n "$password" ] && args="$args --password=$password"
+    args="$args --extension=$extension"
+    args="$args --sip-password=$sip_password"
+    args="$args --sip-server=$sip_server"
+    [ -n "$display_name" ] && args="$args --display-name=$display_name"
+    
+    php artisan rayanpbx:phone $args $json_flag
+}
+
+# Sync phone info to database
+cmd_phone_sync() {
+    local id=""
+    local json_flag=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --id=*) id="${1#*=}"; shift ;;
+            --id) id="$2"; shift 2 ;;
+            --json) json_flag="--json"; shift ;;
+            *) shift ;;
+        esac
+    done
+    
+    if [ -z "$id" ]; then
+        print_error "Sync requires --id (database phone ID)"
+        echo "Usage: rayanpbx-cli phone sync --id=<id>"
+        exit 2
+    fi
+    
+    print_header "📱 Syncing Phone Information"
+    
+    # Run PHP artisan command
+    cd "$RAYANPBX_ROOT/backend" 2>/dev/null || cd /opt/rayanpbx/backend 2>/dev/null || {
+        print_error "Backend directory not found"
+        exit 1
+    }
+    
+    php artisan rayanpbx:phone sync --id="$id" $json_flag
+}
+
 # Backup Management Commands
 # Uses centralized backup-manager.sh for consistent backups
 
@@ -2176,6 +2485,17 @@ cmd_help() {
         echo -e "   ${GREEN}cleanup${NC} [keep]                    Remove old backups (keep N most recent)"
         echo ""
         
+        echo -e "${CYAN}📱 phone${NC} ${DIM}- VoIP phone management (GrandStream)${NC}"
+        echo -e "   ${GREEN}list${NC}                              List all phones in database"
+        echo -e "   ${GREEN}test${NC} --id=<id>                    Test phone authentication"
+        echo -e "   ${GREEN}info${NC} --id=<id>                    Show device information"
+        echo -e "   ${GREEN}sip${NC} --id=<id>                     Show SIP account configuration"
+        echo -e "   ${GREEN}provision${NC} --id=<id> --extension=<ext> --sip-password=<pass> --sip-server=<srv>"
+        echo -e "                                      Configure SIP extension on phone"
+        echo -e "   ${GREEN}sync${NC} --id=<id>                    Sync phone info to database"
+        echo -e "   ${DIM}Selectors: --id, --ip, --mac, --ext (password optional if stored)${NC}"
+        echo ""
+        
         echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
         echo -e "   ${GREEN}tui${NC}                               Launch interactive TUI interface"
         echo ""
@@ -2291,6 +2611,46 @@ cmd_help() {
                 echo -e "${YELLOW}rayanpbx-cli backup cleanup [keep]${NC}"
                 echo -e "  Removes old backups, keeping N most recent per file (default: 5)."
                 echo -e "  ${DIM}Example: rayanpbx-cli backup cleanup 3${NC}"
+                echo ""
+                ;;
+            phone)
+                echo -e "${CYAN}${BOLD}VoIP Phone Management (GrandStream)${NC}"
+                echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+                echo -e "Manage VoIP phones, particularly GrandStream devices.\n"
+                echo -e "${YELLOW}rayanpbx-cli phone list${NC}"
+                echo -e "  Lists all phones in the database."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone list${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone test [selector]${NC}"
+                echo -e "  Tests authentication with a phone."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone test --id=1${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone test --ip=192.168.1.100 --password=admin${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone info [selector]${NC}"
+                echo -e "  Shows device information (vendor, model, firmware)."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone info --id=1${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone info --mac=00:0b:82:xx:xx:xx${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone sip [selector]${NC}"
+                echo -e "  Shows SIP account configuration on the phone."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone sip --id=1${NC}"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone sip --ext=101${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone provision [selector] [options]${NC}"
+                echo -e "  Configures SIP extension on the phone."
+                echo -e "  Required: --extension, --sip-password, --sip-server"
+                echo -e "  Optional: --display-name"
+                echo -e "  ${DIM}Example: rayanpbx-cli phone provision --id=1 \\${NC}"
+                echo -e "  ${DIM}         --extension=101 --sip-password=ext101 --sip-server=pbx.example.com${NC}\n"
+                echo -e "${YELLOW}rayanpbx-cli phone sync --id=<id>${NC}"
+                echo -e "  Synchronizes phone info to the database."
+                echo -e "  ${DIM}Example: rayanpbx-cli phone sync --id=1${NC}\n"
+                echo -e "${DIM}Selectors (use one):${NC}"
+                echo -e "  --id=<id>         Phone database ID"
+                echo -e "  --ip=<ip>         Phone IP address"
+                echo -e "  --mac=<mac>       Phone MAC address"
+                echo -e "  --ext=<ext>       Phone extension number"
+                echo -e ""
+                echo -e "${DIM}Authentication (optional if stored in database):${NC}"
+                echo -e "  --username=<user> Username (default: stored or admin)"
+                echo -e "  --password=<pass> Phone admin password"
+                echo -e "  --json            Output as JSON"
                 echo ""
                 ;;
             tui)
@@ -2440,6 +2800,62 @@ main() {
                 status) cmd_backup_status ;;
                 cleanup) cmd_backup_cleanup "${3:-}" ;;
                 *) echo "Unknown backup command: ${2:-}"; exit 2 ;;
+            esac
+            ;;
+        phone)
+            shift  # Remove 'phone' from arguments
+            case "${1:-}" in
+                test)
+                    shift
+                    cmd_phone_test "$@"
+                    ;;
+                info)
+                    shift
+                    cmd_phone_info "$@"
+                    ;;
+                sip)
+                    shift
+                    cmd_phone_sip "$@"
+                    ;;
+                provision)
+                    shift
+                    cmd_phone_provision "$@"
+                    ;;
+                sync)
+                    shift
+                    cmd_phone_sync "$@"
+                    ;;
+                list)
+                    shift
+                    cmd_phone_list "$@"
+                    ;;
+                *)
+                    print_error "Unknown phone command: ${1:-}"
+                    echo ""
+                    echo "Available commands:"
+                    echo "  list      - List all phones in database"
+                    echo "  test      - Test phone authentication"
+                    echo "  info      - Show device information"
+                    echo "  sip       - Show SIP account configuration"
+                    echo "  provision - Configure SIP extension on phone"
+                    echo "  sync      - Sync phone info to database"
+                    echo ""
+                    echo "Selectors:"
+                    echo "  --id=<id>     - Select by database ID"
+                    echo "  --ip=<ip>     - Select by IP address"
+                    echo "  --mac=<mac>   - Select by MAC address"
+                    echo "  --ext=<ext>   - Select by extension number"
+                    echo ""
+                    echo "Examples:"
+                    echo "  rayanpbx-cli phone list"
+                    echo "  rayanpbx-cli phone info --id=1"
+                    echo "  rayanpbx-cli phone info --ip=192.168.1.100 --password=secret"
+                    echo "  rayanpbx-cli phone sip --mac=00:0b:82:xx:xx:xx"
+                    echo "  rayanpbx-cli phone test --ext=101"
+                    echo "  rayanpbx-cli phone provision --id=1 \\"
+                    echo "      --extension=101 --sip-password=ext101 --sip-server=pbx.example.com"
+                    exit 2
+                    ;;
             esac
             ;;
         tui)
