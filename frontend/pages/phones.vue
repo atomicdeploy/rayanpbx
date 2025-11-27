@@ -204,13 +204,13 @@
           <button @click="performAction('reboot')" class="btn btn-warning">
             🔄 Reboot
           </button>
-          <button @click="performAction('factory_reset')" class="btn btn-danger" :disabled="!isAuthenticated">
+          <button @click="performAction('factory_reset')" class="btn btn-danger">
             🏭 Factory Reset
           </button>
-          <button @click="performAction('get_config')" class="btn btn-info" :disabled="!isAuthenticated">
+          <button @click="performAction('get_config')" class="btn btn-info">
             📋 Get Config
           </button>
-          <button @click="showProvisionModal = true" class="btn btn-success" :disabled="!isAuthenticated">
+          <button @click="showProvisionModal = true" class="btn btn-success">
             🔧 Provision
           </button>
         </div>

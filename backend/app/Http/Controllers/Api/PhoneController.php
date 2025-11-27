@@ -8,6 +8,7 @@ use App\Services\GrandStreamProvisioningService;
 use App\Services\SystemctlService;
 use App\Services\TR069Service;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -196,7 +197,7 @@ class PhoneController extends Controller
 
         if ($request->has('credentials')) {
             $creds = $request->input('credentials');
-            $updateData['credentials'] = array_intersect_key($creds, ['username' => true, 'password' => true]);
+            $updateData['credentials'] = Arr::only($creds, ['username', 'password']);
         }
 
         $phone->update($updateData);
@@ -328,8 +329,8 @@ class PhoneController extends Controller
      */
     protected function getVerboseHttpError(string $error): string
     {
-        // Extract HTTP status code if present
-        if (preg_match('/HTTP error:\s*(\d+)/i', $error, $matches)) {
+        // Extract HTTP status code if present - match exact format from services
+        if (preg_match('/\bHTTP error[:\s]+(\d{3})\b/i', $error, $matches)) {
             $statusCode = (int) $matches[1];
 
             return match ($statusCode) {
