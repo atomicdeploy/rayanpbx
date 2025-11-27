@@ -10,18 +10,18 @@ return new class extends Migration
     {
         Schema::create('extensions', function (Blueprint $table) {
             $table->id();
-            $table->string('extension_number', 20)->unique();
-            $table->string('name');
-            $table->string('email')->nullable();
+            $table->string('extension_number', 20)->unique()->charset('utf8mb4')->collation('utf8mb4_unicode_ci');
+            $table->string('name')->charset('utf8mb4')->collation('utf8mb4_unicode_ci');
+            $table->string('email')->nullable()->charset('utf8mb4')->collation('utf8mb4_unicode_ci');
             $table->string('secret');
             $table->boolean('enabled')->default(true);
             $table->string('context')->default('from-internal');
             $table->string('transport')->default('udp');
             $table->json('codecs')->nullable();
             $table->integer('max_contacts')->default(1);
-            $table->string('caller_id')->nullable();
+            $table->string('caller_id')->nullable()->charset('utf8mb4')->collation('utf8mb4_unicode_ci');
             $table->boolean('voicemail_enabled')->default(false);
-            $table->text('notes')->nullable();
+            $table->text('notes')->nullable()->charset('utf8mb4')->collation('utf8mb4_unicode_ci');
             $table->timestamps();
             
             $table->index('extension_number');

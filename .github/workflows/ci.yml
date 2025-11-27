@@ -11,6 +11,20 @@ jobs:
     name: Test Backend (Laravel)
     runs-on: ubuntu-24.04
     
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: rayanpbx_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -19,7 +33,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, xml, ctype, json, pdo, pdo_sqlite, bcmath, dom
+          extensions: mbstring, xml, ctype, json, mysql, pdo, pdo_mysql, bcmath, dom
           coverage: none
       
       - name: 📦 Install Composer dependencies
@@ -31,6 +45,16 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
+          sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=mysql/' .env
+          sed -i 's/DB_HOST=.*/DB_HOST=127.0.0.1/' .env
+          sed -i 's/DB_PORT=.*/DB_PORT=3306/' .env
+          sed -i 's/DB_DATABASE=.*/DB_DATABASE=rayanpbx_test/' .env
+          sed -i 's/DB_USERNAME=.*/DB_USERNAME=root/' .env
+          sed -i 's/DB_PASSWORD=.*/DB_PASSWORD=testpassword/' .env
+      
+      - name: 🗄️ Run migrations
+        working-directory: backend
+        run: php artisan migrate --force
       
       - name: ✅ Run tests
         working-directory: backend
@@ -97,6 +121,20 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [test-backend, test-frontend, test-tui]
     
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: rayanpbx_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -105,7 +143,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, xml, ctype, json, pdo, pdo_sqlite, bcmath, dom
+          extensions: mbstring, xml, ctype, json, mysql, pdo, pdo_mysql, bcmath, dom
           coverage: none
       
       - name: 🟢 Setup Node.js 24
@@ -129,10 +167,12 @@ jobs:
           cd backend
           cp .env.example .env
           php artisan key:generate
-          # Use SQLite for integration testing
-          sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=sqlite/' .env
-          sed -i 's|DB_DATABASE=.*|DB_DATABASE=/tmp/rayanpbx_test.sqlite|' .env
-          touch /tmp/rayanpbx_test.sqlite
+          sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=mysql/' .env
+          sed -i 's/DB_HOST=.*/DB_HOST=127.0.0.1/' .env
+          sed -i 's/DB_PORT=.*/DB_PORT=3306/' .env
+          sed -i 's/DB_DATABASE=.*/DB_DATABASE=rayanpbx_test/' .env
+          sed -i 's/DB_USERNAME=.*/DB_USERNAME=root/' .env
+          sed -i 's/DB_PASSWORD=.*/DB_PASSWORD=testpassword/' .env
       
       - name: 🗄️ Setup database
         working-directory: backend
