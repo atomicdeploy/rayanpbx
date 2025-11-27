@@ -1289,23 +1289,16 @@ func (m *model) executeManualIPAdd() {
 		return
 	}
 	
-	vendor := vendorAndModel.Vendor
-	model := vendorAndModel.Model
-	
 	// Check if phone already exists, update if so
 	phoneExists := false
 	for i, existing := range m.voipPhones {
 		if existing.IP == ip {
 			phoneExists = true
-			// Update existing phone info
-			userAgent := strings.ToUpper(vendor)
-			if model != "" {
-				userAgent = fmt.Sprintf("%s %s", strings.ToUpper(vendor), model)
-			}
-			m.voipPhones[i].UserAgent = userAgent
+			// Update existing phone info with UserAgent from detection or custom name
 			if name != "" {
-				// Store name in UserAgent if provided (TUI limitation)
 				m.voipPhones[i].UserAgent = name
+			} else {
+				m.voipPhones[i].UserAgent = vendorAndModel.UserAgent()
 			}
 			if extension != "" {
 				m.voipPhones[i].Extension = extension
@@ -1316,13 +1309,10 @@ func (m *model) executeManualIPAdd() {
 	}
 	
 	if !phoneExists {
-		// Add to phone list
+		// Add to phone list with UserAgent from detection or custom name
 		displayName := name
 		if displayName == "" {
-			displayName = strings.ToUpper(vendor)
-			if model != "" {
-				displayName = fmt.Sprintf("%s %s", displayName, model)
-			}
+			displayName = vendorAndModel.UserAgent()
 		}
 		newPhone := PhoneInfo{
 			Extension: extension,
@@ -1346,19 +1336,15 @@ func (m *model) executeManualIPAdd() {
 	
 	// Save to database if available
 	if m.db != nil {
-		userAgent := strings.ToUpper(vendor)
-		if model != "" {
-			userAgent = fmt.Sprintf("%s %s", strings.ToUpper(vendor), model)
-		}
 		dbPhone := &VoIPPhoneDB{
 			IP:            ip,
 			Name:          name,
 			Extension:     extension,
-			Vendor:        vendor,
-			Model:         model,
+			Vendor:        vendorAndModel.Vendor,
+			Model:         vendorAndModel.Model,
 			Status:        "discovered",
 			DiscoveryType: "manual",
-			UserAgent:     userAgent,
+			UserAgent:     vendorAndModel.UserAgent(),
 		}
 		if err := SaveVoIPPhone(m.db, dbPhone); err != nil {
 			// Non-fatal error, just log it
@@ -1369,16 +1355,10 @@ func (m *model) executeManualIPAdd() {
 		}
 	}
 	
-	// Create message with model if available
-	displayInfo := vendor
-	if model != "" {
-		displayInfo = fmt.Sprintf("%s %s", vendor, model)
-	}
-	
 	if phoneExists {
-		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, displayInfo)
+		m.successMsg = fmt.Sprintf("Phone updated: %s (%s)", ip, vendorAndModel.UserAgent())
 	} else {
-		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, displayInfo)
+		m.successMsg = fmt.Sprintf("Phone added: %s (%s)", ip, vendorAndModel.UserAgent())
 	}
 	m.inputMode = false
 	m.currentScreen = voipPhonesScreen

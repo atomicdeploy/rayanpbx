@@ -233,6 +233,49 @@ func TestDetectPhoneVendorAndModel(t *testing.T) {
 	}
 }
 
+// TestPhoneVendorAndModelUserAgent tests the UserAgent method
+func TestPhoneVendorAndModelUserAgent(t *testing.T) {
+	tests := []struct {
+		name           string
+		vendor         string
+		model          string
+		expectedResult string
+	}{
+		{
+			name:           "Vendor and model",
+			vendor:         "grandstream",
+			model:          "GXP1630",
+			expectedResult: "GRANDSTREAM GXP1630",
+		},
+		{
+			name:           "Vendor only",
+			vendor:         "yealink",
+			model:          "",
+			expectedResult: "YEALINK",
+		},
+		{
+			name:           "Unknown vendor",
+			vendor:         "unknown",
+			model:          "",
+			expectedResult: "UNKNOWN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vm := &PhoneVendorAndModel{
+				Vendor: tt.vendor,
+				Model:  tt.model,
+			}
+
+			result := vm.UserAgent()
+			if result != tt.expectedResult {
+				t.Errorf("Expected UserAgent %s, got %s", tt.expectedResult, result)
+			}
+		})
+	}
+}
+
 // TestCreatePhone tests creating phone instances
 func TestCreatePhone(t *testing.T) {
 	pm := NewPhoneManager(NewAsteriskManager())

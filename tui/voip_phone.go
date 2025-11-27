@@ -247,6 +247,14 @@ type PhoneVendorAndModel struct {
 	Model  string
 }
 
+// UserAgent returns a formatted user agent string from vendor and model
+func (vm *PhoneVendorAndModel) UserAgent() string {
+	if vm.Model != "" {
+		return fmt.Sprintf("%s %s", strings.ToUpper(vm.Vendor), vm.Model)
+	}
+	return strings.ToUpper(vm.Vendor)
+}
+
 // Pre-compiled regular expressions for model detection (same as phone_discovery.go)
 var (
 	// GrandStream model patterns: GXP, GRP, GXV, DP, WP, GAC, HT series
@@ -288,6 +296,7 @@ func (pm *PhoneManager) DetectPhoneVendorAndModel(ip string) (*PhoneVendorAndMod
 		serverLower := strings.ToLower(server)
 		if strings.Contains(serverLower, "grandstream") {
 			result.Vendor = "grandstream"
+			// Model patterns are case-insensitive ((?i) flag), so use original case
 			if match := grandstreamModelPattern.FindString(server); match != "" {
 				result.Model = strings.ToUpper(match)
 			}
@@ -300,65 +309,75 @@ func (pm *PhoneManager) DetectPhoneVendorAndModel(ip string) (*PhoneVendorAndMod
 	}
 
 	// Check body content for vendor and model
-	// GrandStream
+	// Note: All model patterns use (?i) flag for case-insensitive matching
+	
+	// GrandStream - check for model pattern first (model regex includes model prefix like GXP, GRP, etc.)
 	if result.Model == "" {
 		if match := grandstreamModelPattern.FindString(bodyStr); match != "" {
 			result.Vendor = "grandstream"
 			result.Model = strings.ToUpper(match)
 		} else if strings.Contains(bodyStrLower, "grandstream") {
 			result.Vendor = "grandstream"
-			// Try to find model in body again with case-insensitive search
-			if match := grandstreamModelPattern.FindString(bodyStrLower); match != "" {
-				result.Model = strings.ToUpper(match)
-			}
 		}
 	}
 
 	// Yealink
-	if result.Model == "" && strings.Contains(bodyStrLower, "yealink") {
-		result.Vendor = "yealink"
+	if result.Model == "" {
 		if match := yealinkModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "yealink"
 			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "yealink") {
+			result.Vendor = "yealink"
 		}
 	}
 
 	// Polycom
-	if result.Model == "" && strings.Contains(bodyStrLower, "polycom") {
-		result.Vendor = "polycom"
+	if result.Model == "" {
 		if match := polycomModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "polycom"
 			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "polycom") {
+			result.Vendor = "polycom"
 		}
 	}
 
 	// Cisco
-	if result.Model == "" && strings.Contains(bodyStrLower, "cisco") {
-		result.Vendor = "cisco"
+	if result.Model == "" {
 		if match := ciscoModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "cisco"
 			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "cisco") {
+			result.Vendor = "cisco"
 		}
 	}
 
 	// Snom
-	if result.Model == "" && strings.Contains(bodyStrLower, "snom") {
-		result.Vendor = "snom"
+	if result.Model == "" {
 		if match := snomModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "snom"
 			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "snom") {
+			result.Vendor = "snom"
 		}
 	}
 
 	// Panasonic
-	if result.Model == "" && strings.Contains(bodyStrLower, "panasonic") {
-		result.Vendor = "panasonic"
+	if result.Model == "" {
 		if match := panasonicModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "panasonic"
 			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "panasonic") {
+			result.Vendor = "panasonic"
 		}
 	}
 
 	// Fanvil
-	if result.Model == "" && strings.Contains(bodyStrLower, "fanvil") {
-		result.Vendor = "fanvil"
+	if result.Model == "" {
 		if match := fanvilModelPattern.FindString(bodyStr); match != "" {
+			result.Vendor = "fanvil"
 			result.Model = strings.ToUpper(match)
+		} else if strings.Contains(bodyStrLower, "fanvil") {
+			result.Vendor = "fanvil"
 		}
 	}
 
