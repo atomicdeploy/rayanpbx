@@ -76,13 +76,47 @@ class DirectCallService
             ];
         }
 
-        // Validate audio file exists if specified
-        if ($mode === self::MODE_AUDIO_FILE && !file_exists($audioFile)) {
-            return [
-                'success' => false,
-                'error' => 'Audio file not found: ' . $audioFile,
-                'call_id' => $callId,
+        // Validate audio file path for security
+        if ($mode === self::MODE_AUDIO_FILE) {
+            // Validate audio file is within allowed directories
+            $allowedDirs = [
+                '/var/lib/asterisk/sounds',
+                '/var/spool/asterisk',
+                '/etc/asterisk/sounds',
             ];
+            
+            $realPath = realpath($audioFile);
+            if ($realPath === false) {
+                // Try with common extensions
+                foreach (['.wav', '.gsm', '.ulaw', '.alaw'] as $ext) {
+                    $realPath = realpath($audioFile . $ext);
+                    if ($realPath !== false) break;
+                }
+            }
+            
+            if ($realPath !== false) {
+                $isAllowed = false;
+                foreach ($allowedDirs as $dir) {
+                    if (strpos($realPath, $dir) === 0) {
+                        $isAllowed = true;
+                        break;
+                    }
+                }
+                
+                if (!$isAllowed) {
+                    return [
+                        'success' => false,
+                        'error' => 'Audio file must be within allowed directories',
+                        'call_id' => $callId,
+                    ];
+                }
+            } elseif (!file_exists($audioFile)) {
+                return [
+                    'success' => false,
+                    'error' => 'Audio file not found',
+                    'call_id' => $callId,
+                ];
+            }
         }
 
         // Initialize call status

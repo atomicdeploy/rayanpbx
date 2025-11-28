@@ -254,7 +254,7 @@ func (dcm *DirectCallManager) DialFromConsole(extension string, timeout int) *Ca
 
 // AnswerConsole answers an incoming call on the console
 func (dcm *DirectCallManager) AnswerConsole() *CallResult {
-	output, err := dcm.asteriskManager.ExecuteCLICommand("console answer")
+	_, err := dcm.asteriskManager.ExecuteCLICommand("console answer")
 
 	if err != nil {
 		return &CallResult{
@@ -264,7 +264,6 @@ func (dcm *DirectCallManager) AnswerConsole() *CallResult {
 	}
 
 	dcm.consoleState.State = CallStateConnected
-	_ = output // unused but good for debugging
 
 	return &CallResult{
 		Success: true,
@@ -276,7 +275,7 @@ func (dcm *DirectCallManager) AnswerConsole() *CallResult {
 
 // HangupConsole hangs up the current console call
 func (dcm *DirectCallManager) HangupConsole() *CallResult {
-	output, err := dcm.asteriskManager.ExecuteCLICommand("console hangup")
+	_, err := dcm.asteriskManager.ExecuteCLICommand("console hangup")
 
 	if err != nil {
 		return &CallResult{
@@ -288,7 +287,6 @@ func (dcm *DirectCallManager) HangupConsole() *CallResult {
 	dcm.consoleState.State = CallStateIdle
 	dcm.consoleState.RemoteParty = ""
 	dcm.consoleState.Direction = ""
-	_ = output
 
 	return &CallResult{
 		Success: true,

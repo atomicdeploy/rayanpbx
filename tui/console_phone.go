@@ -81,8 +81,10 @@ func (m model) renderConsolePhone() string {
 	
 	// Show help based on state
 	content += "\n"
-	if m.consolePhoneStatus != nil && m.consolePhoneStatus.State == CallStateRinging && 
-	   m.consolePhoneStatus.Direction == "inbound" {
+	isIncomingCall := m.consolePhoneStatus != nil && 
+		m.consolePhoneStatus.State == CallStateRinging && 
+		m.consolePhoneStatus.Direction == "inbound"
+	if isIncomingCall {
 		content += warningStyle.Render("🔔 Incoming call! Use 'Answer Incoming Call' to pick up.") + "\n"
 	}
 	
