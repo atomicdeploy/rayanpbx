@@ -4132,7 +4132,7 @@ func (m model) renderExtensionSync() string {
 				content += errorStyle.Render(fmt.Sprintf("   ⚡ Asterisk Only: %d (not in DB)", astOnly)) + "\n"
 			}
 			if mismatched > 0 {
-				content += errorStyle.Render(fmt.Sprintf("   ⚠️  Mismatched: %d", mismatched)) + "\n"
+				content += errorStyle.Render(fmt.Sprintf("   ⚠️ Mismatched: %d", mismatched)) + "\n"
 			}
 			content += "\n"
 		}
