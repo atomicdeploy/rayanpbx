@@ -279,6 +279,51 @@ func (m model) isDiagnosticsInputScreen() bool {
 		m.currentScreen == sipTestFullScreen
 }
 
+// getSelectedExtension returns the currently selected extension based on the display mode.
+// When extensionSyncInfos is populated (showing combined DB+Asterisk list), it uses that list.
+// Otherwise, it falls back to the extensions list from database only.
+// Returns nil if no valid extension is selected or if the selected item is Asterisk-only.
+func (m model) getSelectedExtension() *Extension {
+	// When extensionSyncInfos is populated, use it as the source of truth for selection
+	if len(m.extensionSyncInfos) > 0 {
+		if m.selectedExtensionIdx < len(m.extensionSyncInfos) {
+			syncInfo := m.extensionSyncInfos[m.selectedExtensionIdx]
+			// Return the DB extension if available (may be nil for Asterisk-only extensions)
+			return syncInfo.DBExtension
+		}
+		return nil
+	}
+	
+	// Fallback to extensions list when extensionSyncInfos is not populated
+	if m.selectedExtensionIdx < len(m.extensions) {
+		return &m.extensions[m.selectedExtensionIdx]
+	}
+	return nil
+}
+
+// hasSelectedExtension returns true if a valid extension is currently selected.
+// This is useful for determining whether edit/delete/toggle actions should be available.
+func (m model) hasSelectedExtension() bool {
+	return m.getSelectedExtension() != nil
+}
+
+// getSelectedExtensionIndex returns the index of the selected extension in the m.extensions slice.
+// Returns -1 if no valid extension is selected or if the extension is not in the extensions slice.
+func (m model) getSelectedExtensionIndex() int {
+	selectedExt := m.getSelectedExtension()
+	if selectedExt == nil {
+		return -1
+	}
+	
+	// Find the extension in the extensions slice by matching the extension number
+	for i, ext := range m.extensions {
+		if ext.ExtensionNumber == selectedExt.ExtensionNumber {
+			return i
+		}
+	}
+	return -1
+}
+
 func initialModel(db *sql.DB, config *Config, verbose bool) model {
 	asteriskManager := NewAsteriskManager()
 	diagnosticsManager := NewDiagnosticsManager(asteriskManager)
@@ -709,39 +754,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		case "e":
 			// Edit button - edit selected extension/trunk
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.initEditExtension()
-				}
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.initEditExtension()
 			}
 		
 		case "d":
 			// Delete button - delete selected extension/trunk
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.currentScreen = deleteExtensionScreen
-				}
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.currentScreen = deleteExtensionScreen
 			}
 		
 		case "i":
 			// Info/diagnostics button - show extension info
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.currentScreen = extensionInfoScreen
-				}
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.currentScreen = extensionInfoScreen
 			}
 		
 		case "t":
 			// Toggle extension enabled/disabled (in extensions list) OR run SIP test (in extension info)
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.toggleExtension()
-				}
-			} else if m.currentScreen == extensionInfoScreen && m.selectedExtensionIdx < len(m.extensions) {
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.toggleExtension()
+			} else if m.currentScreen == extensionInfoScreen && m.hasSelectedExtension() {
 				// Run SIP test suite
 				m.currentScreen = sipTestRegisterScreen
 				m.inputMode = true
-				ext := m.extensions[m.selectedExtensionIdx]
+				ext := m.getSelectedExtension()
 				m.inputFields = []string{"Extension Number", "Password", "Server (optional)"}
 				m.inputValues = []string{ext.ExtensionNumber, "", "127.0.0.1"}
 				m.inputCursor = 0
@@ -2236,11 +2273,12 @@ func (m *model) initCreateTrunk() {
 
 // initEditExtension initializes the extension edit form with advanced PJSIP options
 func (m *model) initEditExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	m.currentScreen = editExtensionScreen
 	m.inputMode = true
 	m.inputFields = []string{
@@ -2637,8 +2675,9 @@ func (m *model) createTrunk() {
 
 // editExtension updates an existing extension with advanced PJSIP options
 func (m *model) editExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		m.errorMsg = "No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
 	
@@ -2648,7 +2687,6 @@ func (m *model) editExtension() {
 		return
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	oldNumber := ext.ExtensionNumber
 	newNumber := m.inputValues[extFieldNumber]
 	
@@ -2699,22 +2737,29 @@ func (m *model) editExtension() {
 		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
 	}
 	
-	// Update extension object with all new values
-	ext.ExtensionNumber = newNumber
-	ext.Name = m.inputValues[extFieldName]
-	ext.Context = context
-	ext.Transport = transport
-	ext.Codecs = codecs
-	ext.DirectMedia = directMedia
-	ext.MaxContacts = maxContacts
-	ext.QualifyFrequency = qualifyFreq
+	// Build the updated extension for config generation
+	updatedExt := Extension{
+		ID:               ext.ID,
+		ExtensionNumber:  newNumber,
+		Name:             m.inputValues[extFieldName],
+		Secret:           ext.Secret,
+		Context:          context,
+		Transport:        transport,
+		Codecs:           codecs,
+		DirectMedia:      directMedia,
+		MaxContacts:      maxContacts,
+		QualifyFrequency: qualifyFreq,
+		Enabled:          ext.Enabled,
+		CallerID:         ext.CallerID,
+		VoicemailEnabled: ext.VoicemailEnabled,
+	}
 	if m.inputValues[extFieldPassword] != "" {
-		ext.Secret = m.inputValues[extFieldPassword]
+		updatedExt.Secret = m.inputValues[extFieldPassword]
 	}
 	
 	// Generate and write updated config
-	sections := m.configManager.GeneratePjsipEndpoint(ext)
-	if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+	sections := m.configManager.GeneratePjsipEndpoint(updatedExt)
+	if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", updatedExt.ExtensionNumber)); err != nil {
 		m.errorMsg = fmt.Sprintf("Extension updated in DB but failed to write config: %v", err)
 		m.successMsg = fmt.Sprintf("Extension %s updated (config write failed)", newNumber)
 	} else {
@@ -2739,12 +2784,11 @@ func (m *model) editExtension() {
 
 // deleteExtension deletes an extension from database and config
 func (m *model) deleteExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		m.errorMsg = "No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
-	
-	ext := m.extensions[m.selectedExtensionIdx]
 	
 	// Delete from database
 	query := `DELETE FROM extensions WHERE id = ?`
@@ -2779,17 +2823,28 @@ func (m *model) deleteExtension() {
 		}
 	}
 	
+	// Reload sync infos if they were being used
+	if len(m.extensionSyncInfos) > 0 {
+		m.loadExtensionSyncInfo()
+		// Adjust selection if needed
+		if len(m.extensionSyncInfos) == 0 {
+			m.selectedExtensionIdx = 0
+		} else if m.selectedExtensionIdx >= len(m.extensionSyncInfos) {
+			m.selectedExtensionIdx = len(m.extensionSyncInfos) - 1
+		}
+	}
+	
 	m.currentScreen = extensionsScreen
 }
 
 // toggleExtension toggles the enabled state of the selected extension
 func (m *model) toggleExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		m.errorMsg = "No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	newEnabled := !ext.Enabled
 	
 	// Update database
@@ -2801,11 +2856,27 @@ func (m *model) toggleExtension() {
 	}
 	
 	// Update in-memory state
-	m.extensions[m.selectedExtensionIdx].Enabled = newEnabled
+	extIdx := m.getSelectedExtensionIndex()
+	if extIdx >= 0 {
+		m.extensions[extIdx].Enabled = newEnabled
+	}
 	
 	// Create a copy with updated enabled state for config generation
-	updatedExt := ext
-	updatedExt.Enabled = newEnabled
+	updatedExt := Extension{
+		ID:               ext.ID,
+		ExtensionNumber:  ext.ExtensionNumber,
+		Name:             ext.Name,
+		Secret:           ext.Secret,
+		Context:          ext.Context,
+		Transport:        ext.Transport,
+		Codecs:           ext.Codecs,
+		DirectMedia:      ext.DirectMedia,
+		MaxContacts:      ext.MaxContacts,
+		QualifyFrequency: ext.QualifyFrequency,
+		Enabled:          newEnabled, // Updated enabled state
+		CallerID:         ext.CallerID,
+		VoicemailEnabled: ext.VoicemailEnabled,
+	}
 	
 	if newEnabled {
 		// Extension is being enabled - write PJSIP config
@@ -2850,6 +2921,11 @@ func (m *model) toggleExtension() {
 				}
 			}
 		}
+	}
+	
+	// Reload sync infos if they were being used
+	if len(m.extensionSyncInfos) > 0 {
+		m.loadExtensionSyncInfo()
 	}
 }
 
@@ -2928,12 +3004,11 @@ func (m model) renderEditExtension() string {
 func (m model) renderDeleteExtension() string {
 	content := infoStyle.Render("🗑️  Delete Extension") + "\n\n"
 	
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		content += errorStyle.Render("No extension selected") + "\n"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		content += errorStyle.Render("No extension selected or extension not in database") + "\n"
 		return menuStyle.Render(content)
 	}
-	
-	ext := m.extensions[m.selectedExtensionIdx]
 	
 	content += errorStyle.Render("⚠️  WARNING: This action cannot be undone!") + "\n\n"
 	content += fmt.Sprintf("You are about to delete extension:\n")
@@ -2958,11 +3033,11 @@ func (m model) renderDeleteExtension() string {
 
 // renderExtensionInfo displays detailed info and diagnostics for selected extension
 func (m model) renderExtensionInfo() string {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		return "Error: No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		return "Error: No extension selected or extension not in database"
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	content := titleStyle.Render(fmt.Sprintf("📞 Extension Info: %s", ext.ExtensionNumber)) + "\n\n"
 	
 	// Extension details
