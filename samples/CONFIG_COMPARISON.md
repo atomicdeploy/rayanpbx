@@ -9,7 +9,7 @@ RayanPBX uses the **same section name** for endpoint, auth, and aor sections (e.
 **Why not use unique names like `[101-auth]` or `[auth101]`?**
 
 For user extensions that register to the PBX:
-1. **Registration matching requires it**: When a SIP client registers as `101@server`, Asterisk looks for an aor section named `[101]`
+1. **Registration matching requires it**: When a SIP client registers with URI `sip:101@server`, Asterisk matches the username portion (`101`) to an aor section named `[101]`. The domain part (`@server`) is handled separately by Asterisk's transport configuration.
 2. **Simplicity**: Same-name sections are easier to maintain and troubleshoot
 3. **Type-based disambiguation**: Sections are distinguished by `type=endpoint`, `type=auth`, etc.
 

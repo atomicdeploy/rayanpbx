@@ -14,8 +14,9 @@
 ;   3. Sections are distinguished by their "type=" property, not their name
 ;
 ; Alternative naming like [101-auth] or [auth101] is only appropriate for SIP
-; trunks where IP-based matching via "identify" sections is used instead of
-; user-based registration matching.
+; trunks where IP-based matching is used. SIP trunks use "identify" sections
+; (type=identify) to match incoming calls by IP address rather than SIP URI,
+; so their section names don't need to match a user's registration.
 ;
 ; See: https://docs.asterisk.org/Configuration/Channel-Drivers/SIP/Configuring-res_pjsip/PJSIP-Configuration-Sections-and-Relationships/
 ;=============================================================================
@@ -172,7 +173,7 @@ match=tel07.fp.shatel.ir
 ; SECTION NAMING RATIONALE:
 ; -------------------------
 ; User extensions use SAME section names (e.g., [101] for endpoint, auth, aor):
-;   - Required for inbound registration matching (SIP URI user → aor name)
+;   - Required for inbound registration matching (SIP URI username maps to aor name)
 ;   - This is the Asterisk-recommended best practice for user extensions
 ;   - Sections are distinguished by their "type=" property
 ;
