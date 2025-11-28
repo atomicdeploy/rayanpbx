@@ -24,6 +24,21 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="card">
+        <!-- Page-level Error Banner -->
+        <div v-if="pageError" class="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+          <div class="flex items-start space-x-3">
+            <span class="text-red-600 dark:text-red-400 text-xl">❌</span>
+            <div class="flex-1">
+              <h3 class="font-semibold text-red-700 dark:text-red-300">{{ $t('common.error') }}</h3>
+              <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ pageError }}</p>
+              <button @click="retryLoad" class="mt-2 text-sm text-red-700 dark:text-red-300 hover:underline">
+                🔄 {{ $t('common.retry') || 'Retry' }}
+              </button>
+            </div>
+            <button @click="pageError = ''" class="text-red-500 hover:text-red-700">✕</button>
+          </div>
+        </div>
+
         <div v-if="loading" class="text-center py-8">
           {{ $t('common.loading') }}
         </div>
@@ -88,7 +103,7 @@
     </div>
 
     <!-- Modal for Add/Edit -->
-    <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="showModal = false">
+    <div v-if="showModal" class="fixed inset-0 z-50 overflow-y-auto" @click.self="closeModal">
       <div class="flex items-center justify-center min-h-screen px-4">
         <div class="fixed inset-0 bg-black opacity-50"></div>
         <div class="relative card max-w-2xl w-full">
@@ -97,6 +112,17 @@
           </h2>
 
           <form @submit.prevent="saveTrunk" class="space-y-4">
+            <!-- Error message -->
+            <div v-if="saveError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
+              <div class="flex items-center space-x-2">
+                <span class="text-red-600 dark:text-red-400 text-xl">⚠️</span>
+                <div>
+                  <h3 class="font-semibold text-red-700 dark:text-red-300">{{ $t('common.error') }}</h3>
+                  <p class="text-sm text-red-600 dark:text-red-400">{{ saveError }}</p>
+                </div>
+              </div>
+            </div>
+
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="label">{{ $t('trunks.name') }}</label>
@@ -154,7 +180,7 @@
             </div>
 
             <div class="flex justify-end space-x-4">
-              <button type="button" @click="showModal = false" class="btn btn-secondary">
+              <button type="button" @click="closeModal" class="btn btn-secondary" :disabled="saving">
                 {{ $t('trunks.cancel') }}
               </button>
               <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -179,6 +205,8 @@ const loading = ref(false)
 const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
+const saveError = ref('')
+const pageError = ref('')
 
 const form = ref({
   id: null,
@@ -194,15 +222,40 @@ const form = ref({
   notes: '',
 })
 
+// Helper function to extract error message from various error formats
+const extractErrorMessage = (error: any): string => {
+  if (error.data?.message) {
+    return error.data.message
+  }
+  if (error.data?.error) {
+    return error.data.error
+  }
+  if (error.message) {
+    return error.message
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  return t('common.error') || 'An error occurred'
+}
+
 const fetchTrunks = async () => {
   loading.value = true
+  pageError.value = ''
   try {
     const response = await api.getTrunks()
     trunks.value = response.trunks
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching trunks:', error)
+    pageError.value = extractErrorMessage(error)
   }
   loading.value = false
+}
+
+// Retry loading data after an error
+const retryLoad = async () => {
+  pageError.value = ''
+  await fetchTrunks()
 }
 
 const editTrunk = (trunk: any) => {
@@ -220,6 +273,7 @@ const editTrunk = (trunk: any) => {
     notes: trunk.notes || '',
   }
   editMode.value = true
+  saveError.value = ''
   showModal.value = true
 }
 
@@ -229,13 +283,15 @@ const deleteTrunk = async (trunk: any) => {
   try {
     await api.deleteTrunk(trunk.id)
     // WebSocket will trigger removal via event
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting trunk:', error)
+    pageError.value = extractErrorMessage(error)
   }
 }
 
 const saveTrunk = async () => {
   saving.value = true
+  saveError.value = ''
   try {
     if (editMode.value) {
       await api.updateTrunk(form.value.id!, form.value)
@@ -245,8 +301,9 @@ const saveTrunk = async () => {
     showModal.value = false
     resetForm()
     // WebSocket will trigger refresh via event
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving trunk:', error)
+    saveError.value = extractErrorMessage(error)
   }
   saving.value = false
 }
@@ -266,6 +323,12 @@ const resetForm = () => {
     notes: '',
   }
   editMode.value = false
+  saveError.value = ''
+}
+
+const closeModal = () => {
+  showModal.value = false
+  saveError.value = ''
 }
 
 onMounted(async () => {

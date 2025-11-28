@@ -3322,6 +3322,30 @@ if next_step "Backend API Setup" "backend"; then
         print_verbose "Set permissions on laravel.log"
     fi
 
+    # Ensure www-data can access /etc/asterisk for reading/writing config files
+    # The backend API (running as www-data) needs to read pjsip.conf and other configs
+    print_progress "Setting up Asterisk config directory permissions for www-data..."
+    if [ -d /etc/asterisk ]; then
+        # Add www-data to asterisk group so it can access config files
+        if id asterisk &> /dev/null && id www-data &> /dev/null; then
+            usermod -a -G asterisk www-data 2>/dev/null || true
+            print_verbose "Added www-data to asterisk group"
+        fi
+        
+        # Ensure group has read/write access to /etc/asterisk
+        # Set directory permissions to 775 (owner: rwx, group: rwx, others: rx)
+        chmod 775 /etc/asterisk
+        print_verbose "Set /etc/asterisk directory permissions to 775"
+        
+        # Set config files to 664 (owner: rw, group: rw, others: r)
+        find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 664 {} \; 2>/dev/null || true
+        print_verbose "Set Asterisk config files permissions to 664"
+        
+        print_success "Asterisk config directory accessible to www-data"
+    else
+        print_warning "/etc/asterisk directory not found - will be configured when Asterisk is installed"
+    fi
+
     print_success "Ownership and permissions configured"
     print_success "Backend configured successfully"
 fi
