@@ -367,6 +367,102 @@ func TestExtensionToggleKeyBinding(t *testing.T) {
 	}
 }
 
+// TestExtensionSelectionAfterCreation tests that the newly created extension is selected
+// after the extensions list is reloaded
+func TestExtensionSelectionAfterCreation(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = extensionsScreen
+
+	// Simulate the state after extension creation:
+	// Extensions are sorted by extension_number
+	m.extensions = []Extension{
+		{ID: 1, ExtensionNumber: "100", Name: "First"},
+		{ID: 3, ExtensionNumber: "102", Name: "Third"},
+		{ID: 4, ExtensionNumber: "103", Name: "Fourth"},
+	}
+
+	// Simulate adding a new extension "101" which will be at index 1 after sorting
+	newExtNumber := "101"
+	m.extensions = []Extension{
+		{ID: 1, ExtensionNumber: "100", Name: "First"},
+		{ID: 2, ExtensionNumber: "101", Name: "New Extension"},
+		{ID: 3, ExtensionNumber: "102", Name: "Third"},
+		{ID: 4, ExtensionNumber: "103", Name: "Fourth"},
+	}
+
+	// The logic from createExtension() to find and select the new extension
+	found := false
+	for i, ext := range m.extensions {
+		if ext.ExtensionNumber == newExtNumber {
+			m.selectedExtensionIdx = i
+			found = true
+			break
+		}
+	}
+
+	// The new extension "101" should be at index 1
+	if m.selectedExtensionIdx != 1 {
+		t.Errorf("Expected selectedExtensionIdx to be 1 for extension 101, got %d", m.selectedExtensionIdx)
+	}
+
+	// Verify the extension was found
+	if !found {
+		t.Error("Expected new extension to be found in the list")
+	}
+
+	// Verify the selected extension is correct
+	if m.extensions[m.selectedExtensionIdx].ExtensionNumber != "101" {
+		t.Errorf("Expected selected extension to be 101, got %s",
+			m.extensions[m.selectedExtensionIdx].ExtensionNumber)
+	}
+}
+
+// TestExtensionSelectionBoundsCheck tests that selectedExtensionIdx stays within bounds
+func TestExtensionSelectionBoundsCheck(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = extensionsScreen
+
+	// Set a high selectedExtensionIdx (simulating previous state with more extensions)
+	m.selectedExtensionIdx = 10
+
+	// Simulate extension list with fewer items
+	m.extensions = []Extension{
+		{ID: 1, ExtensionNumber: "100", Name: "First"},
+		{ID: 2, ExtensionNumber: "101", Name: "Second"},
+	}
+
+	// Simulate not finding the extension (searching for non-existent "999")
+	newExtNumber := "999"
+	found := false
+	for i, ext := range m.extensions {
+		if ext.ExtensionNumber == newExtNumber {
+			m.selectedExtensionIdx = i
+			found = true
+			break
+		}
+	}
+
+	// Apply bounds checking as in createExtension()
+	if !found && len(m.extensions) > 0 {
+		if m.selectedExtensionIdx >= len(m.extensions) {
+			m.selectedExtensionIdx = len(m.extensions) - 1
+		}
+	} else if len(m.extensions) == 0 {
+		m.selectedExtensionIdx = 0
+	}
+
+	// selectedExtensionIdx should be adjusted to be within bounds (1, since list has 2 items)
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		t.Errorf("selectedExtensionIdx (%d) should be less than extensions length (%d)",
+			m.selectedExtensionIdx, len(m.extensions))
+	}
+
+	// Should be set to last valid index
+	if m.selectedExtensionIdx != 1 {
+		t.Errorf("Expected selectedExtensionIdx to be 1 (last valid index), got %d", m.selectedExtensionIdx)
+	}
+}
+
 // TestExtensionScreenHelpText tests that extension screen shows toggle help
 func TestExtensionScreenHelpText(t *testing.T) {
 	m := initialModel(nil, nil, false)
@@ -449,8 +545,8 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 func TestMenuItemsCount(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	
-	// We expect 12 menu items (including Quick Setup and Exit)
-	expectedItems := 12
+	// We expect 13 menu items (including Quick Setup, Console Phone and Exit)
+	expectedItems := 13
 	if len(m.menuItems) != expectedItems {
 		t.Errorf("Expected %d menu items, got %d", expectedItems, len(m.menuItems))
 	}
@@ -461,6 +557,7 @@ func TestMenuItemsCount(t *testing.T) {
 		"Extensions",
 		"Trunks",
 		"VoIP Phones",
+		"Console Phone",
 		"Asterisk",
 		"Diagnostics",
 		"Status",

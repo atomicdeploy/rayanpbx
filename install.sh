@@ -3273,13 +3273,6 @@ if next_step "Environment Configuration" "env-config"; then
         print_verbose "JWT secret generated"
     fi
 
-    # Generate Laravel APP_KEY if not already set
-    if ! grep -q "APP_KEY=.\{10,\}" .env; then
-        APP_KEY="base64:$(openssl rand -base64 32)"
-        sed -i "s|APP_KEY=.*|APP_KEY=$APP_KEY|" .env
-        print_verbose "Laravel APP_KEY generated"
-    fi
-
     # Enable debug mode for better error visibility during installation
     # This is intentionally set regardless of user preferences to ensure proper error reporting
     # during installation. Users can switch to production mode afterward (see final instructions).
@@ -3334,11 +3327,161 @@ if next_step "Environment Configuration" "env-config"; then
 
     print_success "Environment configured"
 
-    # Copy .env to backend directory for Laravel
+    # Handle backend/.env - prefer symlink to avoid duplication
     print_progress "Setting up backend environment..."
-    cp .env backend/.env
-    print_verbose "Backend .env synchronized with root .env"
-    print_success "Backend environment configured"
+    
+    setup_backend_env_symlink() {
+        # Use current working directory to derive paths (should be /opt/rayanpbx at this point)
+        local base_dir="$(pwd)"
+        local root_env="${base_dir}/.env"
+        local backend_env="${base_dir}/backend/.env"
+        
+        # Check if backend/.env exists
+        if [ -L "$backend_env" ]; then
+            # It's already a symlink
+            local link_target=$(readlink -f "$backend_env" 2>/dev/null || true)
+            if [ "$link_target" = "$root_env" ]; then
+                print_verbose "backend/.env is already correctly symlinked to parent .env"
+                return 0
+            else
+                print_verbose "backend/.env is a symlink but points elsewhere, recreating..."
+                rm -f "$backend_env"
+                ln -s "$root_env" "$backend_env"
+                print_verbose "backend/.env symlink updated to point to parent .env"
+                return 0
+            fi
+        elif [ ! -e "$backend_env" ]; then
+            # Doesn't exist - create symlink
+            print_verbose "backend/.env doesn't exist, creating symlink to parent .env"
+            ln -s "$root_env" "$backend_env"
+            print_verbose "Created symlink: backend/.env -> parent .env"
+            return 0
+        else
+            # File exists (not a symlink) - compare contents
+            if cmp -s "$root_env" "$backend_env"; then
+                # Contents are the same - remove and create symlink
+                print_verbose "backend/.env exists with same content, replacing with symlink"
+                rm -f "$backend_env"
+                ln -s "$root_env" "$backend_env"
+                print_verbose "Replaced backend/.env with symlink to parent .env"
+                return 0
+            else
+                # Contents differ - prompt user for action
+                echo ""
+                print_warning "backend/.env exists with different content than parent .env"
+                echo ""
+                
+                if [ "$CI_MODE" = "true" ]; then
+                    # In CI mode, automatically backup and replace
+                    print_info "CI mode: Backing up and replacing with symlink"
+                    local backup_path="${backend_env}.backup.$(date +%Y%m%d_%H%M%S)"
+                    mv "$backend_env" "$backup_path"
+                    ln -s "$root_env" "$backend_env"
+                    print_verbose "Backed up to $backup_path and created symlink"
+                    return 0
+                fi
+                
+                echo -e "${YELLOW}${BOLD}Choose an action:${RESET}"
+                echo -e "  ${GREEN}1)${RESET} ${WHITE}Overwrite${RESET} - Backup backend/.env and replace with symlink (recommended)"
+                echo -e "  ${GREEN}2)${RESET} ${WHITE}Show diff${RESET} - Display differences and choose again"
+                echo -e "  ${RED}3)${RESET} ${WHITE}Abort${RESET} - Stop installation to fix manually"
+                echo ""
+                
+                while true; do
+                    read -p "$(echo -e "Enter choice ${DIM}[1-3]${RESET}: ")" choice
+                    case $choice in
+                        1)
+                            # Backup and replace with symlink
+                            local backup_path="${backend_env}.backup.$(date +%Y%m%d_%H%M%S)"
+                            print_progress "Backing up backend/.env to $backup_path..."
+                            mv "$backend_env" "$backup_path"
+                            ln -s "$root_env" "$backend_env"
+                            print_success "Created symlink, backup saved at: $backup_path"
+                            return 0
+                            ;;
+                        2)
+                            # Show differences with smarter truncation
+                            echo ""
+                            echo -e "${CYAN}${BOLD}Differences (--- backend/.env, +++ parent .env):${RESET}"
+                            echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+                            
+                            # Get total diff line count
+                            local diff_output
+                            diff_output=$(diff -u "$backend_env" "$root_env" 2>/dev/null || true)
+                            local total_lines=$(echo "$diff_output" | wc -l)
+                            
+                            if [ "$total_lines" -le 60 ]; then
+                                # Show entire diff if it's small enough
+                                echo "$diff_output"
+                            else
+                                # Show first 25 lines, then a separator, then last 25 lines
+                                echo "$diff_output" | head -25
+                                echo ""
+                                echo -e "${DIM}... ($(($total_lines - 50)) lines omitted) ...${RESET}"
+                                echo -e "${DIM}To see full diff: diff -u $backend_env $root_env${RESET}"
+                                echo ""
+                                echo "$diff_output" | tail -25
+                            fi
+                            
+                            echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+                            echo ""
+                            echo -e "${YELLOW}${BOLD}Now choose:${RESET}"
+                            echo -e "  ${GREEN}1)${RESET} ${WHITE}Overwrite${RESET} - Backup and replace with symlink"
+                            echo -e "  ${RED}3)${RESET} ${WHITE}Abort${RESET} - Stop installation"
+                            ;;
+                        3)
+                            print_error "Installation aborted by user"
+                            echo ""
+                            echo -e "${YELLOW}To fix manually:${RESET}"
+                            echo -e "  ${DIM}1.${RESET} Compare: diff $backend_env $root_env"
+                            echo -e "  ${DIM}2.${RESET} Merge changes as needed"
+                            echo -e "  ${DIM}3.${RESET} Remove backend/.env: rm $backend_env"
+                            echo -e "  ${DIM}4.${RESET} Create symlink: ln -s $root_env $backend_env"
+                            echo -e "  ${DIM}5.${RESET} Re-run: sudo ./install.sh"
+                            exit 1
+                            ;;
+                        *)
+                            echo -e "${RED}Invalid choice. Please enter 1, 2, or 3${RESET}"
+                            ;;
+                    esac
+                done
+            fi
+        fi
+    }
+    
+    setup_backend_env_symlink
+    print_success "Backend environment configured (symlinked to parent .env)"
+    
+    # Ensure APP_KEY exists in .env (required for artisan key:generate)
+    print_progress "Checking APP_KEY configuration..."
+    if ! grep -q "^APP_KEY=" .env; then
+        print_verbose "APP_KEY line not found, adding it..."
+        echo "APP_KEY=" >> .env
+        print_verbose "Added APP_KEY= line to .env"
+    fi
+    
+    # Run artisan key:generate if APP_KEY is empty
+    if ! grep -q "^APP_KEY=.\{10,\}" .env; then
+        print_progress "Generating Laravel application key..."
+        cd /opt/rayanpbx/backend
+        local keygen_output
+        keygen_output=$(php artisan key:generate --force --no-interaction 2>&1)
+        local keygen_exit=$?
+        if [ $keygen_exit -eq 0 ]; then
+            print_success "Laravel APP_KEY generated successfully"
+            print_verbose "$keygen_output"
+        else
+            print_warning "Could not generate APP_KEY via artisan, generating manually..."
+            print_verbose "artisan key:generate output: $keygen_output"
+            cd /opt/rayanpbx
+            APP_KEY="base64:$(openssl rand -base64 32)"
+            sed -i "s|^APP_KEY=.*|APP_KEY=$APP_KEY|" .env
+            print_success "Laravel APP_KEY generated manually"
+        fi
+        cd /opt/rayanpbx
+    else
+        print_verbose "APP_KEY already configured"
+    fi
 fi
 
 # Backend Setup

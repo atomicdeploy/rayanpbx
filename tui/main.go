@@ -130,6 +130,7 @@ const (
 	diagnosticsScreen
 	statusScreen
 	logsScreen
+	liveConsoleScreen
 	usageScreen
 	createExtensionScreen
 	createTrunkScreen
@@ -166,6 +167,7 @@ const (
 	quickSetupScreen
 	resetConfigurationScreen
 	resetConfirmScreen
+	consolePhoneScreen // Console as SIP phone/intercom
 )
 
 type model struct {
@@ -225,7 +227,8 @@ type model struct {
 	currentPhoneStatus     *PhoneStatus
 	phoneCredentials       map[string]map[string]string
 	voipEditingExistingIP  string // If set, we're editing credentials for an existing phone
-	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA)
+	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA, 4=Direct Call)
+	directCallManager      *DirectCallManager // For direct SIP calls and console intercom
 	
 	// Menu position memory (preserve cursor position when navigating back)
 	mainMenuCursor        int
@@ -266,6 +269,18 @@ type model struct {
 	quickSetupComplete    bool     // Whether setup is complete
 	quickSetupError       string   // Error message during setup
 	quickSetupResult      string   // Result message after setup
+
+	// Console Phone (host as SIP client/intercom)
+	consolePhoneMenu     []string // Menu items for console phone operations
+	consolePhoneOutput   string   // Output from console operations
+	consolePhoneStatus   *ConsoleState // Current console state
+
+	// Live Console
+	liveConsoleOutput     []string // Live console log lines
+	liveConsoleRunning    bool     // Whether live console is streaming
+	liveConsoleVerbosity  int      // Verbosity level (1-10)
+	liveConsoleErrors     []string // Recent errors for display
+	liveConsoleMaxLines   int      // Maximum lines to keep in buffer
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -338,10 +353,12 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
+			"🎙️  Console Phone/Intercom",
 			"⚙️  Asterisk Management",
 			"🔍 Diagnostics & Debugging",
 			"📊 System Status",
 			"📋 Logs Viewer",
+			"📡 Live Asterisk Console",
 			"📖 CLI Usage Guide",
 			"🔧 Configuration Management",
 			"⚙️  System Settings",
@@ -356,6 +373,8 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		extensionSyncManager:  extensionSyncManager,
 		resetConfiguration:    resetConfiguration,
 		verbose:               verbose,
+		liveConsoleVerbosity:  5,
+		liveConsoleMaxLines:   500,
 		asteriskMenu: []string{
 			"🟢 Start Asterisk Service",
 			"🔴 Stop Asterisk Service",
@@ -369,6 +388,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🚦 Show PJSIP Transports",
 			"📡 Show Active Channels",
 			"📋 Show Registrations",
+			"📡 Live Console",
 			"🔙 Back to Main Menu",
 		},
 		diagnosticsMenu: []string{
@@ -400,6 +420,17 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🔍 Refresh Sync Status",
 			"🔙 Back to Extensions",
 		},
+		consolePhoneMenu: []string{
+			"📞 Dial Extension",
+			"🔊 Call Phone by IP (Audio File)",
+			"🎙️  Call Phone by IP (Console)",
+			"✅ Answer Incoming Call",
+			"📴 Hangup",
+			"📊 Console Status",
+			"⚙️  Configure Console Endpoint",
+			"📋 Show Active Calls",
+			"🔙 Back to Main Menu",
+		},
 		resetMenu: []string{
 			"🗑️  Reset All Configuration",
 			"📋 Show Reset Summary",
@@ -422,6 +453,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return updateConfigAdd(msg, m)
 		} else if m.currentScreen == configEditScreen {
 			return updateConfigEdit(msg, m)
+		}
+		
+		// Handle Live Console screen
+		if m.currentScreen == liveConsoleScreen {
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "esc":
+				m.liveConsoleRunning = false
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				return m, nil
+			case "s":
+				// Toggle streaming
+				if m.liveConsoleRunning {
+					m.liveConsoleRunning = false
+					m.successMsg = "Live console stopped"
+				} else {
+					m.startLiveConsole()
+					m.successMsg = "Live console started"
+				}
+				return m, nil
+			case "r":
+				// Refresh (reload recent logs)
+				if !m.liveConsoleRunning {
+					m.refreshLiveConsole()
+				}
+				return m, nil
+			case "c":
+				// Clear output
+				m.liveConsoleOutput = []string{}
+				m.liveConsoleErrors = []string{}
+				m.successMsg = "Console cleared"
+				return m, nil
+			case "+", "=":
+				// Increase verbosity
+				if m.liveConsoleVerbosity < 10 {
+					m.liveConsoleVerbosity++
+					m.successMsg = fmt.Sprintf("Verbosity: %d", m.liveConsoleVerbosity)
+				}
+				return m, nil
+			case "-", "_":
+				// Decrease verbosity
+				if m.liveConsoleVerbosity > 1 {
+					m.liveConsoleVerbosity--
+					m.successMsg = fmt.Sprintf("Verbosity: %d", m.liveConsoleVerbosity)
+				}
+				return m, nil
+			}
+			return m, nil
 		}
 		
 		// Handle Quick Setup screen
@@ -463,6 +544,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "a", "m", "c", "r", "p", "e", "A", "d", "left", "right", "h", "l":
 				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle Console Phone screen
+		if m.currentScreen == consolePhoneScreen {
+			if m.inputMode {
+				return m.handleInputMode(msg)
+			}
+			switch msg.String() {
+			case "up", "k", "down", "j", "enter":
+				m.handleConsolePhoneKeyPress(msg.String())
+				return m, nil
+			case "esc":
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				m.errorMsg = ""
+				m.successMsg = ""
 				return m, nil
 			}
 		}
@@ -877,6 +976,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
 				case 4:
+					// Console Phone/Intercom
+					m.mainMenuCursor = m.cursor
+					m.initConsolePhoneScreen()
+				case 5:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -884,7 +987,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 5:
+				case 6:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -892,28 +995,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 6:
-					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = statusScreen
 				case 7:
 					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 8:
+					m.mainMenuCursor = m.cursor // Save main menu position
+					m.currentScreen = logsScreen
+				case 9: // Live Asterisk Console
+					m.mainMenuCursor = m.cursor
+					m.initLiveConsole()
+				case 10:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 9:
+				case 11:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 10:
+				case 12:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 11:
+				case 13:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -1144,6 +1250,8 @@ func (m model) View() string {
 		s += m.renderStatus()
 	case logsScreen:
 		s += m.renderLogs()
+	case liveConsoleScreen:
+		s += m.renderLiveConsole()
 	case usageScreen:
 		s += m.renderUsage()
 	case usageInputScreen:
@@ -1192,6 +1300,8 @@ func (m model) View() string {
 		s += m.renderResetConfirm()
 	case quickSetupScreen:
 		s += m.renderQuickSetup()
+	case consolePhoneScreen:
+		s += m.renderConsolePhone()
 	}
 
 	// Footer with emojis
@@ -1216,6 +1326,12 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageInputScreen {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
+	} else if m.currentScreen == liveConsoleScreen {
+		if m.liveConsoleRunning {
+			s += helpStyle.Render("s: Stop • c: Clear • +/-: Verbosity • ESC: Back • q: Quit")
+		} else {
+			s += helpStyle.Render("s: Start • r: Refresh • c: Clear • +/-: Verbosity • ESC: Back • q: Quit")
+		}
 	} else if m.currentScreen == quickSetupScreen {
 		if m.quickSetupComplete || m.quickSetupError != "" {
 			s += helpStyle.Render("ESC: Back to Main Menu • q: Quit")
@@ -2360,6 +2476,9 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.currentScreen == voipPhoneProvisionScreen {
 			// Go back to phone details screen
 			m.currentScreen = voipPhoneDetailsScreen
+		} else if m.currentScreen == consolePhoneScreen {
+			// Stay on console phone screen, just cancel input
+			m.consolePhoneOutput = ""
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
@@ -2418,6 +2537,8 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeVoIPProvision()
 			} else if m.currentScreen == usageInputScreen {
 				return m, m.executeParameterizedCommand()
+			} else if m.currentScreen == consolePhoneScreen {
+				m.handleConsolePhoneInput()
 			}
 		}
 
@@ -2644,9 +2765,29 @@ func (m *model) createExtension() {
 
 	m.inputMode = false
 
+	// Store the newly created extension number for selection
+	newExtNumber := m.inputValues[extFieldNumber]
+
 	// Reload extensions list
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
+		// Find and select the newly created extension
+		found := false
+		for i, ext := range m.extensions {
+			if ext.ExtensionNumber == newExtNumber {
+				m.selectedExtensionIdx = i
+				found = true
+				break
+			}
+		}
+		// If extension not found, ensure selectedExtensionIdx is within bounds
+		if !found && len(m.extensions) > 0 {
+			if m.selectedExtensionIdx >= len(m.extensions) {
+				m.selectedExtensionIdx = len(m.extensions) - 1
+			}
+		} else if len(m.extensions) == 0 {
+			m.selectedExtensionIdx = 0
+		}
 	}
 
 	m.currentScreen = extensionsScreen
@@ -3642,7 +3783,9 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 12: // Back to Main Menu
+	case 12: // Live Console
+		m.initLiveConsole()
+	case 13: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
@@ -4781,6 +4924,203 @@ func (m *model) executeQuickSetup() {
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
 	}
+}
+
+// initLiveConsole initializes the live console screen
+func (m *model) initLiveConsole() {
+	m.currentScreen = liveConsoleScreen
+	m.liveConsoleOutput = []string{}
+	m.liveConsoleErrors = []string{}
+	m.liveConsoleRunning = false
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	// Load initial recent logs
+	m.refreshLiveConsole()
+}
+
+// startLiveConsole starts the live log streaming
+func (m *model) startLiveConsole() {
+	m.liveConsoleRunning = true
+	// Note: In TUI context, we'll poll the log file periodically
+	// rather than using true SSE streaming since bubble tea is event-driven
+	m.refreshLiveConsole()
+}
+
+// refreshLiveConsole reads recent logs from Asterisk log file
+func (m *model) refreshLiveConsole() {
+	logPaths := []string{
+		"/var/log/asterisk/full",
+		"/var/log/asterisk/messages",
+	}
+	
+	var logFile string
+	for _, path := range logPaths {
+		if _, err := os.Stat(path); err == nil {
+			logFile = path
+			break
+		}
+	}
+	
+	if logFile == "" {
+		m.errorMsg = "No Asterisk log file found"
+		return
+	}
+	
+	// Read last 100 lines
+	cmd := exec.Command("tail", "-n", "100", logFile)
+	output, err := cmd.Output()
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to read logs: %v", err)
+		return
+	}
+	
+	lines := strings.Split(string(output), "\n")
+	m.liveConsoleOutput = []string{}
+	m.liveConsoleErrors = []string{}
+	
+	errorPatterns := []string{
+		"log_failed_request",
+		"Failed to authenticate",
+		"No matching endpoint",
+		"SECURITY",
+		"ERROR",
+	}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check verbosity filter based on log level
+		include := true
+		if m.liveConsoleVerbosity < 10 {
+			// Only include based on verbosity
+			if strings.Contains(line, "DEBUG") && m.liveConsoleVerbosity < 8 {
+				include = false
+			} else if strings.Contains(line, "VERBOSE") && m.liveConsoleVerbosity < 5 {
+				include = false
+			}
+		}
+		
+		if include {
+			m.liveConsoleOutput = append(m.liveConsoleOutput, line)
+		}
+		
+		// Check for errors
+		for _, pattern := range errorPatterns {
+			if strings.Contains(line, pattern) {
+				m.liveConsoleErrors = append(m.liveConsoleErrors, line)
+				break
+			}
+		}
+	}
+	
+	// Keep only last N lines
+	if len(m.liveConsoleOutput) > m.liveConsoleMaxLines {
+		m.liveConsoleOutput = m.liveConsoleOutput[len(m.liveConsoleOutput)-m.liveConsoleMaxLines:]
+	}
+	if len(m.liveConsoleErrors) > 20 {
+		m.liveConsoleErrors = m.liveConsoleErrors[len(m.liveConsoleErrors)-20:]
+	}
+}
+
+// renderLiveConsole renders the live console screen
+func (m model) renderLiveConsole() string {
+	var content strings.Builder
+	
+	content.WriteString(titleStyle.Render("📡 Live Asterisk Console") + "\n\n")
+	
+	// Status bar
+	statusLine := "Status: "
+	if m.liveConsoleRunning {
+		statusLine += successStyle.Render("🔴 LIVE")
+	} else {
+		statusLine += helpStyle.Render("○ Stopped")
+	}
+	statusLine += fmt.Sprintf(" │ Verbosity: %d │ Lines: %d", m.liveConsoleVerbosity, len(m.liveConsoleOutput))
+	if len(m.liveConsoleErrors) > 0 {
+		statusLine += " │ " + errorStyle.Render(fmt.Sprintf("⚠️ %d errors", len(m.liveConsoleErrors)))
+	}
+	content.WriteString(statusLine + "\n\n")
+	
+	// Console box
+	content.WriteString("╭" + strings.Repeat("─", 78) + "╮\n")
+	
+	// Show last 20 lines of output (limited for TUI viewport)
+	displayLines := m.liveConsoleOutput
+	if len(displayLines) > 20 {
+		displayLines = displayLines[len(displayLines)-20:]
+	}
+	
+	if len(displayLines) == 0 {
+		content.WriteString("│ " + helpStyle.Render("No output yet. Press 's' to start streaming, 'r' to refresh.") + strings.Repeat(" ", 25) + " │\n")
+	} else {
+		for _, line := range displayLines {
+			// Truncate if too long before formatting
+			displayLine := line
+			if len(displayLine) > 76 {
+				displayLine = displayLine[:73] + "..."
+			}
+			// Format line with color based on content
+			formattedLine := m.formatConsoleLine(displayLine)
+			content.WriteString(fmt.Sprintf("│ %s\n", formattedLine))
+		}
+	}
+	
+	content.WriteString("╰" + strings.Repeat("─", 78) + "╯\n")
+	
+	// Show recent errors if any
+	if len(m.liveConsoleErrors) > 0 {
+		content.WriteString("\n" + errorStyle.Render("⚠️ Recent Errors:") + "\n")
+		content.WriteString("─────────────────────────\n")
+		
+		// Show last 5 errors
+		errorsToShow := m.liveConsoleErrors
+		if len(errorsToShow) > 5 {
+			errorsToShow = errorsToShow[len(errorsToShow)-5:]
+		}
+		
+		for _, err := range errorsToShow {
+			// Truncate and colorize
+			if len(err) > 76 {
+				err = err[:73] + "..."
+			}
+			content.WriteString(errorStyle.Render(err) + "\n")
+		}
+	}
+	
+	return menuStyle.Render(content.String())
+}
+
+// formatConsoleLine formats a console line with appropriate colors
+func (m model) formatConsoleLine(line string) string {
+	// Check for error keywords
+	errorKeywords := []string{"ERROR", "SECURITY", "Failed", "failed", "log_failed"}
+	for _, kw := range errorKeywords {
+		if strings.Contains(line, kw) {
+			return errorStyle.Render(line)
+		}
+	}
+	
+	// Check for warning keywords
+	warningKeywords := []string{"WARNING", "NOTICE"}
+	for _, kw := range warningKeywords {
+		if strings.Contains(line, kw) {
+			return warningStyle.Render(line)
+		}
+	}
+	
+	// Check for success/info keywords
+	successKeywords := []string{"Registered", "registered", "Connected"}
+	for _, kw := range successKeywords {
+		if strings.Contains(line, kw) {
+			return successStyle.Render(line)
+		}
+	}
+	
+	return line
 }
 
 func main() {

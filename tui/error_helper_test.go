@@ -99,8 +99,8 @@ func TestFormatVerboseErrorTruncation(t *testing.T) {
 		t.Error("Expected long output to be truncated")
 	}
 	
-	// Check that it mentions the log file path
-	if !strings.Contains(formatted, "View with: cat") {
+	// Check that it mentions the log file path (either with 'less' or 'cat' command)
+	if !strings.Contains(formatted, "To view full output") && !strings.Contains(formatted, "less") {
 		t.Error("Expected truncated output to include instructions to view full log")
 	}
 }

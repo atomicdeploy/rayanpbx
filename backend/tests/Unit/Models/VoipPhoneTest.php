@@ -25,7 +25,7 @@ class VoipPhoneTest extends TestCase
 
     public function test_voip_phone_has_fillable_attributes(): void
     {
-        $phone = new VoipPhone();
+        $phone = new VoipPhone;
 
         $this->assertContains('ip', $phone->getFillable());
         $this->assertContains('mac', $phone->getFillable());
@@ -251,5 +251,44 @@ class VoipPhoneTest extends TestCase
 
         $this->assertEquals('admin', $creds['username']);
         $this->assertEquals('', $creds['password']);
+    }
+
+    public function test_credentials_can_be_stored_and_retrieved(): void
+    {
+        $credentials = ['username' => 'admin', 'password' => 'secret123'];
+
+        $phone = VoipPhone::factory()->create(['credentials' => $credentials]);
+
+        // Reload from database
+        $phone->refresh();
+
+        $this->assertTrue($phone->hasCredentials());
+        $retrievedCreds = $phone->getCredentialsForApi();
+        $this->assertEquals('admin', $retrievedCreds['username']);
+        $this->assertEquals('secret123', $retrievedCreds['password']);
+    }
+
+    public function test_credentials_can_be_updated(): void
+    {
+        $phone = VoipPhone::factory()->create(['credentials' => null]);
+
+        $credentials = ['username' => 'admin', 'password' => 'newpassword'];
+        $phone->update(['credentials' => $credentials]);
+
+        // Reload from database
+        $phone->refresh();
+
+        $this->assertTrue($phone->hasCredentials());
+        $retrievedCreds = $phone->getCredentialsForApi();
+        $this->assertEquals('admin', $retrievedCreds['username']);
+        $this->assertEquals('newpassword', $retrievedCreds['password']);
+    }
+
+    public function test_has_credentials_returns_true_when_password_set(): void
+    {
+        $credentials = ['username' => 'admin', 'password' => 'test123'];
+        $phone = VoipPhone::factory()->create(['credentials' => $credentials]);
+
+        $this->assertTrue($phone->hasCredentials());
     }
 }
