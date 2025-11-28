@@ -504,3 +504,254 @@ func TestPreserveKeyOrder(t *testing.T) {
 		lineIdx++
 	}
 }
+
+
+func TestCommentedSectionParsing(t *testing.T) {
+content := `; Regular comment
+[transport-udp]
+type=transport
+protocol=udp
+
+;[101]
+;type=endpoint
+;context=from-internal
+
+[102]
+type=endpoint
+context=from-internal
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// Should have 3 sections: transport-udp (active), 101 (commented), 102 (active)
+if len(config.Sections) != 3 {
+t.Errorf("Expected 3 sections, got %d", len(config.Sections))
+}
+
+// Check that 101 is marked as commented
+ext101 := config.FindSectionsByName("101")
+if len(ext101) != 1 {
+t.Fatalf("Expected 1 section named '101', got %d", len(ext101))
+}
+if !ext101[0].Commented {
+t.Error("Expected section 101 to be marked as Commented")
+}
+if ext101[0].Type != "endpoint" {
+t.Errorf("Expected type 'endpoint' for commented section, got '%s'", ext101[0].Type)
+}
+
+// Check that 102 is NOT commented
+ext102 := config.FindSectionsByName("102")
+if len(ext102) != 1 {
+t.Fatalf("Expected 1 section named '102', got %d", len(ext102))
+}
+if ext102[0].Commented {
+t.Error("Section 102 should NOT be marked as Commented")
+}
+}
+
+func TestCommentOutSections(t *testing.T) {
+content := `[101]
+type=endpoint
+context=from-internal
+
+[101]
+type=auth
+password=secret
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// Comment out all 101 sections
+commented := config.CommentOutSectionsByName("101")
+if commented != 2 {
+t.Errorf("Expected to comment out 2 sections, got %d", commented)
+}
+
+// Verify they are now commented
+for _, section := range config.FindSectionsByName("101") {
+if !section.Commented {
+t.Error("Section should be marked as Commented after CommentOutSectionsByName")
+}
+}
+
+// Render and verify output
+output := config.String()
+if !strings.Contains(output, ";[101]") {
+t.Error("Expected output to contain commented section header ';[101]'")
+}
+if !strings.Contains(output, ";type=endpoint") {
+t.Error("Expected output to contain commented properties")
+}
+}
+
+func TestUncommentSections(t *testing.T) {
+content := `;[101]
+;type=endpoint
+;context=from-internal
+
+;[101]
+;type=auth
+;password=secret
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// Verify they start as commented
+for _, section := range config.FindSectionsByName("101") {
+if !section.Commented {
+t.Fatal("Sections should start as Commented")
+}
+}
+
+// Uncomment all 101 sections
+uncommented := config.UncommentSectionsByName("101")
+if uncommented != 2 {
+t.Errorf("Expected to uncomment 2 sections, got %d", uncommented)
+}
+
+// Verify they are now active
+for _, section := range config.FindSectionsByName("101") {
+if section.Commented {
+t.Error("Section should NOT be marked as Commented after UncommentSectionsByName")
+}
+}
+
+// Render and verify output
+output := config.String()
+if strings.Contains(output, ";[101]") {
+t.Error("Output should NOT contain commented section header ';[101]' after uncommenting")
+}
+if !strings.Contains(output, "[101]") {
+t.Error("Output should contain active section header '[101]'")
+}
+}
+
+func TestFindActiveSections(t *testing.T) {
+content := `[101]
+type=endpoint
+
+;[101]
+;type=auth
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+active := config.FindActiveSectionsByName("101")
+if len(active) != 1 {
+t.Errorf("Expected 1 active section, got %d", len(active))
+}
+if active[0].Type != "endpoint" {
+t.Errorf("Expected active section type 'endpoint', got '%s'", active[0].Type)
+}
+
+commented := config.FindCommentedSectionsByName("101")
+if len(commented) != 1 {
+t.Errorf("Expected 1 commented section, got %d", len(commented))
+}
+if commented[0].Type != "auth" {
+t.Errorf("Expected commented section type 'auth', got '%s'", commented[0].Type)
+}
+}
+
+func TestRemoveCommentedSectionsOnly(t *testing.T) {
+content := `[101]
+type=endpoint
+
+;[101]
+;type=auth
+
+[102]
+type=endpoint
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// Remove only commented sections for 101
+removed := config.RemoveCommentedSectionsByName("101")
+if removed != 1 {
+t.Errorf("Expected to remove 1 commented section, got %d", removed)
+}
+
+// Active 101 section should still exist
+active := config.FindActiveSectionsByName("101")
+if len(active) != 1 {
+t.Errorf("Active section for 101 should still exist, got %d", len(active))
+}
+
+// Total sections should be 2 (101 endpoint, 102 endpoint)
+if len(config.Sections) != 2 {
+t.Errorf("Expected 2 sections total, got %d", len(config.Sections))
+}
+}
+
+func TestHasActiveAndCommentedSection(t *testing.T) {
+content := `[101]
+type=endpoint
+
+;[102]
+;type=endpoint
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// 101 should have active section
+if !config.HasActiveSection("101") {
+t.Error("HasActiveSection should return true for 101")
+}
+if config.HasCommentedSection("101") {
+t.Error("HasCommentedSection should return false for 101")
+}
+
+// 102 should have commented section only
+if config.HasActiveSection("102") {
+t.Error("HasActiveSection should return false for 102")
+}
+if !config.HasCommentedSection("102") {
+t.Error("HasCommentedSection should return true for 102")
+}
+
+// 103 should have neither
+if config.HasActiveSection("103") {
+t.Error("HasActiveSection should return false for 103")
+}
+if config.HasCommentedSection("103") {
+t.Error("HasCommentedSection should return false for 103")
+}
+}
+
+func TestBodyCommentsPreserved(t *testing.T) {
+content := `[101]
+type=endpoint
+; This is a body comment within the section
+context=from-internal
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+section := config.FindSectionsByName("101")[0]
+if len(section.BodyComments) != 1 {
+t.Errorf("Expected 1 body comment, got %d", len(section.BodyComments))
+}
+}

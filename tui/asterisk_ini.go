@@ -11,19 +11,20 @@ import (
 // AsteriskSection represents a section in an Asterisk configuration file
 // In Asterisk configs, multiple sections can have the same name but different types
 // (e.g., [101] for endpoint, auth, and aor)
-// AsteriskSection represents a section in an Asterisk configuration file
-// In Asterisk configs, multiple sections can have the same name but different types
-// (e.g., [101] for endpoint, auth, and aor)
 //
-// NOTE: Comments within a section body (between the section header and the next section)
-// are not preserved during parsing. Only comments that appear immediately before a section
-// header are captured in the Comments field.
+// Sections can be in one of two states:
+// - Active (Commented=false): Section is enabled and parsed by Asterisk
+// - Commented (Commented=true): Section is disabled (all lines prefixed with ;)
+//
+// Body comments within a section are preserved in the BodyComments field.
 type AsteriskSection struct {
-	Name       string            // Section name (e.g., "101", "transport-udp")
-	Type       string            // Section type from type= key (e.g., "endpoint", "auth", "aor", "transport")
-	Properties map[string]string // Key-value pairs in order
-	Keys       []string          // Keys in order (for preserving insertion order)
-	Comments   []string          // Comments associated with this section (preceding lines starting with ;)
+	Name         string            // Section name (e.g., "101", "transport-udp")
+	Type         string            // Section type from type= key (e.g., "endpoint", "auth", "aor", "transport")
+	Properties   map[string]string // Key-value pairs in order
+	Keys         []string          // Keys in order (for preserving insertion order)
+	Comments     []string          // Comments associated with this section (preceding lines starting with ;)
+	BodyComments []string          // Comments within the section body (lines starting with ; between properties)
+	Commented    bool              // Whether this section is commented out (disabled)
 }
 
 // AsteriskConfig represents an Asterisk configuration file
@@ -36,11 +37,13 @@ type AsteriskConfig struct {
 // NewAsteriskSection creates a new section with the given name and type
 func NewAsteriskSection(name, sectionType string) *AsteriskSection {
 	return &AsteriskSection{
-		Name:       name,
-		Type:       sectionType,
-		Properties: make(map[string]string),
-		Keys:       []string{},
-		Comments:   []string{},
+		Name:         name,
+		Type:         sectionType,
+		Properties:   make(map[string]string),
+		Keys:         []string{},
+		Comments:     []string{},
+		BodyComments: []string{},
+		Commented:    false,
 	}
 }
 
@@ -59,23 +62,34 @@ func (s *AsteriskSection) GetProperty(key string) (string, bool) {
 }
 
 // String renders the section as a config string
+// If the section is marked as Commented, all lines are prefixed with ';'
 func (s *AsteriskSection) String() string {
 	var sb strings.Builder
+	prefix := ""
+	if s.Commented {
+		prefix = ";"
+	}
 
-	// Write comments
+	// Write comments (these are always preserved as-is, not double-commented)
 	for _, comment := range s.Comments {
 		sb.WriteString(comment)
 		sb.WriteString("\n")
 	}
 
 	// Write section header
-	sb.WriteString(fmt.Sprintf("[%s]\n", s.Name))
+	sb.WriteString(fmt.Sprintf("%s[%s]\n", prefix, s.Name))
 
 	// Write properties in order
 	for _, key := range s.Keys {
 		if val, ok := s.Properties[key]; ok {
-			sb.WriteString(fmt.Sprintf("%s=%s\n", key, val))
+			sb.WriteString(fmt.Sprintf("%s%s=%s\n", prefix, key, val))
 		}
+	}
+
+	// Write body comments (preserved for round-trip)
+	for _, comment := range s.BodyComments {
+		sb.WriteString(comment)
+		sb.WriteString("\n")
 	}
 
 	return sb.String()
@@ -92,6 +106,7 @@ func ParseAsteriskConfig(filePath string) (*AsteriskConfig, error) {
 }
 
 // ParseAsteriskConfigContent parses Asterisk config from string content
+// Supports both active and commented-out sections (prefixed with ;)
 func ParseAsteriskConfigContent(content string, filePath string) (*AsteriskConfig, error) {
 	config := &AsteriskConfig{
 		Sections:    []*AsteriskSection{},
@@ -100,8 +115,12 @@ func ParseAsteriskConfigContent(content string, filePath string) (*AsteriskConfi
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(content))
-	sectionRegex := regexp.MustCompile(`^\s*\[([^\]]+)\]`)
+	// Match both regular and commented section headers: [name] or ;[name]
+	sectionRegex := regexp.MustCompile(`^\s*;?\s*\[([^\]]+)\]`)
+	commentedSectionRegex := regexp.MustCompile(`^\s*;\s*\[([^\]]+)\]`)
 	kvRegex := regexp.MustCompile(`^\s*([^=;\s]+)\s*=\s*(.*)$`)
+	// Match commented key=value lines: ;key=value
+	commentedKvRegex := regexp.MustCompile(`^\s*;\s*([^=;\s]+)\s*=\s*(.*)$`)
 
 	var currentSection *AsteriskSection
 	var pendingComments []string
@@ -111,7 +130,7 @@ func ParseAsteriskConfigContent(content string, filePath string) (*AsteriskConfi
 		line := scanner.Text()
 		trimmedLine := strings.TrimSpace(line)
 
-		// Check for section header
+		// Check for section header (both active and commented)
 		if matches := sectionRegex.FindStringSubmatch(line); matches != nil {
 			// Save current section if any
 			if currentSection != nil {
@@ -124,11 +143,30 @@ func ParseAsteriskConfigContent(content string, filePath string) (*AsteriskConfi
 			currentSection.Comments = pendingComments
 			pendingComments = []string{}
 			inHeader = false
+
+			// Check if this section is commented out
+			if commentedSectionRegex.MatchString(line) {
+				currentSection.Commented = true
+			}
 			continue
 		}
 
-		// Check for key=value
-		if matches := kvRegex.FindStringSubmatch(line); matches != nil && currentSection != nil {
+		// Check for key=value (active section)
+		if matches := kvRegex.FindStringSubmatch(line); matches != nil && currentSection != nil && !currentSection.Commented {
+			key := strings.TrimSpace(matches[1])
+			value := strings.TrimSpace(matches[2])
+
+			// If it's a type key, set the section type
+			if key == "type" {
+				currentSection.Type = value
+			}
+
+			currentSection.SetProperty(key, value)
+			continue
+		}
+
+		// Check for commented key=value (for commented sections)
+		if matches := commentedKvRegex.FindStringSubmatch(line); matches != nil && currentSection != nil && currentSection.Commented {
 			key := strings.TrimSpace(matches[1])
 			value := strings.TrimSpace(matches[2])
 
@@ -148,8 +186,10 @@ func ParseAsteriskConfigContent(content string, filePath string) (*AsteriskConfi
 			} else if currentSection == nil {
 				// Comments before any section after header
 				pendingComments = append(pendingComments, line)
+			} else if currentSection != nil && !currentSection.Commented {
+				// Body comments within an active section (preserve them)
+				currentSection.BodyComments = append(currentSection.BodyComments, line)
 			}
-			// Comments within a section are ignored for simplicity
 			continue
 		}
 	}
@@ -280,6 +320,108 @@ func (c *AsteriskConfig) HasSection(name string) bool {
 func (c *AsteriskConfig) HasSectionWithType(name, sectionType string) bool {
 	for _, section := range c.Sections {
 		if section.Name == name && section.Type == sectionType {
+			return true
+		}
+	}
+	return false
+}
+
+// FindActiveSectionsByName finds all active (non-commented) sections with a given name
+func (c *AsteriskConfig) FindActiveSectionsByName(name string) []*AsteriskSection {
+	var result []*AsteriskSection
+	for _, section := range c.Sections {
+		if section.Name == name && !section.Commented {
+			result = append(result, section)
+		}
+	}
+	return result
+}
+
+// FindCommentedSectionsByName finds all commented-out sections with a given name
+func (c *AsteriskConfig) FindCommentedSectionsByName(name string) []*AsteriskSection {
+	var result []*AsteriskSection
+	for _, section := range c.Sections {
+		if section.Name == name && section.Commented {
+			result = append(result, section)
+		}
+	}
+	return result
+}
+
+// CommentOutSectionsByName comments out all sections with a given name
+// Returns the number of sections that were commented out
+func (c *AsteriskConfig) CommentOutSectionsByName(name string) int {
+	count := 0
+	for _, section := range c.Sections {
+		if section.Name == name && !section.Commented {
+			section.Commented = true
+			count++
+		}
+	}
+	return count
+}
+
+// UncommentSectionsByName uncomments all sections with a given name
+// Returns the number of sections that were uncommented
+func (c *AsteriskConfig) UncommentSectionsByName(name string) int {
+	count := 0
+	for _, section := range c.Sections {
+		if section.Name == name && section.Commented {
+			section.Commented = false
+			count++
+		}
+	}
+	return count
+}
+
+// RemoveCommentedSectionsByName removes only commented-out sections with a given name
+// Active (uncommented) sections are preserved
+// Returns the number of sections removed
+func (c *AsteriskConfig) RemoveCommentedSectionsByName(name string) int {
+	var newSections []*AsteriskSection
+	removed := 0
+	for _, section := range c.Sections {
+		if section.Name == name && section.Commented {
+			removed++
+		} else {
+			newSections = append(newSections, section)
+		}
+	}
+	c.Sections = newSections
+	return removed
+}
+
+// RemoveActiveSectionsByName removes only active (non-commented) sections with a given name
+// Commented sections are preserved
+// Returns the number of sections removed
+func (c *AsteriskConfig) RemoveActiveSectionsByName(name string) int {
+	var newSections []*AsteriskSection
+	removed := 0
+	for _, section := range c.Sections {
+		if section.Name == name && !section.Commented {
+			removed++
+		} else {
+			newSections = append(newSections, section)
+		}
+	}
+	c.Sections = newSections
+	return removed
+}
+
+// HasActiveSection checks if an active (non-commented) section with the given name exists
+func (c *AsteriskConfig) HasActiveSection(name string) bool {
+	for _, section := range c.Sections {
+		if section.Name == name && !section.Commented {
+			return true
+		}
+	}
+	return false
+}
+
+// HasCommentedSection checks if a commented-out section with the given name exists
+func (c *AsteriskConfig) HasCommentedSection(name string) bool {
+	for _, section := range c.Sections {
+		if section.Name == name && section.Commented {
 			return true
 		}
 	}

@@ -1250,6 +1250,18 @@ func (m model) View() string {
 func (m model) renderMainMenu() string {
 	menu := "🏠 Main Menu\n\n"
 
+	// Check for /etc/asterisk Git repository status and show warning if dirty
+	if m.configManager != nil {
+		isDirty, statusMsg, err := m.configManager.GetAsteriskGitStatus()
+		if err != nil {
+			menu += errorStyle.Render("⚠️  Git Status Error: "+err.Error()) + "\n\n"
+		} else if isDirty {
+			menu += errorStyle.Render("⚠️  CRITICAL: /etc/asterisk has uncommitted changes!") + "\n"
+			menu += helpStyle.Render("   "+statusMsg) + "\n"
+			menu += helpStyle.Render("   Use System Settings to review and commit changes") + "\n\n"
+		}
+	}
+
 	for i, item := range m.menuItems {
 		cursor := " "
 		if m.cursor == i {
@@ -2901,19 +2913,20 @@ func (m *model) toggleExtension() {
 			}
 		}
 	} else {
-		// Extension is being disabled - remove PJSIP config
-		if err := m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
-			m.errorMsg = fmt.Sprintf("Extension disabled in DB but failed to remove config: %v", err)
-			m.successMsg = fmt.Sprintf("Extension %s disabled (config removal failed)", ext.ExtensionNumber)
+		// Extension is being disabled - comment out PJSIP config instead of removing it
+		// This preserves the configuration for potential re-enablement later
+		if err := m.configManager.CommentOutPjsipConfig(fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+			m.errorMsg = fmt.Sprintf("Extension disabled in DB but failed to comment out config: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s disabled (config update failed)", ext.ExtensionNumber)
 		} else {
 			// Regenerate dialplan for all enabled extensions (this extension will be excluded)
 			if err := m.regenerateDialplan(); err != nil {
-				m.errorMsg = fmt.Sprintf("PJSIP config removed but dialplan update failed: %v", err)
+				m.errorMsg = fmt.Sprintf("PJSIP config commented out but dialplan update failed: %v", err)
 				m.successMsg = fmt.Sprintf("Extension %s disabled (dialplan failed)", ext.ExtensionNumber)
 			} else {
 				// Reload Asterisk to apply changes
 				if err := m.configManager.ReloadAsterisk(); err != nil {
-					m.errorMsg = fmt.Sprintf("Config removed but Asterisk reload failed: %v", err)
+					m.errorMsg = fmt.Sprintf("Config commented out but Asterisk reload failed: %v", err)
 					m.successMsg = fmt.Sprintf("Extension %s disabled (reload failed)", ext.ExtensionNumber)
 				} else {
 					m.successMsg = fmt.Sprintf("Extension %s disabled - registration blocked!", ext.ExtensionNumber)

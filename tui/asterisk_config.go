@@ -72,6 +72,10 @@ func (acm *AsteriskConfigManager) GeneratePjsipEndpointString(ext Extension) str
 }
 
 // WritePjsipConfigSections writes or updates PJSIP configuration using sections
+// This function intelligently handles existing sections:
+// - If commented sections exist for this extension, they are removed and replaced
+// - If active sections exist, they are replaced with the new content
+// - This preserves other extensions and non-matching commented sections
 func (acm *AsteriskConfigManager) WritePjsipConfigSections(sections []*AsteriskSection, identifier string) error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
@@ -102,12 +106,28 @@ func (acm *AsteriskConfigManager) WritePjsipConfigSections(sections []*AsteriskS
 		}
 	}
 
-	// Remove any existing sections with this identifier (extension number)
+	// Extract extension number from identifier
 	// The identifier could be "Extension 101" format, extract the extension number
 	extNumber := identifier
 	if strings.HasPrefix(identifier, "Extension ") {
 		extNumber = strings.TrimPrefix(identifier, "Extension ")
 	}
+
+	// Check if we have existing sections (commented or active)
+	hasActive := config.HasActiveSection(extNumber)
+	hasCommented := config.HasCommentedSection(extNumber)
+
+	if acm.verbose {
+		if hasActive {
+			cyan.Printf("   Found existing active sections for %s, replacing\n", extNumber)
+		}
+		if hasCommented {
+			cyan.Printf("   Found existing commented sections for %s, replacing\n", extNumber)
+		}
+	}
+
+	// Remove existing sections (both active and commented) for this extension
+	// We replace rather than modify because the new config might have different properties
 	config.RemoveSectionsByName(extNumber)
 
 	// Add new sections
@@ -130,7 +150,9 @@ func (acm *AsteriskConfigManager) WritePjsipConfigSections(sections []*AsteriskS
 	}
 
 	// Commit changes to Git repository
-	acm.CommitConfigChange("pjsip-update", fmt.Sprintf("Updated PJSIP config: %s", identifier))
+	if err := acm.CommitConfigChange("pjsip-update", fmt.Sprintf("Updated PJSIP config: %s", identifier)); err != nil {
+		yellow.Printf("⚠️  Git commit warning: %v\n", err)
+	}
 
 	return nil
 }
@@ -200,7 +222,9 @@ func (acm *AsteriskConfigManager) WritePjsipConfig(content, identifier string) e
 	}
 
 	// Commit changes to Git repository
-	acm.CommitConfigChange("pjsip-update", fmt.Sprintf("Updated PJSIP config: %s", identifier))
+	if err := acm.CommitConfigChange("pjsip-update", fmt.Sprintf("Updated PJSIP config: %s", identifier)); err != nil {
+		yellow.Printf("⚠️  Git commit warning: %v\n", err)
+	}
 
 	return nil
 }
@@ -209,6 +233,7 @@ func (acm *AsteriskConfigManager) WritePjsipConfig(content, identifier string) e
 func (acm *AsteriskConfigManager) RemovePjsipConfig(identifier string) error {
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
 	red := color.New(color.FgRed)
 
 	if acm.verbose {
@@ -248,7 +273,120 @@ func (acm *AsteriskConfigManager) RemovePjsipConfig(identifier string) error {
 	}
 
 	// Commit changes to Git repository
-	acm.CommitConfigChange("pjsip-remove", fmt.Sprintf("Removed PJSIP config: %s", identifier))
+	if err := acm.CommitConfigChange("pjsip-remove", fmt.Sprintf("Removed PJSIP config: %s", identifier)); err != nil {
+		// Log but don't fail on git commit error
+		if acm.verbose {
+			yellow.Printf("⚠️  Git commit warning: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// CommentOutPjsipConfig comments out (disables) a configuration section instead of removing it
+// This preserves the configuration for potential re-enablement later
+func (acm *AsteriskConfigManager) CommentOutPjsipConfig(identifier string) error {
+	cyan := color.New(color.FgCyan)
+	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
+	red := color.New(color.FgRed)
+
+	if acm.verbose {
+		cyan.Printf("🔇 Disabling (commenting out) configuration for: %s\n", identifier)
+	}
+
+	config, err := ParseAsteriskConfig(acm.pjsipConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %v", err)
+	}
+
+	// Extract the section name from the identifier
+	// The identifier could be "Extension 101" format
+	sectionName := identifier
+	if strings.HasPrefix(identifier, "Extension ") {
+		sectionName = strings.TrimPrefix(identifier, "Extension ")
+	}
+
+	// Comment out all active sections with this name (endpoint, auth, aor)
+	commented := config.CommentOutSectionsByName(sectionName)
+
+	if commented == 0 {
+		if acm.verbose {
+			cyan.Printf("   No active sections found for: %s\n", sectionName)
+		}
+		return nil
+	}
+
+	// Write back
+	err = config.Save()
+	if err != nil {
+		red.Printf("❌ Failed to write config file: %v\n", err)
+		return fmt.Errorf("failed to write config file: %v", err)
+	}
+
+	if acm.verbose {
+		green.Printf("✅ Configuration disabled successfully (%d sections commented out)\n", commented)
+	}
+
+	// Commit changes to Git repository
+	if err := acm.CommitConfigChange("pjsip-disable", fmt.Sprintf("Disabled PJSIP config: %s", identifier)); err != nil {
+		if acm.verbose {
+			yellow.Printf("⚠️  Git commit warning: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// UncommentPjsipConfig uncomments (enables) a previously disabled configuration section
+func (acm *AsteriskConfigManager) UncommentPjsipConfig(identifier string) error {
+	cyan := color.New(color.FgCyan)
+	green := color.New(color.FgGreen)
+	yellow := color.New(color.FgYellow)
+	red := color.New(color.FgRed)
+
+	if acm.verbose {
+		cyan.Printf("🔊 Enabling (uncommenting) configuration for: %s\n", identifier)
+	}
+
+	config, err := ParseAsteriskConfig(acm.pjsipConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %v", err)
+	}
+
+	// Extract the section name from the identifier
+	sectionName := identifier
+	if strings.HasPrefix(identifier, "Extension ") {
+		sectionName = strings.TrimPrefix(identifier, "Extension ")
+	}
+
+	// Uncomment all commented sections with this name
+	uncommented := config.UncommentSectionsByName(sectionName)
+
+	if uncommented == 0 {
+		if acm.verbose {
+			cyan.Printf("   No commented sections found for: %s\n", sectionName)
+		}
+		return nil
+	}
+
+	// Write back
+	err = config.Save()
+	if err != nil {
+		red.Printf("❌ Failed to write config file: %v\n", err)
+		return fmt.Errorf("failed to write config file: %v", err)
+	}
+
+	if acm.verbose {
+		green.Printf("✅ Configuration enabled successfully (%d sections uncommented)\n", uncommented)
+	}
+
+	// Commit changes to Git repository
+	if err := acm.CommitConfigChange("pjsip-enable", fmt.Sprintf("Enabled PJSIP config: %s", identifier)); err != nil {
+		if acm.verbose {
+			yellow.Printf("⚠️  Git commit warning: %v\n", err)
+		}
+	}
 
 	return nil
 }
@@ -391,7 +529,9 @@ func (acm *AsteriskConfigManager) EnsureTransportConfig() error {
 	}
 
 	// Commit changes to Git repository
-	acm.CommitConfigChange("transport-update", "Updated PJSIP transport configuration")
+	if err := acm.CommitConfigChange("transport-update", "Updated PJSIP transport configuration"); err != nil {
+		yellow.Printf("⚠️  Git commit warning: %v\n", err)
+	}
 
 	return nil
 }
@@ -490,7 +630,9 @@ func (acm *AsteriskConfigManager) WriteDialplanConfig(content, identifier string
 	}
 
 	// Commit changes to Git repository
-	acm.CommitConfigChange("dialplan-update", fmt.Sprintf("Updated dialplan: %s", identifier))
+	if err := acm.CommitConfigChange("dialplan-update", fmt.Sprintf("Updated dialplan: %s", identifier)); err != nil {
+		yellow.Printf("⚠️  Git commit warning: %v\n", err)
+	}
 
 	return nil
 }
@@ -552,7 +694,7 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 		originalDir = "" // Mark as invalid
 	}
 	if err := os.Chdir(asteriskDir); err != nil {
-		return nil // Silently skip if we can't change dir
+		return fmt.Errorf("failed to change to asterisk directory: %v", err)
 	}
 	defer func() {
 		if originalDir != "" {
@@ -563,7 +705,11 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 	// Check if there are changes to commit
 	statusCmd := exec.Command("git", "status", "--porcelain")
 	statusOutput, err := statusCmd.Output()
-	if err != nil || len(strings.TrimSpace(string(statusOutput))) == 0 {
+	if err != nil {
+		return fmt.Errorf("git status failed: %v", err)
+	}
+	
+	if len(strings.TrimSpace(string(statusOutput))) == 0 {
 		if acm.verbose {
 			yellow.Println("⚠️  No changes to commit")
 		}
@@ -573,10 +719,7 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 	// Stage all changes
 	addCmd := exec.Command("git", "add", "-A")
 	if err := addCmd.Run(); err != nil {
-		if acm.verbose {
-			yellow.Printf("⚠️  Failed to stage changes: %v\n", err)
-		}
-		return nil
+		return fmt.Errorf("failed to stage changes: %v", err)
 	}
 
 	// Build commit message
@@ -586,11 +729,19 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 	// Commit
 	commitCmd := exec.Command("git", "commit", "-m", commitMsg)
 	if output, err := commitCmd.CombinedOutput(); err != nil {
-		if acm.verbose {
-			yellow.Printf("⚠️  Git commit failed: %v\n", err)
-			yellow.Printf("   Output: %s\n", string(output))
-		}
-		return nil
+		return fmt.Errorf("git commit failed: %v (output: %s)", err, string(output))
+	}
+
+	// Verify the commit was successful - check if repository is still dirty
+	statusCmd = exec.Command("git", "status", "--porcelain")
+	statusOutput, err = statusCmd.Output()
+	if err != nil {
+		yellow.Printf("⚠️  Warning: Could not verify commit status: %v\n", err)
+	} else if len(strings.TrimSpace(string(statusOutput))) > 0 {
+		// Repository is still dirty after commit - this is a problem
+		yellow.Println("⚠️  Warning: Repository still has uncommitted changes after commit")
+		yellow.Printf("   Uncommitted files:\n%s", string(statusOutput))
+		return fmt.Errorf("repository still dirty after commit - some files may not have been committed")
 	}
 
 	if acm.verbose {
@@ -598,6 +749,54 @@ func (acm *AsteriskConfigManager) CommitConfigChange(action, description string)
 	}
 
 	return nil
+}
+
+// GetAsteriskGitStatus checks the Git status of /etc/asterisk and returns status information
+// Returns: isDirty (bool), statusMessage (string), error
+func (acm *AsteriskConfigManager) GetAsteriskGitStatus() (bool, string, error) {
+	asteriskDir := "/etc/asterisk"
+	gitDir := asteriskDir + "/.git"
+
+	// Check if /etc/asterisk is a Git repository
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		return false, "Not a Git repository", nil
+	}
+
+	// Change to asterisk directory
+	originalDir, err := os.Getwd()
+	if err != nil {
+		originalDir = ""
+	}
+	if err := os.Chdir(asteriskDir); err != nil {
+		return false, "", fmt.Errorf("failed to change to asterisk directory: %v", err)
+	}
+	defer func() {
+		if originalDir != "" {
+			_ = os.Chdir(originalDir)
+		}
+	}()
+
+	// Get status
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusOutput, err := statusCmd.Output()
+	if err != nil {
+		return false, "", fmt.Errorf("git status failed: %v", err)
+	}
+
+	status := strings.TrimSpace(string(statusOutput))
+	if len(status) == 0 {
+		return false, "Clean (all changes committed)", nil
+	}
+
+	// Count uncommitted files
+	lines := strings.Split(status, "\n")
+	return true, fmt.Sprintf("Dirty (%d uncommitted files)", len(lines)), nil
+}
+
+// IsAsteriskRepoDirty returns true if /etc/asterisk has uncommitted changes
+func (acm *AsteriskConfigManager) IsAsteriskRepoDirty() bool {
+	isDirty, _, _ := acm.GetAsteriskGitStatus()
+	return isDirty
 }
 
 // getTimestamp returns current timestamp in standard format
