@@ -3,15 +3,20 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
+// Auto-refresh interval for VoIP phones list
+const voipAutoRefreshInterval = 10 * time.Second
+
 // Discovery state for background scanning
 type discoveryState struct {
 	isScanning      bool
 	lastScanTime    time.Time
+	lastRefreshTime time.Time
 	scanError       string
 	lldpError       string
 	mutex           sync.Mutex
@@ -31,14 +36,22 @@ func isRunningAsRoot() bool {
 // renderVoIPPhones renders the VoIP phones list screen
 func (m model) renderVoIPPhones() string {
 	content := infoStyle.Render("📱 VoIP Phones Management") + "\n"
-	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	// Show discovery status
 	voipDiscoveryState.mutex.Lock()
 	isScanning := voipDiscoveryState.isScanning
 	scanError := voipDiscoveryState.scanError
 	lldpError := voipDiscoveryState.lldpError
+	lastRefresh := voipDiscoveryState.lastRefreshTime
 	voipDiscoveryState.mutex.Unlock()
+	
+	// Show auto-refresh status
+	if !lastRefresh.IsZero() {
+		elapsed := time.Since(lastRefresh)
+		refreshStr := fmt.Sprintf("🔄 Auto-refreshing every %ds (last: %ds ago)", int(voipAutoRefreshInterval.Seconds()), int(elapsed.Seconds()))
+		content += helpStyle.Render(refreshStr) + "\n\n"
+	}
 	
 	if isScanning {
 		content += warningStyle.Render("🔍 Discovering phones on the network...") + "\n\n"
@@ -60,7 +73,7 @@ func (m model) renderVoIPPhones() string {
 		content += "📭 No phones detected\n\n"
 		content += helpStyle.Render("💡 Phones are detected automatically via:") + "\n"
 		content += helpStyle.Render("   • SIP registrations from Asterisk") + "\n"
-		content += helpStyle.Render("   • LLDP network discovery") + "\n"
+		content += helpStyle.Render("   • LLDP network discovery (📡)") + "\n"
 		content += helpStyle.Render("   • Network scanning (VoIP phone OUI detection)") + "\n\n"
 		content += helpStyle.Render("   Press 'a' to manually add a phone by IP address") + "\n"
 		content += helpStyle.Render("   Press 'A' to add all discovered phones")
@@ -69,9 +82,9 @@ func (m model) renderVoIPPhones() string {
 	
 	content += fmt.Sprintf("📊 Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
 	
-	// Header
-	content += helpStyle.Render("  Extension      IP Address         Status        Vendor") + "\n"
-	content += helpStyle.Render("  ──────────────────────────────────────────────────────") + "\n"
+	// Header - aligned with data columns
+	content += helpStyle.Render("  Ext          Name/IP              Status         Vendor/Model") + "\n"
+	content += helpStyle.Render("  ─────────────────────────────────────────────────────────────────────") + "\n"
 	
 	for i, phone := range m.voipPhones {
 		cursor := " "
@@ -79,7 +92,7 @@ func (m model) renderVoIPPhones() string {
 			cursor = "▶"
 		}
 		
-		// Status with emoji
+		// Status with emoji (including LLDP indicator)
 		status := "🔴 Offline"
 		statusStyle := errorStyle
 		if phone.Status == "Registered" || phone.Status == "Available" || phone.Status == "online" {
@@ -90,10 +103,26 @@ func (m model) renderVoIPPhones() string {
 			statusStyle = warningStyle
 		}
 		
-		// Extract vendor from user agent
-		vendor := phone.UserAgent
-		if len(vendor) > 15 {
-			vendor = vendor[:15] + "..."
+		// Add LLDP indicator for phones discovered via LLDP
+		// Check if this phone was discovered via LLDP by looking at discovered phones
+		isLLDP := false
+		for _, disc := range m.discoveredPhones {
+			if disc.IP == phone.IP && disc.DiscoveryType == "lldp" {
+				isLLDP = true
+				break
+			}
+		}
+		if isLLDP {
+			status = "📡" + status[2:] // Replace first emoji with LLDP indicator
+		}
+		
+		// Extract vendor and model from user agent
+		vendorModel := phone.UserAgent
+		if vendorModel == "" {
+			vendorModel = "Unknown"
+		}
+		if len(vendorModel) > 20 {
+			vendorModel = vendorModel[:20] + "..."
 		}
 		
 		// Format extension
@@ -101,25 +130,53 @@ func (m model) renderVoIPPhones() string {
 		if ext == "" {
 			ext = "---"
 		}
-		if len(ext) > 12 {
-			ext = ext[:12]
+		if len(ext) > 10 {
+			ext = ext[:10]
 		}
 		
-		line := fmt.Sprintf("%s %-12s  %-18s %s  %s\n",
+		// Display name or IP - prefer friendly name if available
+		displayName := phone.IP
+		// Check if there's a friendly name stored (we use UserAgent as fallback display for now)
+		// If UserAgent contains a space, the first part before space is usually the name
+		if strings.Contains(phone.UserAgent, " ") {
+			parts := strings.SplitN(phone.UserAgent, " ", 2)
+			// If first part looks like a name (not vendor), use it
+			if parts[0] != "" && !isVoIPVendor(parts[0]) {
+				displayName = parts[0]
+			}
+		}
+		if len(displayName) > 18 {
+			displayName = displayName[:18] + ".."
+		}
+		
+		line := fmt.Sprintf("%s %-10s  %-20s %s  %s\n",
 			cursor,
 			successStyle.Render(ext),
-			phone.IP,
-			statusStyle.Render(fmt.Sprintf("%-10s", status)),
-			helpStyle.Render(vendor),
+			displayName,
+			statusStyle.Render(fmt.Sprintf("%-12s", status)),
+			helpStyle.Render(vendorModel),
 		)
 		content += line
 	}
 	
 	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
 	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details/Add credentials") + "\n"
-	content += helpStyle.Render("   a    Add manually    A      Add all discovered    r  Refresh    ESC  Back")
+	content += helpStyle.Render("   a    Add manually    A      Add all discovered    ESC  Back")
+	content += "\n" + helpStyle.Render("   📡 = LLDP discovered")
 	
 	return menuStyle.Render(content)
+}
+
+// isVoIPVendor checks if a string is a known VoIP vendor name
+func isVoIPVendor(s string) bool {
+	vendors := []string{"grandstream", "yealink", "polycom", "cisco", "snom", "panasonic", "fanvil", "unknown"}
+	sLower := strings.ToLower(s)
+	for _, v := range vendors {
+		if strings.Contains(sLower, v) {
+			return true
+		}
+	}
+	return false
 }
 
 // renderVoIPPhoneDetails renders detailed information about a selected phone
@@ -460,10 +517,55 @@ func (m *model) loadRegisteredPhones() {
 		}
 	}
 	
+	// Sort phones: by extension first, then by IP address
+	sortVoIPPhones(phones)
+	
 	m.voipPhones = phones
+	
+	// Update refresh time
+	voipDiscoveryState.mutex.Lock()
+	voipDiscoveryState.lastRefreshTime = time.Now()
+	voipDiscoveryState.mutex.Unlock()
+	
 	if len(phones) > 0 {
 		m.successMsg = fmt.Sprintf("Found %d phone(s)", len(phones))
 	}
+}
+
+// sortVoIPPhones sorts phones by extension (numeric if possible), then by IP address
+func sortVoIPPhones(phones []PhoneInfo) {
+	sort.Slice(phones, func(i, j int) bool {
+		// First sort by extension
+		extI := phones[i].Extension
+		extJ := phones[j].Extension
+		
+		// Handle empty extensions - put them at the end
+		if extI == "" && extJ != "" {
+			return false
+		}
+		if extI != "" && extJ == "" {
+			return true
+		}
+		
+		// If both have extensions, compare them
+		if extI != "" && extJ != "" {
+			// Try numeric comparison first
+			var numI, numJ int
+			_, errI := fmt.Sscanf(extI, "%d", &numI)
+			_, errJ := fmt.Sscanf(extJ, "%d", &numJ)
+			
+			if errI == nil && errJ == nil {
+				if numI != numJ {
+					return numI < numJ
+				}
+			} else if extI != extJ {
+				return extI < extJ
+			}
+		}
+		
+		// Then sort by IP address
+		return phones[i].IP < phones[j].IP
+	})
 }
 
 // handleVoIPPhonesKeyPress handles key presses in VoIP phones screens
@@ -472,18 +574,27 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 	case voipPhonesScreen:
 		switch key {
 		case "up", "k":
+			// Check for auto-refresh on any key press
+			m.checkAutoRefresh()
+			
 			if m.selectedPhoneIdx > 0 {
 				m.selectedPhoneIdx--
 			} else if len(m.voipPhones) > 0 {
 				m.selectedPhoneIdx = len(m.voipPhones) - 1
 			}
 		case "down", "j":
+			// Check for auto-refresh on any key press
+			m.checkAutoRefresh()
+			
 			if m.selectedPhoneIdx < len(m.voipPhones)-1 {
 				m.selectedPhoneIdx++
 			} else if len(m.voipPhones) > 0 {
 				m.selectedPhoneIdx = 0
 			}
 		case "enter":
+			// Check for auto-refresh before processing
+			m.checkAutoRefresh()
+			
 			// Show phone details or go to add credentials if no phones
 			if len(m.voipPhones) > 0 {
 				// Check if this phone has credentials, if not redirect to add credentials
@@ -794,6 +905,23 @@ func (m *model) processPendingDiscoveredPhones() {
 	m.mergeDiscoveredPhones(pending)
 }
 
+// checkAutoRefresh checks if auto-refresh is needed and triggers refresh if so
+func (m *model) checkAutoRefresh() {
+	voipDiscoveryState.mutex.Lock()
+	lastRefresh := voipDiscoveryState.lastRefreshTime
+	voipDiscoveryState.mutex.Unlock()
+	
+	// Process any pending discovered phones first
+	m.processPendingDiscoveredPhones()
+	
+	// Check if we need to refresh (only if lastRefresh was set and auto-refresh interval has passed)
+	// Skip auto-refresh if lastRefresh was never set (to avoid refreshing on first access)
+	if !lastRefresh.IsZero() && time.Since(lastRefresh) > voipAutoRefreshInterval {
+		// Reload registered phones (quick operation)
+		m.loadRegisteredPhones()
+	}
+}
+
 // mergeDiscoveredPhones merges discovered phones into the existing list and saves to DB
 func (m *model) mergeDiscoveredPhones(discovered []DiscoveredPhone) {
 	for _, disc := range discovered {
@@ -840,6 +968,9 @@ func (m *model) mergeDiscoveredPhones(discovered []DiscoveredPhone) {
 			}
 		}
 	}
+	
+	// Re-sort the list to maintain consistent order
+	sortVoIPPhones(m.voipPhones)
 }
 
 // initVoIPProvisionScreen initializes the provision screen

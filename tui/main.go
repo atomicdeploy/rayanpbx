@@ -415,7 +415,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 			// Handle VoIP-specific keys first
 			switch msg.String() {
-			case "m", "c", "r", "p", "e", "A":
+			case "a", "m", "c", "r", "p", "e", "A":
 				m.handleVoIPPhonesKeyPress(msg.String())
 				return m, nil
 			}
@@ -2302,6 +2302,13 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.currentScreen == usageInputScreen {
 			m.currentScreen = usageScreen
 			m.usageCommandTemplate = ""
+		} else if m.currentScreen == voipManualIPScreen {
+			// Go back to VoIP phones screen
+			m.currentScreen = voipPhonesScreen
+			m.voipEditingExistingIP = ""
+		} else if m.currentScreen == voipPhoneProvisionScreen {
+			// Go back to phone details screen
+			m.currentScreen = voipPhoneDetailsScreen
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
