@@ -128,11 +128,15 @@ DEFAULT_AMI_PORT="5038"
 DEFAULT_AMI_USERNAME="admin"
 DEFAULT_AMI_SECRET="rayanpbx_ami_secret"
 
+# Global cache for scripts directory (declared at module level)
+SCRIPTS_DIR=""
+
 # Helper function to find the scripts directory
 # Checks multiple locations to support various installation scenarios:
 # 1. Relative to the CLI script location (for development)
 # 2. RAYANPBX_ROOT/scripts (for standard installation)
 # 3. /opt/rayanpbx/scripts (fallback to default installation path)
+# Validates by checking for core scripts that are required for CLI operation.
 find_scripts_dir() {
     local possible_paths=(
         "$SCRIPT_DIR"
@@ -140,6 +144,26 @@ find_scripts_dir() {
         "/opt/rayanpbx/scripts"
     )
     
+    # List of core scripts that should exist in a valid scripts directory
+    local core_scripts=("health-check.sh" "ini-helper.sh")
+    
+    for path in "${possible_paths[@]}"; do
+        if [ -d "$path" ]; then
+            local all_found=true
+            for script in "${core_scripts[@]}"; do
+                if [ ! -f "$path/$script" ]; then
+                    all_found=false
+                    break
+                fi
+            done
+            if [ "$all_found" = true ]; then
+                echo "$path"
+                return 0
+            fi
+        fi
+    done
+    
+    # Fallback: check if any path has at least health-check.sh
     for path in "${possible_paths[@]}"; do
         if [ -d "$path" ] && [ -f "$path/health-check.sh" ]; then
             echo "$path"
@@ -154,7 +178,7 @@ find_scripts_dir() {
 
 # Get the scripts directory (cached for efficiency)
 get_scripts_dir() {
-    if [ -z "${SCRIPTS_DIR:-}" ]; then
+    if [ -z "$SCRIPTS_DIR" ]; then
         SCRIPTS_DIR=$(find_scripts_dir)
     fi
     echo "$SCRIPTS_DIR"
