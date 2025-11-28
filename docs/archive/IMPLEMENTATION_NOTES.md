@@ -157,30 +157,36 @@ sudo ./tests/test-pjsip-config.sh
 
 ## Configuration File Management
 
-### Pattern: Managed Sections
-All automated configuration uses markers:
+### Pattern: Section-Based Management
+All automated configuration uses proper INI section manipulation:
 ```ini
-; BEGIN MANAGED - {identifier}
-[configuration sections]
-; END MANAGED - {identifier}
+[section-name]
+type=endpoint
+config=value
 ```
 
-This allows:
-- Safe automated updates
+Sections are identified by their `[name]` and `type=` property. This allows:
+- Safe automated updates via section identification
 - Clean removal when extensions deleted
 - Coexistence with manual configurations
 
 ### Files Managed
 - `/etc/asterisk/pjsip.conf` - Endpoint, auth, and AOR sections
-- `/etc/asterisk/extensions.conf` - Internal context dialplan
+- `/etc/asterisk/extensions.conf` - Context-based dialplan
 
 ### Sections Created Per Extension
 ```ini
-; BEGIN MANAGED - Extension 1001
-[1001] (endpoint)
-[1001] (auth)
-[1001] (aor)
-; END MANAGED - Extension 1001
+[1001]
+type=endpoint
+...
+
+[1001]
+type=auth
+...
+
+[1001]
+type=aor
+...
 ```
 
 ## API Changes

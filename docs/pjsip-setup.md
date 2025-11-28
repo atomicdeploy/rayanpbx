@@ -133,17 +133,14 @@ You should see:
 
 ### PJSIP Configuration (`/etc/asterisk/pjsip.conf`)
 
-RayanPBX manages sections with markers:
+RayanPBX uses proper INI section manipulation for configuration management:
 
 ```ini
-; BEGIN MANAGED - RayanPBX Transport
 [transport-udp]
 type=transport
 protocol=udp
 bind=0.0.0.0:5060
-; END MANAGED - RayanPBX Transport
 
-; BEGIN MANAGED - Extension 1001
 [1001]
 type=endpoint
 context=internal
@@ -151,7 +148,7 @@ disallow=all
 allow=ulaw
 allow=alaw
 allow=g722
-transport=udp
+transport=transport-udp
 auth=1001
 aors=1001
 direct_media=no
@@ -167,14 +164,14 @@ type=aor
 max_contacts=1
 remove_existing=yes
 qualify_frequency=60
-; END MANAGED - Extension 1001
 ```
+
+Sections are identified by their `[name]` and `type=` property. RayanPBX will add, update, or remove sections as needed.
 
 ### Dialplan Configuration (`/etc/asterisk/extensions.conf`)
 
 ```ini
-; BEGIN MANAGED - RayanPBX Internal Extensions
-[internal]
+[from-internal]
 exten => 1001,1,NoOp(Call to extension 1001)
  same => n,Dial(PJSIP/1001,30)
  same => n,Hangup()
@@ -187,7 +184,11 @@ exten => 1002,1,NoOp(Call to extension 1002)
 exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})
  same => n,Dial(PJSIP/${EXTEN},30)
  same => n,Hangup()
-; END MANAGED - RayanPBX Internal Extensions
+
+[outbound-routes]
+exten => _9X.,1,NoOp(Outbound call via trunk)
+ same => n,Dial(PJSIP/${EXTEN:1}@trunk,60)
+ same => n,Hangup()
 ```
 
 ### External Media Address (NAT Configuration)
