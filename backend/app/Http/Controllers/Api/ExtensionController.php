@@ -173,10 +173,10 @@ class ExtensionController extends Controller
                     $configError = 'Failed to write PJSIP configuration';
                 }
             } else {
-                // Extension is disabled - remove PJSIP config
-                $configWriteSuccess = $this->asterisk->removePjsipConfig("Extension {$extension->extension_number}");
+                // Extension is disabled - comment out PJSIP config (preserve it but disable)
+                $configWriteSuccess = $this->asterisk->commentOutPjsipConfig("Extension {$extension->extension_number}");
                 if (!$configWriteSuccess) {
-                    $configError = 'Failed to remove PJSIP configuration';
+                    $configError = 'Failed to disable PJSIP configuration';
                 }
             }
             
@@ -259,10 +259,10 @@ class ExtensionController extends Controller
                     $configError = 'Failed to write PJSIP configuration';
                 }
             } else {
-                // Extension is being disabled - remove PJSIP config
-                $configWriteSuccess = $this->asterisk->removePjsipConfig("Extension {$extension->extension_number}");
+                // Extension is being disabled - comment out PJSIP config (preserve it but disable)
+                $configWriteSuccess = $this->asterisk->commentOutPjsipConfig("Extension {$extension->extension_number}");
                 if (!$configWriteSuccess) {
-                    $configError = 'Failed to remove PJSIP configuration';
+                    $configError = 'Failed to disable PJSIP configuration';
                 }
             }
             

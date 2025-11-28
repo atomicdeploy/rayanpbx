@@ -793,11 +793,12 @@ const (
 	voipTabProvisioning = 2
 	voipTabCTI          = 3
 	voipTabCodecs       = 4
+	voipTabDirectCall   = 5
 )
 
 // voipControlTabNames contains the tab names for the control menu
-var voipControlTabNames = []string{"📊 Status", "🔧 Management", "🔧 Provisioning", "📞 CTI/CSTA", "🎵 Codecs"}
-
+var voipControlTabNames = []string{"📊 Status", "🔧 Management", "🔧 Provisioning", "📞 CTI/CSTA", "🎵 Codecs", "📱 Direct Call"}
+  
 // getVoIPControlMenuItems returns the menu items for the current tab
 func getVoIPControlMenuItems(tab int) []string {
 	switch tab {
@@ -851,6 +852,17 @@ func getVoIPControlMenuItems(tab int) []string {
 			"⭐ Apply Recommended Order",
 			"💾 Save Changes",
 			"↩️  Reset Changes",
+			"🔙 Back to Phone List",
+		}
+	case voipTabDirectCall:
+		return []string{
+			"📞 Call Phone (Console Mode)",
+			"🔊 Call Phone (Audio File)",
+			"🧪 Test Call",
+			"📊 Console Status",
+			"⚙️  Configure Console",
+			"📴 Hangup Console",
+			"📋 Show Active Calls",
 			"🔙 Back to Phone List",
 		}
 	default:
@@ -1315,6 +1327,8 @@ func (m *model) executeVoIPControlAction() {
 		m.executeCTITabAction(menuItem, phone, phoneInstance)
 	case voipTabCodecs:
 		m.executeCodecsTabAction(menuItem, phone, phoneInstance)
+	case voipTabDirectCall:
+		m.executeDirectCallTabAction(menuItem, phone)
 	}
 }
 
@@ -2215,5 +2229,155 @@ func (m *model) handleVoIPDiscoveryKeyPress(key string) {
 		if len(m.discoveredPhones) > 0 {
 			m.addDiscoveredPhone()
 		}
+	}
+}
+
+// executeDirectCallTabAction handles Direct Call tab actions
+func (m *model) executeDirectCallTabAction(menuItem string, phone PhoneInfo) {
+	// Initialize direct call manager if needed
+	if m.directCallManager == nil {
+		m.directCallManager = NewDirectCallManager(m.asteriskManager)
+	}
+	
+	switch {
+	case strings.Contains(menuItem, "Call Phone (Console Mode)"):
+		// Call phone using console (host microphone/speaker)
+		destination := phone.IP
+		if phone.Extension != "" {
+			destination = phone.Extension
+		}
+		
+		result := m.directCallManager.OriginateCall(
+			destination,
+			CallModeConsole,
+			"",
+			"RayanPBX",
+			30,
+		)
+		
+		if result.Success {
+			m.successMsg = result.Message
+			m.voipPhoneOutput = fmt.Sprintf("Call ID: %s\nStatus: %s\nChannel: %s\n\n%s",
+				result.CallID,
+				FormatCallStatus(result.State),
+				result.Channel,
+				"💡 Use your host machine's microphone and speakers to talk")
+		} else {
+			m.errorMsg = result.Error
+		}
+		
+	case strings.Contains(menuItem, "Call Phone (Audio File)"):
+		// Initialize input for audio file path
+		m.inputMode = true
+		m.inputFields = []string{"Audio File Path"}
+		m.inputValues = []string{"/var/lib/asterisk/sounds/en/hello-world"}
+		m.inputCursor = 0
+		// The actual call will happen when the user submits the form
+		m.voipPhoneOutput = "Enter the path to the audio file to play:\n\n" +
+			"Examples:\n" +
+			"  /var/lib/asterisk/sounds/en/hello-world\n" +
+			"  /var/lib/asterisk/sounds/en/tt-weasels\n" +
+			"  /path/to/custom-audio\n\n" +
+			"Note: File extension (.wav, .gsm) is optional"
+		
+	case strings.Contains(menuItem, "Test Call"):
+		// Make a test call with built-in audio
+		destination := phone.IP
+		if phone.Extension != "" {
+			destination = phone.Extension
+		}
+		
+		result := m.directCallManager.TestCall(destination)
+		
+		if result.Success {
+			m.successMsg = "Test call initiated"
+			m.voipPhoneOutput = fmt.Sprintf("Call ID: %s\nStatus: %s\nDestination: %s\n\nPlaying test audio (tt-weasels)...",
+				result.CallID,
+				FormatCallStatus(result.State),
+				destination)
+		} else {
+			m.errorMsg = result.Error
+		}
+		
+	case strings.Contains(menuItem, "Console Status"):
+		// Get current console status
+		status := m.directCallManager.GetConsoleStatus()
+		
+		var output strings.Builder
+		output.WriteString("Console Channel Status:\n\n")
+		output.WriteString(fmt.Sprintf("  Channel:    %s\n", status.Channel))
+		output.WriteString(fmt.Sprintf("  State:      %s\n", FormatCallStatus(status.State)))
+		
+		if status.RemoteParty != "" {
+			output.WriteString(fmt.Sprintf("  Remote:     %s\n", status.RemoteParty))
+			output.WriteString(fmt.Sprintf("  Direction:  %s\n", status.Direction))
+		}
+		
+		if status.DNDEnabled {
+			output.WriteString("  DND:        🚫 Enabled\n")
+		}
+		if status.Muted {
+			output.WriteString("  Muted:      🔇 Yes\n")
+		}
+		
+		if !status.StartedAt.IsZero() {
+			output.WriteString(fmt.Sprintf("  Started:    %s\n", status.StartedAt.Format("15:04:05")))
+		}
+		
+		m.voipPhoneOutput = output.String()
+		m.successMsg = "Console status retrieved"
+		
+	case strings.Contains(menuItem, "Configure Console"):
+		// Configure the Asterisk console endpoint
+		result := m.directCallManager.ConfigureConsoleEndpoint()
+		
+		if result.Success {
+			m.successMsg = result.Message
+			m.voipPhoneOutput = fmt.Sprintf("Console Configuration:\n\n%s\n\n"+
+				"Dialplan configuration:\n%s",
+				result.Message,
+				m.directCallManager.GetConsoleDialplanConfig())
+		} else {
+			m.errorMsg = result.Error
+		}
+		
+	case strings.Contains(menuItem, "Hangup Console"):
+		// Hangup current console call
+		result := m.directCallManager.HangupConsole()
+		
+		if result.Success {
+			m.successMsg = result.Message
+			m.voipPhoneOutput = "Console call terminated"
+		} else {
+			m.errorMsg = result.Error
+		}
+		
+	case strings.Contains(menuItem, "Show Active Calls"):
+		// Show all active calls
+		calls := m.directCallManager.ListActiveCalls()
+		
+		if len(calls) == 0 {
+			m.voipPhoneOutput = "No active calls"
+			return
+		}
+		
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("Active Calls: %d\n\n", len(calls)))
+		
+		for i, call := range calls {
+			output.WriteString(fmt.Sprintf("Call %d:\n", i+1))
+			output.WriteString(fmt.Sprintf("  ID:          %s\n", call.CallID))
+			output.WriteString(fmt.Sprintf("  Destination: %s\n", call.Destination))
+			output.WriteString(fmt.Sprintf("  State:       %s\n", FormatCallStatus(call.State)))
+			output.WriteString(fmt.Sprintf("  Mode:        %s\n", call.Mode))
+			if call.Channel != "" {
+				output.WriteString(fmt.Sprintf("  Channel:     %s\n", call.Channel))
+			}
+			output.WriteString(fmt.Sprintf("  Started:     %s\n", call.StartedAt.Format("15:04:05")))
+			output.WriteString("\n")
+		}
+		
+		m.voipPhoneOutput = output.String()
+		m.successMsg = fmt.Sprintf("Found %d active call(s)", len(calls))
 	}
 }

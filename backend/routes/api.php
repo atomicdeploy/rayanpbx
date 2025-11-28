@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\SipTestController;
 use App\Http\Controllers\Api\ExtensionSyncController;
 use App\Http\Controllers\Api\ResetController;
+use App\Http\Controllers\Api\DirectCallController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -116,6 +117,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/status', [StatusController::class, 'index']);
     Route::get('/status/extensions', [StatusController::class, 'extensions']);
     Route::get('/status/trunks', [StatusController::class, 'trunks']);
+    Route::get('/status/git', [StatusController::class, 'gitStatus']);
     
     // Logs
     Route::get('/logs', [LogController::class, 'index']);
@@ -124,6 +126,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // Asterisk Console
     Route::post('/console/execute', [ConsoleController::class, 'execute']);
     Route::get('/console/output', [ConsoleController::class, 'output']);
+    Route::get('/console/live', [ConsoleController::class, 'live']);
+    Route::get('/console/errors', [ConsoleController::class, 'errors']);
     Route::get('/console/commands', [ConsoleController::class, 'commands']);
     Route::get('/console/version', [ConsoleController::class, 'version']);
     Route::get('/console/calls', [ConsoleController::class, 'calls']);
@@ -266,6 +270,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // System Reset (destructive - requires confirmation)
     Route::get('/system/reset/summary', [ResetController::class, 'summary']);
     Route::post('/system/reset', [ResetController::class, 'reset']);
+    
+    // Direct Call & Console Softphone
+    Route::post('/calls/originate', [DirectCallController::class, 'originate']);
+    Route::post('/calls/dial-from-console', [DirectCallController::class, 'dialFromConsole']);
+    Route::post('/calls/console/answer', [DirectCallController::class, 'answerConsole']);
+    Route::post('/calls/console/hangup', [DirectCallController::class, 'hangupConsole']);
+    Route::get('/calls/console/status', [DirectCallController::class, 'getConsoleStatus']);
+    Route::post('/calls/console/configure', [DirectCallController::class, 'configureConsole']);
+    Route::get('/calls/console/dialplan', [DirectCallController::class, 'getConsoleDialplan']);
+    Route::get('/calls/status/{callId}', [DirectCallController::class, 'getCallStatus']);
+    Route::get('/calls/list', [DirectCallController::class, 'listCalls']);
+    Route::post('/calls/hangup', [DirectCallController::class, 'hangup']);
+    Route::post('/calls/dtmf', [DirectCallController::class, 'sendDTMF']);
+    Route::post('/calls/test', [DirectCallController::class, 'testCall']);
+    Route::post('/calls/phone', [DirectCallController::class, 'callPhone']);
 });
 
 // Health check endpoint (public)

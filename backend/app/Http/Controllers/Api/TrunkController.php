@@ -117,9 +117,15 @@ class TrunkController extends Controller
         
         $trunk->update($validated);
         
-        // Regenerate configuration
-        $config = $this->asterisk->generatePjsipTrunk($trunk);
-        $this->asterisk->writePjsipConfig($config, "Trunk {$trunk->name}");
+        // Regenerate configuration based on enabled state
+        if ($trunk->enabled) {
+            // Trunk is enabled - write PJSIP config
+            $config = $this->asterisk->generatePjsipTrunk($trunk);
+            $this->asterisk->writePjsipConfig($config, "Trunk {$trunk->name}");
+        } else {
+            // Trunk is disabled - comment out PJSIP config (preserve it but disable)
+            $this->asterisk->commentOutPjsipConfig("Trunk {$trunk->name}");
+        }
         
         // Regenerate dialplan
         $this->regenerateDialplan();

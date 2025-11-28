@@ -32,6 +32,100 @@ class AsteriskConfigGitService
     }
 
     /**
+     * Execute a callback in the asterisk directory context
+     * Handles directory change and restoration automatically
+     * 
+     * @param callable $callback Function to execute in the asterisk directory
+     * @param mixed $defaultValue Value to return if directory change fails
+     * @return mixed Result of the callback or default value
+     */
+    private function inAsteriskDir(callable $callback, mixed $defaultValue = null): mixed
+    {
+        $originalDir = getcwd();
+        if ($originalDir === false) {
+            $originalDir = null;
+        }
+
+        try {
+            if (!@chdir($this->asteriskDir)) {
+                return $defaultValue;
+            }
+
+            return $callback();
+        } finally {
+            if ($originalDir !== null) {
+                @chdir($originalDir);
+            }
+        }
+    }
+
+    /**
+     * Check if the repository has uncommitted changes (is "dirty")
+     * 
+     * @return bool True if there are uncommitted changes
+     */
+    public function isDirty(): bool
+    {
+        if (!$this->isGitRepo()) {
+            return false;
+        }
+
+        return $this->inAsteriskDir(function () {
+            $status = shell_exec('git status --porcelain 2>&1');
+            return !empty(trim($status ?? ''));
+        }, false);
+    }
+
+    /**
+     * Get detailed dirty state information
+     * 
+     * @return array{is_dirty: bool, change_count: int, message: string, changes: array}
+     */
+    public function getDirtyState(): array
+    {
+        if (!$this->isGitRepo()) {
+            return [
+                'is_dirty' => false,
+                'change_count' => 0,
+                'message' => 'Not a Git repository',
+                'changes' => []
+            ];
+        }
+
+        $defaultResult = [
+            'is_dirty' => false,
+            'change_count' => 0,
+            'message' => 'Could not access repository',
+            'changes' => []
+        ];
+
+        return $this->inAsteriskDir(function () {
+            $status = shell_exec('git status --porcelain 2>&1');
+            $status = trim($status ?? '');
+
+            if (empty($status)) {
+                return [
+                    'is_dirty' => false,
+                    'change_count' => 0,
+                    'message' => 'Clean (all changes committed)',
+                    'changes' => []
+                ];
+            }
+
+            // Parse the status output
+            $changes = array_filter(explode("\n", $status));
+            $changeCount = count($changes);
+
+            return [
+                'is_dirty' => true,
+                'change_count' => $changeCount,
+                'message' => "Dirty ({$changeCount} uncommitted change(s))",
+                'changes' => $changes
+            ];
+        }, $defaultResult);
+    }
+
+    /**
      * Commit changes to the Asterisk configuration Git repository
      *
      * @param string $action Type of change (e.g., "extension-create", "trunk-update")
@@ -40,26 +134,62 @@ class AsteriskConfigGitService
      */
     public function commitChange(string $action, string $description): bool
     {
+        $result = $this->commitWithDetails($action, $description);
+        return $result['success'];
+    }
+
+    /**
+     * Commit changes with detailed result information
+     *
+     * @param string $action Type of change (e.g., "extension-create", "trunk-update")
+     * @param string $description Brief description of the change
+     * @return array{success: bool, message: string, still_dirty: bool}
+     */
+    public function commitWithDetails(string $action, string $description): array
+    {
         if (!$this->isGitRepo()) {
             Log::debug('AsteriskConfigGitService: /etc/asterisk is not a Git repository, skipping commit');
-            return true; // Not an error - just skip if not a git repo
+            return [
+                'success' => true,
+                'message' => 'Not a Git repository - skipped',
+                'still_dirty' => false
+            ];
         }
 
         try {
             // Try using the helper script first
             if (file_exists($this->gitCommitScript) && is_executable($this->gitCommitScript)) {
-                return $this->commitUsingScript($action, $description);
+                $result = $this->commitUsingScript($action, $description);
+            } else {
+                // Fallback to inline git commit
+                $result = $this->commitInline($action, $description);
             }
 
-            // Fallback to inline git commit
-            return $this->commitInline($action, $description);
+            // Verify commit was successful by checking if repo is still dirty
+            $stillDirty = $this->isDirty();
+            if ($stillDirty) {
+                Log::warning('AsteriskConfigGitService: Repository still has uncommitted changes after commit', [
+                    'action' => $action,
+                    'dirty_state' => $this->getDirtyState()
+                ]);
+            }
+
+            return [
+                'success' => $result,
+                'message' => $result ? 'Changes committed successfully' : 'Commit failed',
+                'still_dirty' => $stillDirty
+            ];
         } catch (Exception $e) {
             Log::warning('AsteriskConfigGitService: Failed to commit changes', [
                 'action' => $action,
                 'description' => $description,
                 'error' => $e->getMessage()
             ]);
-            return false;
+            return [
+                'success' => false,
+                'message' => 'Commit failed: ' . $e->getMessage(),
+                'still_dirty' => $this->isDirty()
+            ];
         }
     }
 
@@ -137,6 +267,14 @@ class AsteriskConfigGitService
             $escapedMessage = escapeshellarg($commitMessage);
             $commitOutput = shell_exec("git commit -m {$escapedMessage} 2>&1");
             
+            // Verify commit succeeded by checking if there are still uncommitted changes
+            $postCommitStatus = shell_exec('git status --porcelain 2>&1');
+            if (!empty(trim($postCommitStatus ?? ''))) {
+                Log::warning('AsteriskConfigGitService: Repository still dirty after commit', [
+                    'remaining_changes' => trim($postCommitStatus)
+                ]);
+            }
+            
             Log::info('AsteriskConfigGitService: Configuration snapshot saved', [
                 'action' => $action,
                 'description' => $description
@@ -162,16 +300,7 @@ class AsteriskConfigGitService
             return [];
         }
 
-        $originalDir = getcwd();
-        if ($originalDir === false) {
-            $originalDir = null;
-        }
-        
-        try {
-            if (!@chdir($this->asteriskDir)) {
-                return [];
-            }
-            
+        return $this->inAsteriskDir(function () use ($count) {
             $output = shell_exec(sprintf(
                 'git log --oneline -n %d --format="%%H|%%ad|%%s" --date=short 2>&1',
                 $count
@@ -195,44 +324,42 @@ class AsteriskConfigGitService
             }
 
             return $commits;
-        } finally {
-            if ($originalDir !== null) {
-                @chdir($originalDir);
-            }
-        }
+        }, []);
     }
 
     /**
      * Get status of the repository
      *
-     * @return array Status information
+     * @return array Status information including dirty state
      */
     public function getStatus(): array
     {
         $status = [
             'is_repo' => $this->isGitRepo(),
             'has_changes' => false,
+            'is_dirty' => false,
+            'change_count' => 0,
             'commit_count' => 0,
-            'last_commit' => null
+            'last_commit' => null,
+            'uncommitted_changes' => []
         ];
 
         if (!$status['is_repo']) {
             return $status;
         }
 
-        $originalDir = getcwd();
-        if ($originalDir === false) {
-            $originalDir = null;
-        }
-        
-        try {
-            if (!@chdir($this->asteriskDir)) {
-                return $status;
-            }
-
+        return $this->inAsteriskDir(function () use ($status) {
             // Check for uncommitted changes
             $pendingChanges = shell_exec('git status --porcelain 2>&1');
-            $status['has_changes'] = !empty(trim($pendingChanges ?? ''));
+            $pendingChanges = trim($pendingChanges ?? '');
+            $status['has_changes'] = !empty($pendingChanges);
+            $status['is_dirty'] = !empty($pendingChanges);
+            
+            if (!empty($pendingChanges)) {
+                $changes = array_filter(explode("\n", $pendingChanges));
+                $status['change_count'] = count($changes);
+                $status['uncommitted_changes'] = $changes;
+            }
 
             // Get commit count
             $commitCount = shell_exec('git rev-list --count HEAD 2>&1');
@@ -252,10 +379,6 @@ class AsteriskConfigGitService
             }
 
             return $status;
-        } finally {
-            if ($originalDir !== null) {
-                @chdir($originalDir);
-            }
-        }
+        }, $status);
     }
 }

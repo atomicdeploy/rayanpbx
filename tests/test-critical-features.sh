@@ -125,9 +125,11 @@ test_extension_creation() {
     fi
     
     # Step 3: Verify PJSIP configuration was created
+    # Uses section-based verification instead of managed comment blocks
     log_test "Verifying PJSIP configuration..."
     
-    if grep -q "BEGIN MANAGED - Extension $TEST_EXT" /etc/asterisk/pjsip.conf; then
+    # Check if endpoint section exists for this extension
+    if grep -q "^\[${TEST_EXT}\]" /etc/asterisk/pjsip.conf; then
         log_success "PJSIP configuration created"
         
         # Check if endpoint is configured correctly
@@ -304,9 +306,10 @@ test_trunk_configuration() {
     fi
     
     # Step 3: Verify PJSIP trunk configuration
+    # Uses section-based verification instead of managed comment blocks
     log_test "Verifying PJSIP trunk configuration..."
     
-    if grep -q "BEGIN MANAGED - Trunk $TRUNK_NAME" /etc/asterisk/pjsip.conf; then
+    if grep -q "^\[${TRUNK_NAME}\]" /etc/asterisk/pjsip.conf; then
         log_success "Trunk PJSIP configuration created"
     else
         log_fail "Trunk PJSIP configuration NOT created"
@@ -317,11 +320,13 @@ test_trunk_configuration() {
     log_test "Verifying dialplan configuration..."
     
     if [ -f /etc/asterisk/extensions.conf ]; then
-        if grep -q "BEGIN MANAGED - RayanPBX Outbound Routing" /etc/asterisk/extensions.conf; then
+        # Check for outbound routing context (without relying on managed markers)
+        if grep -q "\[outbound-routes\]" /etc/asterisk/extensions.conf || \
+           grep -q "exten => _9" /etc/asterisk/extensions.conf; then
             log_success "Dialplan routing configuration created"
             
             # Check for prefix routing
-            if grep -A 5 "BEGIN MANAGED" /etc/asterisk/extensions.conf | grep -q "exten => _9"; then
+            if grep -q "exten => _9" /etc/asterisk/extensions.conf; then
                 log_success "Prefix-based routing (9) configured correctly"
             else
                 log_warning "Prefix routing may need verification"
@@ -509,11 +514,10 @@ test_error_reporting() {
 cleanup_test_data() {
     log_test "Cleaning up test data..."
     
-    # Remove test extension from pjsip.conf
-    sed -i '/BEGIN MANAGED - Extension 7001/,/END MANAGED - Extension 7001/d' /etc/asterisk/pjsip.conf 2>/dev/null || true
-    
-    # Remove test trunk
-    sed -i '/BEGIN MANAGED - Trunk TestTrunk/,/END MANAGED - Trunk TestTrunk/d' /etc/asterisk/pjsip.conf 2>/dev/null || true
+    # Remove test extension from pjsip.conf using section-based removal
+    # Uses awk to remove all sections matching the extension/trunk names
+    remove_pjsip_sections "7001" /etc/asterisk/pjsip.conf
+    remove_pjsip_sections "TestTrunk" /etc/asterisk/pjsip.conf
     
     # Remove from database
     mysql -u rayanpbx -p$(cat /opt/rayanpbx/.db_credentials | grep DB_PASSWORD | cut -d'=' -f2) \
@@ -527,6 +531,36 @@ cleanup_test_data() {
     asterisk -rx "dialplan reload" > /dev/null 2>&1
     
     log_success "Cleanup complete"
+}
+
+# Remove PJSIP sections by name using awk
+# This is the proper way to remove sections without relying on managed markers
+remove_pjsip_sections() {
+    local section_name="$1"
+    local config_file="$2"
+    
+    if [ ! -f "$config_file" ]; then
+        return 0
+    fi
+    
+    local temp_file=$(mktemp)
+    awk -v name="$section_name" '
+        /^\[/ { 
+            # Extract section name between brackets
+            match($0, /^\[([^\]]+)\]/, arr)
+            current_section = arr[1]
+            # Check if this section matches the name we want to remove
+            if (current_section == name) {
+                skip_section = 1
+                next
+            } else {
+                skip_section = 0
+            }
+        }
+        !skip_section { print }
+    ' "$config_file" > "$temp_file"
+    
+    mv "$temp_file" "$config_file" 2>/dev/null || rm -f "$temp_file"
 }
 
 # ============================================================================

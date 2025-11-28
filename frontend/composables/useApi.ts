@@ -134,6 +134,20 @@ export const useApi = () => {
       return apiFetch(`/console/output?lines=${lines}`)
     },
     
+    /**
+     * Get the URL for live console streaming (for SSE connection)
+     */
+    getLiveConsoleUrl(verbosity: number = 5): string {
+      return `${config.public.apiBase}/console/live?verbosity=${verbosity}`
+    },
+    
+    /**
+     * Get recent Asterisk errors
+     */
+    async getConsoleErrors(lines: number = 500) {
+      return apiFetch(`/console/errors?lines=${lines}`)
+    },
+    
     async getConsoleCommands() {
       return apiFetch('/console/commands')
     },

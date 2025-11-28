@@ -57,11 +57,15 @@ bootstrap/cache/*
 # Compiled binaries
 /tui/rayanpbx-tui
 /tui/tui
+/tui/tui_test
 *.exe
 
 # Temporary files
 tmp/
 *.tmp
+
+# Backup files (RayanPBX creates *.backup.* files)
+*.backup.*
 
 # Database
 *.sqlite

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\AsteriskConsoleService;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ConsoleController extends Controller
 {
@@ -40,6 +41,60 @@ class ConsoleController extends Controller
         $result = $this->console->getConsoleOutput($lines);
 
         return response()->json($result);
+    }
+
+    /**
+     * Stream live Asterisk console output (Server-Sent Events)
+     * Similar to running `asterisk -rvvvvvvvvv`
+     */
+    public function live(Request $request): StreamedResponse
+    {
+        $verbosity = (int) $request->input('verbosity', 5);
+        $verbosity = max(1, min(10, $verbosity)); // Clamp between 1-10
+
+        return new StreamedResponse(function () use ($verbosity) {
+            // Disable output buffering
+            while (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            
+            // Set time limit to 0 (no limit) for streaming
+            set_time_limit(0);
+            
+            $this->console->streamLiveOutput(function ($data) {
+                echo "data: " . json_encode($data) . "\n\n";
+                flush();
+                
+                // Check if connection is still alive
+                if (connection_aborted()) {
+                    return;
+                }
+            }, $verbosity);
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'Connection' => 'keep-alive',
+            'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    /**
+     * Get recent Asterisk errors
+     * Returns registration failures, authentication errors, etc.
+     */
+    public function errors(Request $request)
+    {
+        $lines = (int) $request->input('lines', 500);
+        $lines = max(100, min(2000, $lines));
+
+        $errors = $this->console->getRecentErrors($lines);
+
+        return response()->json([
+            'success' => true,
+            'errors' => $errors,
+            'count' => count($errors),
+            'timestamp' => now()->toIso8601String(),
+        ]);
     }
 
     /**

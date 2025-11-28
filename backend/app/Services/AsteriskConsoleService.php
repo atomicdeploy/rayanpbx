@@ -396,4 +396,283 @@ class AsteriskConsoleService
 
         return $this->executeCommand($command);
     }
+
+    /**
+     * Get the path to Asterisk full log for streaming
+     */
+    public function getFullLogPath(): string
+    {
+        // Check common Asterisk log file locations
+        $possiblePaths = [
+            '/var/log/asterisk/full',
+            '/var/log/asterisk/messages',
+            config('rayanpbx.asterisk.log_path', '/var/log/asterisk') . '/full',
+        ];
+
+        foreach ($possiblePaths as $path) {
+            if (file_exists($path) && is_readable($path)) {
+                return $path;
+            }
+        }
+
+        // Default to full log
+        return '/var/log/asterisk/full';
+    }
+
+    /**
+     * Stream live Asterisk console output (Server-Sent Events)
+     * This provides similar output to `asterisk -rvvvvvvvvv`
+     * 
+     * @param callable $callback Function to call with each log line
+     * @param int $verbosity Verbosity level (1-10, default 5)
+     * @return void
+     */
+    public function streamLiveOutput(callable $callback, int $verbosity = 5): void
+    {
+        $logFile = $this->getFullLogPath();
+        
+        if (!file_exists($logFile)) {
+            $callback([
+                'type' => 'error',
+                'message' => "Log file not found: {$logFile}",
+                'timestamp' => now()->toIso8601String(),
+            ]);
+            return;
+        }
+
+        // Get initial file size to start from the end
+        clearstatcache(true, $logFile);
+        $lastSize = filesize($logFile);
+        $lastInode = fileinode($logFile);
+
+        // Send initial connection message
+        $callback([
+            'type' => 'connected',
+            'message' => 'Connected to Asterisk live console',
+            'verbosity' => $verbosity,
+            'logFile' => $logFile,
+            'timestamp' => now()->toIso8601String(),
+        ]);
+
+        // Stream loop - this runs until connection is closed
+        while (!connection_aborted()) {
+            clearstatcache(true, $logFile);
+            
+            // Check if file was rotated (inode changed)
+            $currentInode = @fileinode($logFile);
+            if ($currentInode !== false && $currentInode !== $lastInode) {
+                $lastSize = 0;
+                $lastInode = $currentInode;
+                $callback([
+                    'type' => 'info',
+                    'message' => 'Log file rotated, reconnecting...',
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+            }
+            
+            $currentSize = @filesize($logFile);
+            
+            if ($currentSize === false) {
+                usleep(500000); // 500ms
+                continue;
+            }
+            
+            if ($currentSize > $lastSize) {
+                $handle = @fopen($logFile, 'r');
+                if ($handle) {
+                    fseek($handle, $lastSize);
+                    
+                    while (($line = fgets($handle)) !== false) {
+                        $line = trim($line);
+                        if (empty($line)) {
+                            continue;
+                        }
+                        
+                        $parsed = $this->parseLiveLogLine($line, $verbosity);
+                        if ($parsed !== null) {
+                            $callback($parsed);
+                        }
+                    }
+                    
+                    $lastSize = ftell($handle);
+                    fclose($handle);
+                }
+            }
+            
+            usleep(100000); // 100ms delay between checks
+        }
+    }
+
+    /**
+     * Parse a live log line and filter based on verbosity
+     * 
+     * @param string $line Raw log line
+     * @param int $verbosity Verbosity level (1-10)
+     * @return array|null Parsed log entry or null if filtered out
+     */
+    private function parseLiveLogLine(string $line, int $verbosity): ?array
+    {
+        // Parse Asterisk log format: [timestamp] LEVEL[process] source: message
+        // Example: [2024-01-01 12:00:00] NOTICE[1234] chan_pjsip.c: Message
+        if (preg_match('/\[(.*?)\]\s+(\w+)\[(.*?)\]\s+(.*?):\s*(.*)/', $line, $matches)) {
+            $level = strtolower($matches[2]);
+            
+            // Filter based on verbosity level
+            $levelPriority = $this->getLevelPriority($level);
+            if ($levelPriority > $verbosity) {
+                return null;
+            }
+            
+            return [
+                'type' => 'log',
+                'timestamp' => $matches[1],
+                'level' => $level,
+                'process' => $matches[3],
+                'source' => $matches[4],
+                'message' => $matches[5],
+                'raw' => $line,
+                'isError' => in_array($level, ['error', 'warning']),
+            ];
+        }
+        
+        // For lines that don't match the standard format
+        return [
+            'type' => 'log',
+            'timestamp' => now()->format('Y-m-d H:i:s'),
+            'level' => 'verbose',
+            'process' => '',
+            'source' => '',
+            'message' => $line,
+            'raw' => $line,
+            'isError' => false,
+        ];
+    }
+
+    /**
+     * Get priority for log level (lower = more important)
+     */
+    private function getLevelPriority(string $level): int
+    {
+        return match (strtolower($level)) {
+            'error' => 1,
+            'warning' => 2,
+            'notice' => 3,
+            'verbose' => 5,
+            'dtmf' => 6,
+            'debug' => 8,
+            default => 5,
+        };
+    }
+
+    /**
+     * Get recent Asterisk errors (registration failures, etc.)
+     * 
+     * @param int $lines Number of lines to search
+     * @return array Array of error entries
+     */
+    public function getRecentErrors(int $lines = 500): array
+    {
+        $logFile = $this->getFullLogPath();
+        
+        if (!file_exists($logFile) || !is_readable($logFile)) {
+            return [];
+        }
+
+        try {
+            // Error patterns to search for
+            $errorPatterns = [
+                'log_failed_request',
+                'Failed to authenticate',
+                'No matching endpoint',
+                'Registration',
+                'SECURITY',
+                'ERROR',
+                'WARNING',
+            ];
+            
+            // Read last N lines using PHP native functions
+            $allLines = $this->readLastLines($logFile, (int)$lines);
+            
+            if (empty($allLines)) {
+                return [];
+            }
+
+            $errors = [];
+            
+            foreach ($allLines as $line) {
+                if (empty($line)) {
+                    continue;
+                }
+                
+                // Check if line matches any error pattern
+                $isError = false;
+                foreach ($errorPatterns as $pattern) {
+                    if (stripos($line, $pattern) !== false) {
+                        $isError = true;
+                        break;
+                    }
+                }
+                
+                if (!$isError) {
+                    continue;
+                }
+                
+                $parsed = $this->parseLiveLogLine($line, 10);
+                if ($parsed !== null) {
+                    $parsed['isError'] = true;
+                    $errors[] = $parsed;
+                }
+            }
+            
+            // Return last 100 errors
+            return array_slice($errors, -100);
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Read last N lines from a file using PHP native functions
+     * This is more secure than using shell commands
+     * 
+     * @param string $file Path to file
+     * @param int $lines Number of lines to read
+     * @return array Array of lines
+     */
+    private function readLastLines(string $file, int $lines): array
+    {
+        if (!file_exists($file) || !is_readable($file)) {
+            return [];
+        }
+
+        // Use SplFileObject for efficient file reading
+        try {
+            $fileObj = new \SplFileObject($file, 'r');
+            $fileObj->seek(PHP_INT_MAX);
+            $totalLines = $fileObj->key();
+            
+            $startLine = max(0, $totalLines - $lines);
+            $result = [];
+            
+            $fileObj->seek($startLine);
+            
+            while (!$fileObj->eof()) {
+                $line = $fileObj->fgets();
+                if ($line !== false) {
+                    $result[] = rtrim($line);
+                }
+            }
+            
+            return $result;
+        } catch (Exception $e) {
+            // Fallback to simple file reading for smaller files
+            $content = file_get_contents($file);
+            if ($content === false) {
+                return [];
+            }
+            
+            $allLines = explode("\n", $content);
+            return array_slice($allLines, -$lines);
+        }
+    }
 }

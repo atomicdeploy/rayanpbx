@@ -5,10 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Extension;
 use App\Models\Trunk;
+use App\Services\AsteriskConfigGitService;
 use Illuminate\Http\Request;
 
 class StatusController extends Controller
 {
+    private AsteriskConfigGitService $gitService;
+
+    public function __construct()
+    {
+        $this->gitService = new AsteriskConfigGitService();
+    }
+
     /**
      * Get system status overview
      */
@@ -19,6 +27,9 @@ class StatusController extends Controller
         
         $trunksTotal = Trunk::count();
         $trunksActive = Trunk::where('enabled', true)->count();
+        
+        // Get Git status for /etc/asterisk
+        $gitStatus = $this->gitService->getStatus();
         
         return response()->json([
             'status' => [
@@ -34,6 +45,32 @@ class StatusController extends Controller
                     'active' => $trunksActive,
                     'online' => 0, // Would be updated by AMI events
                 ],
+                'config_git' => [
+                    'is_repo' => $gitStatus['is_repo'],
+                    'is_dirty' => $gitStatus['is_dirty'] ?? false,
+                    'change_count' => $gitStatus['change_count'] ?? 0,
+                ],
+            ]
+        ]);
+    }
+    
+    /**
+     * Get Git status for Asterisk configuration
+     */
+    public function gitStatus()
+    {
+        $status = $this->gitService->getStatus();
+        $dirtyState = $this->gitService->getDirtyState();
+        
+        return response()->json([
+            'git_status' => [
+                'is_repo' => $status['is_repo'],
+                'is_dirty' => $dirtyState['is_dirty'],
+                'change_count' => $dirtyState['change_count'],
+                'message' => $dirtyState['message'],
+                'uncommitted_changes' => $dirtyState['changes'],
+                'commit_count' => $status['commit_count'],
+                'last_commit' => $status['last_commit'],
             ]
         ]);
     }

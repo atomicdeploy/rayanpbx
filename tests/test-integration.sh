@@ -167,16 +167,19 @@ test_database() {
 }
 
 # Create test extension
+# Uses proper INI section manipulation instead of managed comment blocks
 create_test_extension() {
     local EXT_NUM=$1
     local PASSWORD=$2
     
     print_test "Creating test extension $EXT_NUM"
     
-    # Create PJSIP endpoint config
+    # First remove any existing sections for this extension
+    remove_extension_sections "$EXT_NUM"
+    
+    # Append PJSIP endpoint sections (endpoint, auth, aor)
     cat >> /etc/asterisk/pjsip.conf <<EOF
 
-; BEGIN MANAGED - Test Extension ${EXT_NUM}
 [${EXT_NUM}]
 type=endpoint
 context=from-internal
@@ -184,7 +187,7 @@ disallow=all
 allow=ulaw
 allow=alaw
 allow=g722
-transport=udp
+transport=transport-udp
 auth=${EXT_NUM}
 aors=${EXT_NUM}
 
@@ -198,7 +201,6 @@ password=${PASSWORD}
 type=aor
 max_contacts=1
 remove_existing=yes
-; END MANAGED - Test Extension ${EXT_NUM}
 EOF
     
     # Reload PJSIP
@@ -213,6 +215,36 @@ EOF
         print_fail "Failed to create extension ${EXT_NUM}"
         return 1
     fi
+}
+
+# Remove extension sections from pjsip.conf by extension number
+# Uses awk to remove all sections matching the extension name
+remove_extension_sections() {
+    local EXT_NUM=$1
+    local pjsip_conf="/etc/asterisk/pjsip.conf"
+    
+    if [ ! -f "$pjsip_conf" ]; then
+        return 0
+    fi
+    
+    local temp_file=$(mktemp)
+    awk -v ext="$EXT_NUM" '
+        /^\[/ { 
+            # Extract section name
+            match($0, /^\[([^\]]+)\]/, arr)
+            section_name = arr[1]
+            # Check if this section belongs to the extension we want to remove
+            if (section_name == ext) {
+                skip_section = 1
+                next
+            } else {
+                skip_section = 0
+            }
+        }
+        !skip_section { print }
+    ' "$pjsip_conf" > "$temp_file"
+    
+    mv "$temp_file" "$pjsip_conf" 2>/dev/null || true
 }
 
 # Test SIP registration
@@ -363,12 +395,13 @@ test_api_endpoints() {
 }
 
 # Cleanup test extensions
+# Uses section-based removal instead of managed comment blocks
 cleanup_test_extensions() {
     print_test "Cleaning up test extensions"
     
     for EXT in 9001 9002; do
-        # Remove from pjsip.conf
-        sed -i "/; BEGIN MANAGED - Test Extension ${EXT}/,/; END MANAGED - Test Extension ${EXT}/d" /etc/asterisk/pjsip.conf 2>/dev/null || true
+        # Remove extension sections from pjsip.conf
+        remove_extension_sections "$EXT"
     done
     
     asterisk -rx "pjsip reload" > /dev/null 2>&1

@@ -130,6 +130,7 @@ const (
 	diagnosticsScreen
 	statusScreen
 	logsScreen
+	liveConsoleScreen
 	usageScreen
 	createExtensionScreen
 	createTrunkScreen
@@ -166,6 +167,7 @@ const (
 	quickSetupScreen
 	resetConfigurationScreen
 	resetConfirmScreen
+	consolePhoneScreen // Console as SIP phone/intercom
 )
 
 type model struct {
@@ -225,13 +227,16 @@ type model struct {
 	currentPhoneStatus     *PhoneStatus
 	phoneCredentials       map[string]map[string]string
 	voipEditingExistingIP  string // If set, we're editing credentials for an existing phone
-	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA, 4=Codecs)
+
+	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA, 4=Codecs, 5=Direct Call)
 	
 	// SIP Codec Priority configuration
 	currentCodecOrder   []CodecInfo  // Current codec order being displayed/edited
 	originalCodecOrder  []CodecInfo  // Original order (for reset)
 	codecSelectedIndex  int          // Currently selected codec in the list
 	codecOrderModified  bool         // Whether the order has been changed
+	
+	directCallManaer      *DirectCallManager // For direct SIP calls and console intercom
 	
 	// Menu position memory (preserve cursor position when navigating back)
 	mainMenuCursor        int
@@ -272,6 +277,18 @@ type model struct {
 	quickSetupComplete    bool     // Whether setup is complete
 	quickSetupError       string   // Error message during setup
 	quickSetupResult      string   // Result message after setup
+
+	// Console Phone (host as SIP client/intercom)
+	consolePhoneMenu     []string // Menu items for console phone operations
+	consolePhoneOutput   string   // Output from console operations
+	consolePhoneStatus   *ConsoleState // Current console state
+
+	// Live Console
+	liveConsoleOutput     []string // Live console log lines
+	liveConsoleRunning    bool     // Whether live console is streaming
+	liveConsoleVerbosity  int      // Verbosity level (1-10)
+	liveConsoleErrors     []string // Recent errors for display
+	liveConsoleMaxLines   int      // Maximum lines to keep in buffer
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -283,6 +300,51 @@ func (m model) isDiagnosticsInputScreen() bool {
 		m.currentScreen == sipTestRegisterScreen ||
 		m.currentScreen == sipTestCallScreen ||
 		m.currentScreen == sipTestFullScreen
+}
+
+// getSelectedExtension returns the currently selected extension based on the display mode.
+// When extensionSyncInfos is populated (showing combined DB+Asterisk list), it uses that list.
+// Otherwise, it falls back to the extensions list from database only.
+// Returns nil if no valid extension is selected or if the selected item is Asterisk-only.
+func (m model) getSelectedExtension() *Extension {
+	// When extensionSyncInfos is populated, use it as the source of truth for selection
+	if len(m.extensionSyncInfos) > 0 {
+		if m.selectedExtensionIdx < len(m.extensionSyncInfos) {
+			syncInfo := m.extensionSyncInfos[m.selectedExtensionIdx]
+			// Return the DB extension if available (may be nil for Asterisk-only extensions)
+			return syncInfo.DBExtension
+		}
+		return nil
+	}
+	
+	// Fallback to extensions list when extensionSyncInfos is not populated
+	if m.selectedExtensionIdx < len(m.extensions) {
+		return &m.extensions[m.selectedExtensionIdx]
+	}
+	return nil
+}
+
+// hasSelectedExtension returns true if a valid extension is currently selected.
+// This is useful for determining whether edit/delete/toggle actions should be available.
+func (m model) hasSelectedExtension() bool {
+	return m.getSelectedExtension() != nil
+}
+
+// getSelectedExtensionIndex returns the index of the selected extension in the m.extensions slice.
+// Returns -1 if no valid extension is selected or if the extension is not in the extensions slice.
+func (m model) getSelectedExtensionIndex() int {
+	selectedExt := m.getSelectedExtension()
+	if selectedExt == nil {
+		return -1
+	}
+	
+	// Find the extension in the extensions slice by matching the extension number
+	for i, ext := range m.extensions {
+		if ext.ExtensionNumber == selectedExt.ExtensionNumber {
+			return i
+		}
+	}
+	return -1
 }
 
 func initialModel(db *sql.DB, config *Config, verbose bool) model {
@@ -299,10 +361,12 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
+			"🎙️  Console Phone/Intercom",
 			"⚙️  Asterisk Management",
 			"🔍 Diagnostics & Debugging",
 			"📊 System Status",
 			"📋 Logs Viewer",
+			"📡 Live Asterisk Console",
 			"📖 CLI Usage Guide",
 			"🔧 Configuration Management",
 			"⚙️  System Settings",
@@ -317,6 +381,8 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 		extensionSyncManager:  extensionSyncManager,
 		resetConfiguration:    resetConfiguration,
 		verbose:               verbose,
+		liveConsoleVerbosity:  5,
+		liveConsoleMaxLines:   500,
 		asteriskMenu: []string{
 			"🟢 Start Asterisk Service",
 			"🔴 Stop Asterisk Service",
@@ -330,6 +396,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🚦 Show PJSIP Transports",
 			"📡 Show Active Channels",
 			"📋 Show Registrations",
+			"📡 Live Console",
 			"🔙 Back to Main Menu",
 		},
 		diagnosticsMenu: []string{
@@ -361,6 +428,17 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🔍 Refresh Sync Status",
 			"🔙 Back to Extensions",
 		},
+		consolePhoneMenu: []string{
+			"📞 Dial Extension",
+			"🔊 Call Phone by IP (Audio File)",
+			"🎙️  Call Phone by IP (Console)",
+			"✅ Answer Incoming Call",
+			"📴 Hangup",
+			"📊 Console Status",
+			"⚙️  Configure Console Endpoint",
+			"📋 Show Active Calls",
+			"🔙 Back to Main Menu",
+		},
 		resetMenu: []string{
 			"🗑️  Reset All Configuration",
 			"📋 Show Reset Summary",
@@ -383,6 +461,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return updateConfigAdd(msg, m)
 		} else if m.currentScreen == configEditScreen {
 			return updateConfigEdit(msg, m)
+		}
+		
+		// Handle Live Console screen
+		if m.currentScreen == liveConsoleScreen {
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "esc":
+				m.liveConsoleRunning = false
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				return m, nil
+			case "s":
+				// Toggle streaming
+				if m.liveConsoleRunning {
+					m.liveConsoleRunning = false
+					m.successMsg = "Live console stopped"
+				} else {
+					m.startLiveConsole()
+					m.successMsg = "Live console started"
+				}
+				return m, nil
+			case "r":
+				// Refresh (reload recent logs)
+				if !m.liveConsoleRunning {
+					m.refreshLiveConsole()
+				}
+				return m, nil
+			case "c":
+				// Clear output
+				m.liveConsoleOutput = []string{}
+				m.liveConsoleErrors = []string{}
+				m.successMsg = "Console cleared"
+				return m, nil
+			case "+", "=":
+				// Increase verbosity
+				if m.liveConsoleVerbosity < 10 {
+					m.liveConsoleVerbosity++
+					m.successMsg = fmt.Sprintf("Verbosity: %d", m.liveConsoleVerbosity)
+				}
+				return m, nil
+			case "-", "_":
+				// Decrease verbosity
+				if m.liveConsoleVerbosity > 1 {
+					m.liveConsoleVerbosity--
+					m.successMsg = fmt.Sprintf("Verbosity: %d", m.liveConsoleVerbosity)
+				}
+				return m, nil
+			}
+			return m, nil
 		}
 		
 		// Handle Quick Setup screen
@@ -424,6 +552,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "a", "m", "c", "r", "p", "e", "A", "d", "left", "right", "h", "l":
 				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle Console Phone screen
+		if m.currentScreen == consolePhoneScreen {
+			if m.inputMode {
+				return m.handleInputMode(msg)
+			}
+			switch msg.String() {
+			case "up", "k", "down", "j", "enter":
+				m.handleConsolePhoneKeyPress(msg.String())
+				return m, nil
+			case "esc":
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				m.errorMsg = ""
+				m.successMsg = ""
 				return m, nil
 			}
 		}
@@ -715,39 +861,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		case "e":
 			// Edit button - edit selected extension/trunk
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.initEditExtension()
-				}
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.initEditExtension()
 			}
 		
 		case "d":
 			// Delete button - delete selected extension/trunk
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.currentScreen = deleteExtensionScreen
-				}
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.currentScreen = deleteExtensionScreen
 			}
 		
 		case "i":
 			// Info/diagnostics button - show extension info
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.currentScreen = extensionInfoScreen
-				}
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.currentScreen = extensionInfoScreen
 			}
 		
 		case "t":
 			// Toggle extension enabled/disabled (in extensions list) OR run SIP test (in extension info)
-			if m.currentScreen == extensionsScreen && len(m.extensions) > 0 {
-				if m.selectedExtensionIdx < len(m.extensions) {
-					m.toggleExtension()
-				}
-			} else if m.currentScreen == extensionInfoScreen && m.selectedExtensionIdx < len(m.extensions) {
+			if m.currentScreen == extensionsScreen && m.hasSelectedExtension() {
+				m.toggleExtension()
+			} else if m.currentScreen == extensionInfoScreen && m.hasSelectedExtension() {
 				// Run SIP test suite
 				m.currentScreen = sipTestRegisterScreen
 				m.inputMode = true
-				ext := m.extensions[m.selectedExtensionIdx]
+				ext := m.getSelectedExtension()
 				m.inputFields = []string{"Extension Number", "Password", "Server (optional)"}
 				m.inputValues = []string{ext.ExtensionNumber, "", "127.0.0.1"}
 				m.inputCursor = 0
@@ -846,6 +984,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
 				case 4:
+					// Console Phone/Intercom
+					m.mainMenuCursor = m.cursor
+					m.initConsolePhoneScreen()
+				case 5:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -853,7 +995,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 5:
+				case 6:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -861,28 +1003,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 6:
-					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = statusScreen
 				case 7:
 					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 8:
+					m.mainMenuCursor = m.cursor // Save main menu position
+					m.currentScreen = logsScreen
+				case 9: // Live Asterisk Console
+					m.mainMenuCursor = m.cursor
+					m.initLiveConsole()
+				case 10:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 9:
+				case 11:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 10:
+				case 12:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 11:
+				case 13:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -1113,6 +1258,8 @@ func (m model) View() string {
 		s += m.renderStatus()
 	case logsScreen:
 		s += m.renderLogs()
+	case liveConsoleScreen:
+		s += m.renderLiveConsole()
 	case usageScreen:
 		s += m.renderUsage()
 	case usageInputScreen:
@@ -1161,6 +1308,8 @@ func (m model) View() string {
 		s += m.renderResetConfirm()
 	case quickSetupScreen:
 		s += m.renderQuickSetup()
+	case consolePhoneScreen:
+		s += m.renderConsolePhone()
 	}
 
 	// Footer with emojis
@@ -1185,6 +1334,12 @@ func (m model) View() string {
 		s += helpStyle.Render("↑/↓: Navigate • Enter: Execute Command • ESC: Back • q: Quit")
 	} else if m.currentScreen == usageInputScreen {
 		s += helpStyle.Render("↑/↓: Navigate Fields • Enter: Next/Submit • ESC: Cancel • q: Quit")
+	} else if m.currentScreen == liveConsoleScreen {
+		if m.liveConsoleRunning {
+			s += helpStyle.Render("s: Stop • c: Clear • +/-: Verbosity • ESC: Back • q: Quit")
+		} else {
+			s += helpStyle.Render("s: Start • r: Refresh • c: Clear • +/-: Verbosity • ESC: Back • q: Quit")
+		}
 	} else if m.currentScreen == quickSetupScreen {
 		if m.quickSetupComplete || m.quickSetupError != "" {
 			s += helpStyle.Render("ESC: Back to Main Menu • q: Quit")
@@ -1218,6 +1373,18 @@ func (m model) View() string {
 
 func (m model) renderMainMenu() string {
 	menu := "🏠 Main Menu\n\n"
+
+	// Check for /etc/asterisk Git repository status and show warning if dirty
+	if m.configManager != nil {
+		isDirty, statusMsg, err := m.configManager.GetAsteriskGitStatus()
+		if err != nil {
+			menu += errorStyle.Render("⚠️  Git Status Error: "+err.Error()) + "\n\n"
+		} else if isDirty {
+			menu += errorStyle.Render("⚠️  CRITICAL: /etc/asterisk has uncommitted changes!") + "\n"
+			menu += helpStyle.Render("   "+statusMsg) + "\n"
+			menu += helpStyle.Render("   Use System Settings to review and commit changes") + "\n\n"
+		}
+	}
 
 	for i, item := range m.menuItems {
 		cursor := " "
@@ -2242,11 +2409,12 @@ func (m *model) initCreateTrunk() {
 
 // initEditExtension initializes the extension edit form with advanced PJSIP options
 func (m *model) initEditExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	m.currentScreen = editExtensionScreen
 	m.inputMode = true
 	m.inputFields = []string{
@@ -2316,6 +2484,9 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.currentScreen == voipPhoneProvisionScreen {
 			// Go back to phone details screen
 			m.currentScreen = voipPhoneDetailsScreen
+		} else if m.currentScreen == consolePhoneScreen {
+			// Stay on console phone screen, just cancel input
+			m.consolePhoneOutput = ""
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
@@ -2374,6 +2545,8 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeVoIPProvision()
 			} else if m.currentScreen == usageInputScreen {
 				return m, m.executeParameterizedCommand()
+			} else if m.currentScreen == consolePhoneScreen {
+				m.handleConsolePhoneInput()
 			}
 		}
 
@@ -2600,9 +2773,29 @@ func (m *model) createExtension() {
 
 	m.inputMode = false
 
+	// Store the newly created extension number for selection
+	newExtNumber := m.inputValues[extFieldNumber]
+
 	// Reload extensions list
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
+		// Find and select the newly created extension
+		found := false
+		for i, ext := range m.extensions {
+			if ext.ExtensionNumber == newExtNumber {
+				m.selectedExtensionIdx = i
+				found = true
+				break
+			}
+		}
+		// If extension not found, ensure selectedExtensionIdx is within bounds
+		if !found && len(m.extensions) > 0 {
+			if m.selectedExtensionIdx >= len(m.extensions) {
+				m.selectedExtensionIdx = len(m.extensions) - 1
+			}
+		} else if len(m.extensions) == 0 {
+			m.selectedExtensionIdx = 0
+		}
 	}
 
 	m.currentScreen = extensionsScreen
@@ -2643,8 +2836,9 @@ func (m *model) createTrunk() {
 
 // editExtension updates an existing extension with advanced PJSIP options
 func (m *model) editExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		m.errorMsg = "No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
 	
@@ -2654,7 +2848,6 @@ func (m *model) editExtension() {
 		return
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	oldNumber := ext.ExtensionNumber
 	newNumber := m.inputValues[extFieldNumber]
 	
@@ -2705,22 +2898,29 @@ func (m *model) editExtension() {
 		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
 	}
 	
-	// Update extension object with all new values
-	ext.ExtensionNumber = newNumber
-	ext.Name = m.inputValues[extFieldName]
-	ext.Context = context
-	ext.Transport = transport
-	ext.Codecs = codecs
-	ext.DirectMedia = directMedia
-	ext.MaxContacts = maxContacts
-	ext.QualifyFrequency = qualifyFreq
+	// Build the updated extension for config generation
+	updatedExt := Extension{
+		ID:               ext.ID,
+		ExtensionNumber:  newNumber,
+		Name:             m.inputValues[extFieldName],
+		Secret:           ext.Secret,
+		Context:          context,
+		Transport:        transport,
+		Codecs:           codecs,
+		DirectMedia:      directMedia,
+		MaxContacts:      maxContacts,
+		QualifyFrequency: qualifyFreq,
+		Enabled:          ext.Enabled,
+		CallerID:         ext.CallerID,
+		VoicemailEnabled: ext.VoicemailEnabled,
+	}
 	if m.inputValues[extFieldPassword] != "" {
-		ext.Secret = m.inputValues[extFieldPassword]
+		updatedExt.Secret = m.inputValues[extFieldPassword]
 	}
 	
 	// Generate and write updated config
-	sections := m.configManager.GeneratePjsipEndpoint(ext)
-	if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+	sections := m.configManager.GeneratePjsipEndpoint(updatedExt)
+	if err := m.configManager.WritePjsipConfigSections(sections, fmt.Sprintf("Extension %s", updatedExt.ExtensionNumber)); err != nil {
 		m.errorMsg = fmt.Sprintf("Extension updated in DB but failed to write config: %v", err)
 		m.successMsg = fmt.Sprintf("Extension %s updated (config write failed)", newNumber)
 	} else {
@@ -2745,12 +2945,11 @@ func (m *model) editExtension() {
 
 // deleteExtension deletes an extension from database and config
 func (m *model) deleteExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		m.errorMsg = "No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
-	
-	ext := m.extensions[m.selectedExtensionIdx]
 	
 	// Delete from database
 	query := `DELETE FROM extensions WHERE id = ?`
@@ -2785,17 +2984,28 @@ func (m *model) deleteExtension() {
 		}
 	}
 	
+	// Reload sync infos if they were being used
+	if len(m.extensionSyncInfos) > 0 {
+		m.loadExtensionSyncInfo()
+		// Adjust selection if needed
+		if len(m.extensionSyncInfos) == 0 {
+			m.selectedExtensionIdx = 0
+		} else if m.selectedExtensionIdx >= len(m.extensionSyncInfos) {
+			m.selectedExtensionIdx = len(m.extensionSyncInfos) - 1
+		}
+	}
+	
 	m.currentScreen = extensionsScreen
 }
 
 // toggleExtension toggles the enabled state of the selected extension
 func (m *model) toggleExtension() {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		m.errorMsg = "No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		m.errorMsg = "No extension selected or extension not in database"
 		return
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	newEnabled := !ext.Enabled
 	
 	// Update database
@@ -2807,11 +3017,27 @@ func (m *model) toggleExtension() {
 	}
 	
 	// Update in-memory state
-	m.extensions[m.selectedExtensionIdx].Enabled = newEnabled
+	extIdx := m.getSelectedExtensionIndex()
+	if extIdx >= 0 {
+		m.extensions[extIdx].Enabled = newEnabled
+	}
 	
 	// Create a copy with updated enabled state for config generation
-	updatedExt := ext
-	updatedExt.Enabled = newEnabled
+	updatedExt := Extension{
+		ID:               ext.ID,
+		ExtensionNumber:  ext.ExtensionNumber,
+		Name:             ext.Name,
+		Secret:           ext.Secret,
+		Context:          ext.Context,
+		Transport:        ext.Transport,
+		Codecs:           ext.Codecs,
+		DirectMedia:      ext.DirectMedia,
+		MaxContacts:      ext.MaxContacts,
+		QualifyFrequency: ext.QualifyFrequency,
+		Enabled:          newEnabled, // Updated enabled state
+		CallerID:         ext.CallerID,
+		VoicemailEnabled: ext.VoicemailEnabled,
+	}
 	
 	if newEnabled {
 		// Extension is being enabled - write PJSIP config
@@ -2836,19 +3062,20 @@ func (m *model) toggleExtension() {
 			}
 		}
 	} else {
-		// Extension is being disabled - remove PJSIP config
-		if err := m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
-			m.errorMsg = fmt.Sprintf("Extension disabled in DB but failed to remove config: %v", err)
-			m.successMsg = fmt.Sprintf("Extension %s disabled (config removal failed)", ext.ExtensionNumber)
+		// Extension is being disabled - comment out PJSIP config instead of removing it
+		// This preserves the configuration for potential re-enablement later
+		if err := m.configManager.CommentOutPjsipConfig(fmt.Sprintf("Extension %s", ext.ExtensionNumber)); err != nil {
+			m.errorMsg = fmt.Sprintf("Extension disabled in DB but failed to comment out config: %v", err)
+			m.successMsg = fmt.Sprintf("Extension %s disabled (config update failed)", ext.ExtensionNumber)
 		} else {
 			// Regenerate dialplan for all enabled extensions (this extension will be excluded)
 			if err := m.regenerateDialplan(); err != nil {
-				m.errorMsg = fmt.Sprintf("PJSIP config removed but dialplan update failed: %v", err)
+				m.errorMsg = fmt.Sprintf("PJSIP config commented out but dialplan update failed: %v", err)
 				m.successMsg = fmt.Sprintf("Extension %s disabled (dialplan failed)", ext.ExtensionNumber)
 			} else {
 				// Reload Asterisk to apply changes
 				if err := m.configManager.ReloadAsterisk(); err != nil {
-					m.errorMsg = fmt.Sprintf("Config removed but Asterisk reload failed: %v", err)
+					m.errorMsg = fmt.Sprintf("Config commented out but Asterisk reload failed: %v", err)
 					m.successMsg = fmt.Sprintf("Extension %s disabled (reload failed)", ext.ExtensionNumber)
 				} else {
 					m.successMsg = fmt.Sprintf("Extension %s disabled - registration blocked!", ext.ExtensionNumber)
@@ -2856,6 +3083,11 @@ func (m *model) toggleExtension() {
 				}
 			}
 		}
+	}
+	
+	// Reload sync infos if they were being used
+	if len(m.extensionSyncInfos) > 0 {
+		m.loadExtensionSyncInfo()
 	}
 }
 
@@ -2934,12 +3166,11 @@ func (m model) renderEditExtension() string {
 func (m model) renderDeleteExtension() string {
 	content := infoStyle.Render("🗑️  Delete Extension") + "\n\n"
 	
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		content += errorStyle.Render("No extension selected") + "\n"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		content += errorStyle.Render("No extension selected or extension not in database") + "\n"
 		return menuStyle.Render(content)
 	}
-	
-	ext := m.extensions[m.selectedExtensionIdx]
 	
 	content += errorStyle.Render("⚠️  WARNING: This action cannot be undone!") + "\n\n"
 	content += fmt.Sprintf("You are about to delete extension:\n")
@@ -2964,11 +3195,11 @@ func (m model) renderDeleteExtension() string {
 
 // renderExtensionInfo displays detailed info and diagnostics for selected extension
 func (m model) renderExtensionInfo() string {
-	if m.selectedExtensionIdx >= len(m.extensions) {
-		return "Error: No extension selected"
+	ext := m.getSelectedExtension()
+	if ext == nil {
+		return "Error: No extension selected or extension not in database"
 	}
 	
-	ext := m.extensions[m.selectedExtensionIdx]
 	content := titleStyle.Render(fmt.Sprintf("📞 Extension Info: %s", ext.ExtensionNumber)) + "\n\n"
 	
 	// Extension details
@@ -3560,7 +3791,9 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 12: // Back to Main Menu
+	case 12: // Live Console
+		m.initLiveConsole()
+	case 13: // Back to Main Menu
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
@@ -4116,6 +4349,11 @@ func (m *model) loadExtensionSyncInfo() {
 		return
 	}
 	
+	// Sort sync infos by extension number to maintain consistent ordering
+	sort.Slice(syncInfos, func(i, j int) bool {
+		return syncInfos[i].ExtensionNumber < syncInfos[j].ExtensionNumber
+	})
+	
 	m.extensionSyncInfos = syncInfos
 }
 
@@ -4141,65 +4379,91 @@ func (m model) renderExtensionSync() string {
 				content += errorStyle.Render(fmt.Sprintf("   ⚡ Asterisk Only: %d (not in DB)", astOnly)) + "\n"
 			}
 			if mismatched > 0 {
-				content += errorStyle.Render(fmt.Sprintf("   ⚠️  Mismatched: %d", mismatched)) + "\n"
+				content += errorStyle.Render(fmt.Sprintf("   ⚠️ Mismatched: %d", mismatched)) + "\n"
 			}
 			content += "\n"
 		}
 	}
 	
-	// Show extension list with sync status
-	content += infoStyle.Render("📋 Extensions Status:") + "\n\n"
+	// Show extension list with sync status as a table with columns
+	content += infoStyle.Render("📋 Extensions Status:") + "\n"
+	
+	// Define column widths for consistent alignment
+	colWidths := []int{10, 16, 16, 12}
+	colHeaders := []string{"Ext#", "Asterisk", "Database", "Status"}
+	
+	// Build header row with padding
+	headerRow := "  "
+	separatorRow := "  "
+	for i, header := range colHeaders {
+		headerRow += fmt.Sprintf("%-*s", colWidths[i], header)
+		for j := 0; j < colWidths[i]; j++ {
+			separatorRow += "─"
+		}
+	}
+	content += helpStyle.Render(headerRow) + "\n"
+	content += helpStyle.Render(separatorRow) + "\n"
 	
 	if len(m.extensionSyncInfos) == 0 {
-		content += "📭 No extensions found\n\n"
+		content += "  📭 No extensions found\n\n"
 	} else {
 		for i, info := range m.extensionSyncInfos {
 			cursor := " "
-			if i == m.selectedSyncIdx {
+			// Use m.cursor directly to determine selection, not m.selectedSyncIdx
+			// This ensures only one item is highlighted at a time
+			isSelected := m.cursor == i
+			if isSelected {
 				cursor = "▶"
 			}
 			
-			// Build status indicator
+			// Build status indicator and column values
 			var statusIcon string
-			var statusText string
+			var asteriskCol string
+			var databaseCol string
+			
 			switch info.SyncStatus {
 			case SyncStatusMatch:
-				statusIcon = "✅"
-				statusText = "Synced"
+				statusIcon = "✅ Synced"
+				asteriskCol = "✓ Present"
+				databaseCol = "✓ Present"
 			case SyncStatusDBOnly:
-				statusIcon = "📦"
-				statusText = "DB Only"
+				statusIcon = "📦 DB Only"
+				asteriskCol = "✗ Missing"
+				databaseCol = "✓ Present"
 			case SyncStatusAsteriskOnly:
-				statusIcon = "⚡"
-				statusText = "Asterisk Only"
+				statusIcon = "⚡ Ast Only"
+				asteriskCol = "✓ Present"
+				databaseCol = "✗ Missing"
 			case SyncStatusMismatch:
-				statusIcon = "⚠️"
-				statusText = "Mismatch"
+				statusIcon = "⚠️ Mismatch"
+				asteriskCol = "≠ Differs"
+				databaseCol = "≠ Differs"
 			}
 			
-			// Get name
-			name := fmt.Sprintf("Extension %s", info.ExtensionNumber)
-			if info.DBExtension != nil && info.DBExtension.Name != "" {
-				name = info.DBExtension.Name
-			}
+			// Format row using column widths for alignment
+			extNum := fmt.Sprintf("%-*s", colWidths[0], info.ExtensionNumber)
+			asteriskCol = fmt.Sprintf("%-*s", colWidths[1], asteriskCol)
+			databaseCol = fmt.Sprintf("%-*s", colWidths[2], databaseCol)
 			
-			line := fmt.Sprintf("%s %s %s - %s (%s)\n",
-				cursor,
-				statusIcon,
-				successStyle.Render(info.ExtensionNumber),
-				name,
-				statusText,
-			)
-			
-			if i == m.selectedSyncIdx {
-				content += selectedItemStyle.Render(line)
-				// Show differences if there are any
-				if len(info.Differences) > 0 {
-					for _, diff := range info.Differences {
-						content += helpStyle.Render(fmt.Sprintf("   └─ %s", diff)) + "\n"
-					}
-				}
+			var line string
+			if isSelected {
+				// Build plain text line without nested styles
+				line = fmt.Sprintf("%s %s%s%s%s",
+					cursor,
+					extNum,
+					asteriskCol,
+					databaseCol,
+					statusIcon,
+				)
+				content += selectedItemStyle.Render(line) + "\n"
 			} else {
+				line = fmt.Sprintf("%s %s%s%s%s\n",
+					cursor,
+					successStyle.Render(extNum),
+					asteriskCol,
+					databaseCol,
+					statusIcon,
+				)
 				content += line
 			}
 		}
@@ -4212,11 +4476,14 @@ func (m model) renderExtensionSync() string {
 	for i, item := range m.extensionSyncMenu {
 		cursor := " "
 		menuIdx := len(m.extensionSyncInfos) + i
-		if m.cursor == menuIdx {
+		isSelected := m.cursor == menuIdx
+		if isSelected {
 			cursor = "▶"
-			item = selectedItemStyle.Render(item)
+			// Apply style to plain text only, not to already-styled content
+			content += fmt.Sprintf("%s %s\n", cursor, selectedItemStyle.Render(item))
+		} else {
+			content += fmt.Sprintf("%s %s\n", cursor, item)
 		}
-		content += fmt.Sprintf("%s %s\n", cursor, item)
 	}
 	
 	return menuStyle.Render(content)
@@ -4699,6 +4966,203 @@ func (m *model) executeQuickSetup() {
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
 	}
+}
+
+// initLiveConsole initializes the live console screen
+func (m *model) initLiveConsole() {
+	m.currentScreen = liveConsoleScreen
+	m.liveConsoleOutput = []string{}
+	m.liveConsoleErrors = []string{}
+	m.liveConsoleRunning = false
+	m.errorMsg = ""
+	m.successMsg = ""
+	
+	// Load initial recent logs
+	m.refreshLiveConsole()
+}
+
+// startLiveConsole starts the live log streaming
+func (m *model) startLiveConsole() {
+	m.liveConsoleRunning = true
+	// Note: In TUI context, we'll poll the log file periodically
+	// rather than using true SSE streaming since bubble tea is event-driven
+	m.refreshLiveConsole()
+}
+
+// refreshLiveConsole reads recent logs from Asterisk log file
+func (m *model) refreshLiveConsole() {
+	logPaths := []string{
+		"/var/log/asterisk/full",
+		"/var/log/asterisk/messages",
+	}
+	
+	var logFile string
+	for _, path := range logPaths {
+		if _, err := os.Stat(path); err == nil {
+			logFile = path
+			break
+		}
+	}
+	
+	if logFile == "" {
+		m.errorMsg = "No Asterisk log file found"
+		return
+	}
+	
+	// Read last 100 lines
+	cmd := exec.Command("tail", "-n", "100", logFile)
+	output, err := cmd.Output()
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to read logs: %v", err)
+		return
+	}
+	
+	lines := strings.Split(string(output), "\n")
+	m.liveConsoleOutput = []string{}
+	m.liveConsoleErrors = []string{}
+	
+	errorPatterns := []string{
+		"log_failed_request",
+		"Failed to authenticate",
+		"No matching endpoint",
+		"SECURITY",
+		"ERROR",
+	}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check verbosity filter based on log level
+		include := true
+		if m.liveConsoleVerbosity < 10 {
+			// Only include based on verbosity
+			if strings.Contains(line, "DEBUG") && m.liveConsoleVerbosity < 8 {
+				include = false
+			} else if strings.Contains(line, "VERBOSE") && m.liveConsoleVerbosity < 5 {
+				include = false
+			}
+		}
+		
+		if include {
+			m.liveConsoleOutput = append(m.liveConsoleOutput, line)
+		}
+		
+		// Check for errors
+		for _, pattern := range errorPatterns {
+			if strings.Contains(line, pattern) {
+				m.liveConsoleErrors = append(m.liveConsoleErrors, line)
+				break
+			}
+		}
+	}
+	
+	// Keep only last N lines
+	if len(m.liveConsoleOutput) > m.liveConsoleMaxLines {
+		m.liveConsoleOutput = m.liveConsoleOutput[len(m.liveConsoleOutput)-m.liveConsoleMaxLines:]
+	}
+	if len(m.liveConsoleErrors) > 20 {
+		m.liveConsoleErrors = m.liveConsoleErrors[len(m.liveConsoleErrors)-20:]
+	}
+}
+
+// renderLiveConsole renders the live console screen
+func (m model) renderLiveConsole() string {
+	var content strings.Builder
+	
+	content.WriteString(titleStyle.Render("📡 Live Asterisk Console") + "\n\n")
+	
+	// Status bar
+	statusLine := "Status: "
+	if m.liveConsoleRunning {
+		statusLine += successStyle.Render("🔴 LIVE")
+	} else {
+		statusLine += helpStyle.Render("○ Stopped")
+	}
+	statusLine += fmt.Sprintf(" │ Verbosity: %d │ Lines: %d", m.liveConsoleVerbosity, len(m.liveConsoleOutput))
+	if len(m.liveConsoleErrors) > 0 {
+		statusLine += " │ " + errorStyle.Render(fmt.Sprintf("⚠️ %d errors", len(m.liveConsoleErrors)))
+	}
+	content.WriteString(statusLine + "\n\n")
+	
+	// Console box
+	content.WriteString("╭" + strings.Repeat("─", 78) + "╮\n")
+	
+	// Show last 20 lines of output (limited for TUI viewport)
+	displayLines := m.liveConsoleOutput
+	if len(displayLines) > 20 {
+		displayLines = displayLines[len(displayLines)-20:]
+	}
+	
+	if len(displayLines) == 0 {
+		content.WriteString("│ " + helpStyle.Render("No output yet. Press 's' to start streaming, 'r' to refresh.") + strings.Repeat(" ", 25) + " │\n")
+	} else {
+		for _, line := range displayLines {
+			// Truncate if too long before formatting
+			displayLine := line
+			if len(displayLine) > 76 {
+				displayLine = displayLine[:73] + "..."
+			}
+			// Format line with color based on content
+			formattedLine := m.formatConsoleLine(displayLine)
+			content.WriteString(fmt.Sprintf("│ %s\n", formattedLine))
+		}
+	}
+	
+	content.WriteString("╰" + strings.Repeat("─", 78) + "╯\n")
+	
+	// Show recent errors if any
+	if len(m.liveConsoleErrors) > 0 {
+		content.WriteString("\n" + errorStyle.Render("⚠️ Recent Errors:") + "\n")
+		content.WriteString("─────────────────────────\n")
+		
+		// Show last 5 errors
+		errorsToShow := m.liveConsoleErrors
+		if len(errorsToShow) > 5 {
+			errorsToShow = errorsToShow[len(errorsToShow)-5:]
+		}
+		
+		for _, err := range errorsToShow {
+			// Truncate and colorize
+			if len(err) > 76 {
+				err = err[:73] + "..."
+			}
+			content.WriteString(errorStyle.Render(err) + "\n")
+		}
+	}
+	
+	return menuStyle.Render(content.String())
+}
+
+// formatConsoleLine formats a console line with appropriate colors
+func (m model) formatConsoleLine(line string) string {
+	// Check for error keywords
+	errorKeywords := []string{"ERROR", "SECURITY", "Failed", "failed", "log_failed"}
+	for _, kw := range errorKeywords {
+		if strings.Contains(line, kw) {
+			return errorStyle.Render(line)
+		}
+	}
+	
+	// Check for warning keywords
+	warningKeywords := []string{"WARNING", "NOTICE"}
+	for _, kw := range warningKeywords {
+		if strings.Contains(line, kw) {
+			return warningStyle.Render(line)
+		}
+	}
+	
+	// Check for success/info keywords
+	successKeywords := []string{"Registered", "registered", "Connected"}
+	for _, kw := range successKeywords {
+		if strings.Contains(line, kw) {
+			return successStyle.Render(line)
+		}
+	}
+	
+	return line
 }
 
 func main() {

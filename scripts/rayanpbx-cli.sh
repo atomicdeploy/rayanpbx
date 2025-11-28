@@ -14,14 +14,22 @@ if [ -f "$VERSION_FILE" ]; then
 fi
 
 # Source ini-helper for backup functionality
-if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
-    source "$SCRIPT_DIR/ini-helper.sh"
-fi
+# Try multiple paths for installation flexibility
+for _helper_dir in "$SCRIPT_DIR" "${RAYANPBX_ROOT:-/opt/rayanpbx}/scripts" "/opt/rayanpbx/scripts"; do
+    if [ -f "$_helper_dir/ini-helper.sh" ]; then
+        source "$_helper_dir/ini-helper.sh"
+        break
+    fi
+done
 
 # Source jq-wrapper for debugging jq errors
-if [ -f "$SCRIPT_DIR/jq-wrapper.sh" ]; then
-    source "$SCRIPT_DIR/jq-wrapper.sh"
-fi
+for _helper_dir in "$SCRIPT_DIR" "${RAYANPBX_ROOT:-/opt/rayanpbx}/scripts" "/opt/rayanpbx/scripts"; do
+    if [ -f "$_helper_dir/jq-wrapper.sh" ]; then
+        source "$_helper_dir/jq-wrapper.sh"
+        break
+    fi
+done
+unset _helper_dir
 
 # Colors
 RED='\033[0;31m'
@@ -128,6 +136,62 @@ DEFAULT_AMI_PORT="5038"
 DEFAULT_AMI_USERNAME="admin"
 DEFAULT_AMI_SECRET="rayanpbx_ami_secret"
 
+# Global cache for scripts directory (declared at module level)
+SCRIPTS_DIR=""
+
+# Helper function to find the scripts directory
+# Checks multiple locations to support various installation scenarios:
+# 1. Relative to the CLI script location (for development)
+# 2. RAYANPBX_ROOT/scripts (for standard installation)
+# 3. /opt/rayanpbx/scripts (fallback to default installation path)
+# Validates by checking for core scripts that are required for CLI operation.
+find_scripts_dir() {
+    local possible_paths=(
+        "$SCRIPT_DIR"
+        "$RAYANPBX_ROOT/scripts"
+        "/opt/rayanpbx/scripts"
+    )
+    
+    # List of core scripts that should exist in a valid scripts directory
+    local core_scripts=("health-check.sh" "ini-helper.sh")
+    
+    for path in "${possible_paths[@]}"; do
+        if [ -d "$path" ]; then
+            local all_found=true
+            for script in "${core_scripts[@]}"; do
+                if [ ! -f "$path/$script" ]; then
+                    all_found=false
+                    break
+                fi
+            done
+            if [ "$all_found" = true ]; then
+                echo "$path"
+                return 0
+            fi
+        fi
+    done
+    
+    # Fallback: check if any path has at least health-check.sh
+    for path in "${possible_paths[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/health-check.sh" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    # Return SCRIPT_DIR as fallback (will fail with appropriate error if script not found)
+    echo "$SCRIPT_DIR"
+    return 1
+}
+
+# Get the scripts directory (cached for efficiency)
+get_scripts_dir() {
+    if [ -z "$SCRIPTS_DIR" ]; then
+        SCRIPTS_DIR=$(find_scripts_dir)
+    fi
+    echo "$SCRIPTS_DIR"
+}
+
 # Helper function to find project root by looking for VERSION file
 find_project_root() {
     local current_dir="$(pwd)"
@@ -200,8 +264,10 @@ load_env_files() {
     if [ -f "$primary_env" ] && [[ -n "${VITE_WS_URL:-}" ]] && [[ "$VITE_WS_URL" == *"ws://localhost:"* ]] && [[ "$VITE_WS_URL" != *":${WEBSOCKET_PORT}"* ]] && [[ "$VITE_WS_URL" != *":[0-9]*"* ]]; then
         print_warn ".env file has variable ordering issues. Auto-fixing..."
         
-        if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
-            bash "$SCRIPT_DIR/normalize-env.sh" "$primary_env" > /dev/null 2>&1
+        local scripts_dir
+        scripts_dir=$(get_scripts_dir)
+        if [ -f "$scripts_dir/normalize-env.sh" ]; then
+            bash "$scripts_dir/normalize-env.sh" "$primary_env" > /dev/null 2>&1
             print_success ".env file normalized. Variables now properly ordered."
             # Re-source the normalized file
             unset VITE_WS_URL WEBSOCKET_PORT
@@ -880,10 +946,13 @@ cmd_diag_health_check() {
 cmd_diag_check_sip() {
     print_header "📞 SIP Port Health Check"
     
-    local script_path="$SCRIPT_DIR/health-check.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/health-check.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Health check script not found"
+        print_error "Health check script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -897,10 +966,13 @@ cmd_diag_check_ami() {
     
     local auto_fix="${1:-true}"
     
-    local script_path="$SCRIPT_DIR/health-check.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/health-check.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Health check script not found"
+        print_error "Health check script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -924,10 +996,13 @@ cmd_diag_check_ami() {
 
 # Fix AMI credentials - extract from manager.conf and update .env
 cmd_diag_fix_ami() {
-    local script_path="$SCRIPT_DIR/ami-tools.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/ami-tools.sh"
     
     if [ ! -f "$script_path" ]; then
         print_error "AMI tools script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1123,10 +1198,13 @@ cmd_diag_check_laravel() {
     
     print_header "🔍 Laravel Backend Health Check"
     
-    local script_path="$SCRIPT_DIR/health-check.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/health-check.sh"
     
     if [ ! -f "$script_path" ]; then
         print_error "Health check script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1138,10 +1216,13 @@ cmd_diag_check_laravel() {
 cmd_sip_test_tools() {
     print_header "🔧 SIP Testing Tools"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1161,10 +1242,13 @@ cmd_sip_test_register() {
     
     print_header "📞 Testing SIP Registration"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1186,10 +1270,13 @@ cmd_sip_test_call() {
     
     print_header "📞 Testing SIP Call"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1211,10 +1298,13 @@ cmd_sip_test_full() {
     
     print_header "🧪 Running Full SIP Test Suite"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1233,10 +1323,13 @@ cmd_sip_test_install() {
     
     print_header "📦 Installing SIP Testing Tool"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2312,10 +2405,13 @@ cmd_backup_cleanup() {
 cmd_config_history_status() {
     print_header "📜 Asterisk Configuration Version Control"
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2325,10 +2421,13 @@ cmd_config_history_status() {
 cmd_config_history_list() {
     local count="${1:-10}"
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2344,10 +2443,13 @@ cmd_config_history_show() {
         exit 2
     fi
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2363,10 +2465,13 @@ cmd_config_history_diff() {
         exit 2
     fi
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2382,10 +2487,13 @@ cmd_config_history_revert() {
         exit 2
     fi
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2417,13 +2525,18 @@ cmd_help() {
         echo -e "   ${GREEN}list${NC}                              List all extensions"
         echo -e "   ${GREEN}create${NC} <number> <name> <password>  Create new extension"
         echo -e "   ${GREEN}status${NC} <number>                    Check extension status"
+        echo -e "   ${GREEN}show${NC} <number>                      Show extension details"
         echo -e "   ${GREEN}toggle${NC} <number>                    Toggle extension enabled/disabled"
         echo -e "   ${GREEN}enable${NC} <number>                    Enable extension for registration"
         echo -e "   ${GREEN}disable${NC} <number>                   Disable extension (block registration)"
+        echo -e "   ${GREEN}delete${NC} <number>                    Delete an extension"
         echo ""
         
         echo -e "${CYAN}🔗 trunk${NC} ${DIM}- Trunk management${NC}"
         echo -e "   ${GREEN}list${NC}                              List all trunks"
+        echo -e "   ${GREEN}show${NC} <name>                       Show trunk details"
+        echo -e "   ${GREEN}enable${NC} <name>                     Enable a trunk"
+        echo -e "   ${GREEN}disable${NC} <name>                    Disable a trunk"
         echo -e "   ${GREEN}test${NC} <name>                       Test trunk connectivity"
         echo ""
         
@@ -2436,19 +2549,19 @@ cmd_help() {
         echo -e "${CYAN}🔍 diag${NC} ${DIM}- Diagnostics and troubleshooting${NC}"
         echo -e "   ${GREEN}test-extension${NC} <number>           Test extension registration"
         echo -e "   ${GREEN}health-check${NC}                      Run system health check"
-        echo -e "   ${GREEN}check-sip${NC} [port] [auto-fix]       Check SIP port is listening (validates connection)"
-        echo -e "   ${GREEN}check-ami${NC} [auto-fix]              Check AMI socket health and optionally auto-fix"
-        echo -e "   ${GREEN}check-laravel${NC} [auto-fix]          Check Laravel autoload and class loading"
-        echo -e "   ${GREEN}fix-ami${NC}                           Fix AMI credentials (extract from manager.conf → .env)"
-        echo -e "   ${GREEN}reapply-ami${NC}                       Reapply AMI credentials from .env to manager.conf"
+        echo -e "   ${GREEN}check-sip${NC} [port] [auto-fix]       Check SIP port is listening"
+        echo -e "   ${GREEN}check-ami${NC} [auto-fix]              Check AMI socket health"
+        echo -e "   ${GREEN}check-laravel${NC} [auto-fix]          Check Laravel autoload and classes"
+        echo -e "   ${GREEN}fix-ami${NC}                           Fix AMI credentials"
+        echo -e "   ${GREEN}reapply-ami${NC}                       Reapply AMI credentials from .env"
         echo ""
         
         echo -e "${CYAN}📞 sip-test${NC} ${DIM}- SIP testing suite${NC}"
         echo -e "   ${GREEN}tools${NC}                             List available SIP testing tools"
-        echo -e "   ${GREEN}install${NC} <tool>                    Install a SIP testing tool (pjsua/sipsak/sipp)"
+        echo -e "   ${GREEN}install${NC} <tool>                    Install a SIP testing tool"
         echo -e "   ${GREEN}register${NC} <ext> <pass> [server]   Test SIP registration"
-        echo -e "   ${GREEN}call${NC} <from> <fpass> <to> <tpass> [srv]  Test call between extensions"
-        echo -e "   ${GREEN}full${NC} <ext1> <pass1> <ext2> <pass2> [srv] Run full test suite"
+        echo -e "   ${GREEN}call${NC} <from> <fpass> <to> <tpass>  Test call between extensions"
+        echo -e "   ${GREEN}full${NC} <ext1> <pass1> <ext2> <pass2> Run full test suite"
         echo ""
         
         echo -e "${CYAN}📜 config-history${NC} ${DIM}- Asterisk configuration version control${NC}"
@@ -2465,15 +2578,17 @@ cmd_help() {
         echo -e "   ${GREEN}add${NC} <KEY> <VALUE>                 Add new configuration key"
         echo -e "   ${GREEN}remove${NC} <KEY>                      Remove configuration key"
         echo -e "   ${GREEN}list${NC}                              List all configuration"
-        echo -e "   ${GREEN}reload${NC} [service]                  Reload services (asterisk/laravel/frontend/all)"
+        echo -e "   ${GREEN}reload${NC}                            Reload and apply configuration"
+        echo -e "   ${GREEN}validate${NC}                          Validate Asterisk configuration"
         echo ""
         
         echo -e "${CYAN}🖥️  system${NC} ${DIM}- System operations${NC}"
         echo -e "   ${GREEN}update${NC}                            Update RayanPBX from repository"
-        echo -e "   ${GREEN}upgrade${NC}                           Run system upgrade (calls upgrade script)"
-        echo -e "   ${GREEN}set-mode${NC} <mode>                   Set application mode (production/development/local)"
+        echo -e "   ${GREEN}upgrade${NC}                           Run system upgrade"
+        echo -e "   ${GREEN}set-mode${NC} <mode>                   Set app mode (production/development/local)"
         echo -e "   ${GREEN}toggle-debug${NC}                      Toggle debug mode on/off"
-        echo -e "   ${GREEN}reset${NC}                             Reset ALL configuration (database + Asterisk files)"
+        echo -e "   ${GREEN}reset${NC}                             Reset ALL configuration"
+        echo -e "   ${GREEN}version${NC}                           Show version information"
         echo ""
         
         echo -e "${CYAN}💾 backup${NC} ${DIM}- Configuration backup management${NC}"
@@ -2482,7 +2597,7 @@ cmd_help() {
         echo -e "   ${GREEN}list${NC} [filter]                     List available backups"
         echo -e "   ${GREEN}restore${NC} <backup> [target]         Restore a backup file"
         echo -e "   ${GREEN}status${NC}                            Show backup status summary"
-        echo -e "   ${GREEN}cleanup${NC} [keep]                    Remove old backups (keep N most recent)"
+        echo -e "   ${GREEN}cleanup${NC} [keep]                    Remove old backups"
         echo ""
         
         echo -e "${CYAN}📱 phone${NC} ${DIM}- VoIP phone management (GrandStream)${NC}"
@@ -2490,10 +2605,31 @@ cmd_help() {
         echo -e "   ${GREEN}test${NC} --id=<id>                    Test phone authentication"
         echo -e "   ${GREEN}info${NC} --id=<id>                    Show device information"
         echo -e "   ${GREEN}sip${NC} --id=<id>                     Show SIP account configuration"
-        echo -e "   ${GREEN}provision${NC} --id=<id> --extension=<ext> --sip-password=<pass> --sip-server=<srv>"
-        echo -e "                                      Configure SIP extension on phone"
+        echo -e "   ${GREEN}provision${NC} --id=<id> ...           Configure SIP extension on phone"
         echo -e "   ${GREEN}sync${NC} --id=<id>                    Sync phone info to database"
-        echo -e "   ${DIM}Selectors: --id, --ip, --mac, --ext (password optional if stored)${NC}"
+        echo ""
+        
+        echo -e "${CYAN}🏥 health${NC} ${DIM}- System health monitoring${NC}"
+        echo -e "   ${GREEN}health${NC}                            Run comprehensive health checks"
+        echo -e "   ${GREEN}health${NC} --json                     Output health status as JSON"
+        echo ""
+        
+        echo -e "${CYAN}📊 status${NC} ${DIM}- System status${NC}"
+        echo -e "   ${GREEN}status${NC}                            Display all service statuses"
+        echo -e "   ${GREEN}status${NC} --json                     Output status as JSON"
+        echo ""
+        
+        echo -e "${CYAN}🔧 service${NC} ${DIM}- Service management${NC}"
+        echo -e "   ${GREEN}service${NC} start|stop|restart|status <service>"
+        echo -e "                                      Manage system services"
+        echo ""
+        
+        echo -e "${CYAN}🔄 sync${NC} ${DIM}- Synchronization${NC}"
+        echo -e "   ${GREEN}sync${NC} status|db-to-asterisk|...   Sync extensions with Asterisk"
+        echo ""
+        
+        echo -e "${CYAN}🔊 monitor-events${NC} ${DIM}- Event monitoring${NC}"
+        echo -e "   ${GREEN}monitor-events${NC}                    Monitor Asterisk AMI events"
         echo ""
         
         echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
@@ -2517,6 +2653,10 @@ cmd_help() {
         echo -e "  ${YELLOW}rayanpbx-cli config set ASTERISK_AMI_PORT 5038${NC}\n"
         echo -e "  ${DIM}# Launch TUI interface${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli tui${NC}\n"
+        echo -e "  ${DIM}# Run diagnostics${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli diag health-check${NC}\n"
+        echo -e "  ${DIM}# Check system health${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli health${NC}\n"
         echo -e "  ${DIM}# Test SIP registration${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli sip-test register 101 mypassword${NC}\n"
         echo -e "  ${DIM}# Test call between extensions${NC}"
@@ -2533,6 +2673,7 @@ cmd_help() {
         echo ""
         
         echo -e "${DIM}For detailed command help: ${YELLOW}rayanpbx-cli help <command>${NC}"
+        echo -e "${DIM}All rayanpbx artisan commands are automatically available${NC}"
         echo -e "${DIM}Configuration file: ${CYAN}$ENV_FILE${NC}"
         echo ""
     else
@@ -2671,6 +2812,82 @@ cmd_help() {
     fi
 }
 
+# Get backend directory for artisan commands
+get_backend_dir() {
+    # Try multiple locations
+    local dirs=(
+        "$RAYANPBX_ROOT/backend"
+        "/opt/rayanpbx/backend"
+        "$(find_project_root)/backend"
+    )
+    
+    for dir in "${dirs[@]}"; do
+        if [ -d "$dir" ] && [ -f "$dir/artisan" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    
+    # Return default
+    echo "/opt/rayanpbx/backend"
+}
+
+# Run artisan command - wrapper for PHP artisan with proper formatting
+run_artisan() {
+    local backend_dir
+    backend_dir=$(get_backend_dir)
+    
+    if [ ! -f "$backend_dir/artisan" ]; then
+        print_error "Artisan not found at $backend_dir/artisan"
+        return 1
+    fi
+    
+    # Run artisan with ANSI colors enabled
+    cd "$backend_dir" && php artisan --ansi "$@"
+}
+
+# Check if a rayanpbx artisan command exists
+# Returns 0 if command exists, 1 otherwise
+artisan_command_exists() {
+    local cmd="$1"
+    local backend_dir
+    backend_dir=$(get_backend_dir)
+    
+    if [ ! -f "$backend_dir/artisan" ]; then
+        return 1
+    fi
+    
+    # Check if the rayanpbx:$cmd command exists
+    cd "$backend_dir" && php artisan list --raw 2>/dev/null | grep -q "^rayanpbx:${cmd}$"
+}
+
+# Get list of available rayanpbx artisan commands
+get_artisan_commands() {
+    local backend_dir
+    backend_dir=$(get_backend_dir)
+    
+    if [ ! -f "$backend_dir/artisan" ]; then
+        return
+    fi
+    
+    cd "$backend_dir" && php artisan list --raw 2>/dev/null | grep "^rayanpbx:" | sed 's/^rayanpbx://'
+}
+
+# Try to run a command via artisan first
+# Returns the artisan command's exit code if found, or 1 if not found
+try_artisan_command() {
+    local cmd="$1"
+    shift
+    
+    if artisan_command_exists "$cmd"; then
+        run_artisan "rayanpbx:${cmd}" "$@"
+        # Return the actual exit code from artisan
+        return $?
+    fi
+    
+    return 1
+}
+
 main() {
     # Parse global flags first
     while [[ $# -gt 0 ]]; do
@@ -2712,44 +2929,152 @@ main() {
         help)
             cmd_help "${2:-}"
             ;;
+        # Extension commands - delegate to artisan when possible
         extension)
             case "${2:-}" in
-                list) cmd_extension_list ;;
-                create) cmd_extension_create "${3:-}" "${4:-}" "${5:-}" ;;
+                list)
+                    # Use artisan for list (better formatting)
+                    run_artisan rayanpbx:extension list
+                    ;;
+                create)
+                    if [ -n "${3:-}" ] && [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
+                        run_artisan rayanpbx:extension create "${3}" --name="${4}" --secret="${5}"
+                    else
+                        cmd_extension_create "${3:-}" "${4:-}" "${5:-}"
+                    fi
+                    ;;
                 status) cmd_extension_status "${3:-}" ;;
                 toggle) cmd_extension_toggle "${3:-}" ;;
-                enable) cmd_extension_enable "${3:-}" ;;
-                disable) cmd_extension_disable "${3:-}" ;;
+                enable)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:extension enable "${3}"
+                    else
+                        cmd_extension_enable "${3:-}"
+                    fi
+                    ;;
+                disable)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:extension disable "${3}"
+                    else
+                        cmd_extension_disable "${3:-}"
+                    fi
+                    ;;
+                show)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:extension show "${3}"
+                    else
+                        print_error "Extension number required"
+                        exit 2
+                    fi
+                    ;;
+                delete)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:extension delete "${3}"
+                    else
+                        print_error "Extension number required"
+                        exit 2
+                    fi
+                    ;;
                 *) echo "Unknown extension command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Trunk commands - delegate to artisan when possible
         trunk)
             case "${2:-}" in
-                list) cmd_trunk_list ;;
+                list)
+                    run_artisan rayanpbx:trunk list
+                    ;;
+                show)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:trunk show "${3}"
+                    else
+                        print_error "Trunk name required"
+                        exit 2
+                    fi
+                    ;;
+                enable)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:trunk enable "${3}"
+                    else
+                        print_error "Trunk name required"
+                        exit 2
+                    fi
+                    ;;
+                disable)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:trunk disable "${3}"
+                    else
+                        print_error "Trunk name required"
+                        exit 2
+                    fi
+                    ;;
                 test) cmd_trunk_test "${3:-}" ;;
                 *) echo "Unknown trunk command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Asterisk commands - mix of artisan and direct
         asterisk)
             case "${2:-}" in
                 status) cmd_asterisk_status ;;
                 restart) cmd_asterisk_restart ;;
-                command) cmd_asterisk_command "${3:-}" ;;
+                command)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:asterisk "${3}" --cli
+                    else
+                        cmd_asterisk_command "${3:-}"
+                    fi
+                    ;;
                 *) echo "Unknown asterisk command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Diagnostics - delegate to artisan rayanpbx:diag
         diag)
             case "${2:-}" in
-                test-extension) cmd_diag_test_extension "${3:-}" ;;
-                health-check) cmd_diag_health_check ;;
-                check-sip) cmd_diag_check_sip "${3:-}" "${4:-}" ;;
-                check-ami) cmd_diag_check_ami "${3:-true}" ;;
-                check-laravel) cmd_diag_check_laravel "${3:-true}" ;;
-                fix-ami) shift 2; cmd_diag_fix_ami "$@" ;;
-                reapply-ami) cmd_diag_reapply_ami ;;
+                test-extension)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:diag test-extension --extension="${3}"
+                    else
+                        run_artisan rayanpbx:diag test-extension
+                    fi
+                    ;;
+                health-check)
+                    run_artisan rayanpbx:diag health-check
+                    ;;
+                check-sip)
+                    local port="${3:-5060}"
+                    local auto_fix="${4:-}"
+                    if [ "$auto_fix" = "true" ]; then
+                        run_artisan rayanpbx:diag check-sip --port="$port" --auto-fix
+                    else
+                        run_artisan rayanpbx:diag check-sip --port="$port"
+                    fi
+                    ;;
+                check-ami)
+                    local auto_fix="${3:-true}"
+                    if [ "$auto_fix" = "true" ]; then
+                        run_artisan rayanpbx:diag check-ami --auto-fix
+                    else
+                        run_artisan rayanpbx:diag check-ami
+                    fi
+                    ;;
+                check-laravel)
+                    local auto_fix="${3:-true}"
+                    if [ "$auto_fix" = "true" ]; then
+                        run_artisan rayanpbx:diag check-laravel --auto-fix
+                    else
+                        run_artisan rayanpbx:diag check-laravel
+                    fi
+                    ;;
+                fix-ami)
+                    run_artisan rayanpbx:diag fix-ami
+                    ;;
+                reapply-ami)
+                    run_artisan rayanpbx:diag reapply-ami
+                    ;;
                 *) echo "Unknown diag command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # SIP testing - keep bash implementation for now (requires external tools)
         sip-test)
             case "${2:-}" in
                 tools) cmd_sip_test_tools ;;
@@ -2760,6 +3085,7 @@ main() {
                 *) echo "Unknown sip-test command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Config history - keep bash implementation (git-based)
         config-history)
             case "${2:-}" in
                 status) cmd_config_history_status ;;
@@ -2770,6 +3096,7 @@ main() {
                 *) echo "Unknown config-history command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Config commands - mix of bash and artisan
         config)
             case "${2:-}" in
                 get) cmd_config_get "${3:-}" ;;
@@ -2777,31 +3104,69 @@ main() {
                 add) cmd_config_add "${3:-}" "${4:-}" ;;
                 remove) cmd_config_remove "${3:-}" ;;
                 list) cmd_config_list ;;
-                reload) cmd_config_reload "${3:-}" ;;
+                reload)
+                    run_artisan rayanpbx:config reload --force
+                    ;;
+                validate)
+                    run_artisan rayanpbx:config validate
+                    ;;
                 *) echo "Unknown config command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # System commands - delegate to artisan rayanpbx:system
         system)
             case "${2:-}" in
-                update) cmd_system_update ;;
-                upgrade) shift; shift; cmd_system_upgrade "$@" ;;
-                set-mode) cmd_system_set_mode "${3:-}" ;;
-                toggle-debug) cmd_system_toggle_debug ;;
-                reset) cmd_system_reset ;;
+                update)
+                    run_artisan rayanpbx:system update
+                    ;;
+                upgrade)
+                    shift 2
+                    run_artisan rayanpbx:system upgrade "$@"
+                    ;;
+                set-mode)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:system set-mode --mode="${3}"
+                    else
+                        run_artisan rayanpbx:system set-mode
+                    fi
+                    ;;
+                toggle-debug)
+                    run_artisan rayanpbx:system toggle-debug
+                    ;;
+                reset)
+                    run_artisan rayanpbx:system reset
+                    ;;
+                version)
+                    run_artisan rayanpbx:system version
+                    ;;
                 *) echo "Unknown system command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Backup commands - delegate to artisan
         backup)
             case "${2:-}" in
-                all|"") cmd_backup_all "${3:-}" ;;
+                all|"")
+                    if [ "${3:-}" = "--force" ]; then
+                        run_artisan rayanpbx:backup --compress
+                    else
+                        run_artisan rayanpbx:backup
+                    fi
+                    ;;
                 file) cmd_backup_file "${3:-}" ;;
                 list) cmd_backup_list "${3:-}" ;;
-                restore) cmd_backup_restore "${3:-}" "${4:-}" ;;
+                restore)
+                    if [ -n "${3:-}" ]; then
+                        run_artisan rayanpbx:restore "${3}" "${4:-}"
+                    else
+                        run_artisan rayanpbx:restore
+                    fi
+                    ;;
                 status) cmd_backup_status ;;
                 cleanup) cmd_backup_cleanup "${3:-}" ;;
                 *) echo "Unknown backup command: ${2:-}"; exit 2 ;;
             esac
             ;;
+        # Phone commands - delegate to artisan
         phone)
             shift  # Remove 'phone' from arguments
             case "${1:-}" in
@@ -2858,15 +3223,70 @@ main() {
                     ;;
             esac
             ;;
+        # Health check - delegate to artisan
+        health)
+            shift
+            run_artisan rayanpbx:health "$@"
+            ;;
+        # Status - delegate to artisan  
+        status)
+            shift
+            run_artisan rayanpbx:status "$@"
+            ;;
+        # Service management - delegate to artisan
+        service)
+            shift
+            run_artisan rayanpbx:service "$@"
+            ;;
+        # Sync - delegate to artisan
+        sync)
+            shift
+            run_artisan rayanpbx:sync "$@"
+            ;;
+        # Generate config - delegate to artisan
+        generate-config)
+            shift
+            run_artisan rayanpbx:generate-config "$@"
+            ;;
+        # Monitor events - delegate to artisan
+        monitor-events)
+            shift
+            run_artisan rayanpbx:monitor-events "$@"
+            ;;
+        # Restore - delegate to artisan
+        restore)
+            shift
+            run_artisan rayanpbx:restore "$@"
+            ;;
+        # TUI launcher
         tui)
             shift
             cmd_tui "$@"
             ;;
         *)
-            print_banner
-            echo "Unknown command: $1"
-            echo "Run 'rayanpbx-cli help' for usage information"
-            exit 2
+            # Dynamic artisan command routing - try to find a matching rayanpbx:$cmd
+            local cmd="$1"
+            shift
+            
+            # Check if artisan command exists first
+            if artisan_command_exists "$cmd"; then
+                # Command exists, run it and exit with its status
+                run_artisan "rayanpbx:${cmd}" "$@"
+                exit $?
+            else
+                # No artisan command found, show error
+                print_banner
+                echo "Unknown command: $cmd"
+                echo ""
+                echo "Run 'rayanpbx-cli help' for usage information"
+                echo ""
+                echo "Available artisan commands:"
+                # Use process substitution to avoid subshell issue
+                while read -r acmd; do
+                    echo "  $acmd"
+                done < <(get_artisan_commands)
+                exit 2
+            fi
             ;;
     esac
 }
