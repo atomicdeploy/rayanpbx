@@ -574,41 +574,46 @@ class AsteriskConsoleService
     {
         $logFile = $this->getFullLogPath();
         
-        if (!file_exists($logFile)) {
+        if (!file_exists($logFile) || !is_readable($logFile)) {
             return [];
         }
 
         try {
-            // Use grep to find error-related lines efficiently
+            // Error patterns to search for
             $errorPatterns = [
                 'log_failed_request',
                 'Failed to authenticate',
                 'No matching endpoint',
-                'Registration .* failed',
+                'Registration',
                 'SECURITY',
                 'ERROR',
-                'WARNING.*failed',
+                'WARNING',
             ];
             
-            $pattern = implode('|', $errorPatterns);
-            $command = sprintf(
-                "tail -n %d %s | grep -iE %s 2>/dev/null | tail -100",
-                (int)$lines,
-                escapeshellarg($logFile),
-                escapeshellarg($pattern)
-            );
+            // Read last N lines using PHP native functions
+            $allLines = $this->readLastLines($logFile, (int)$lines);
             
-            $output = shell_exec($command);
-            
-            if (empty($output)) {
+            if (empty($allLines)) {
                 return [];
             }
 
             $errors = [];
-            $logLines = explode("\n", trim($output));
             
-            foreach ($logLines as $line) {
+            foreach ($allLines as $line) {
                 if (empty($line)) {
+                    continue;
+                }
+                
+                // Check if line matches any error pattern
+                $isError = false;
+                foreach ($errorPatterns as $pattern) {
+                    if (stripos($line, $pattern) !== false) {
+                        $isError = true;
+                        break;
+                    }
+                }
+                
+                if (!$isError) {
                     continue;
                 }
                 
@@ -619,9 +624,55 @@ class AsteriskConsoleService
                 }
             }
             
-            return $errors;
+            // Return last 100 errors
+            return array_slice($errors, -100);
         } catch (Exception $e) {
             return [];
+        }
+    }
+
+    /**
+     * Read last N lines from a file using PHP native functions
+     * This is more secure than using shell commands
+     * 
+     * @param string $file Path to file
+     * @param int $lines Number of lines to read
+     * @return array Array of lines
+     */
+    private function readLastLines(string $file, int $lines): array
+    {
+        if (!file_exists($file) || !is_readable($file)) {
+            return [];
+        }
+
+        // Use SplFileObject for efficient file reading
+        try {
+            $fileObj = new \SplFileObject($file, 'r');
+            $fileObj->seek(PHP_INT_MAX);
+            $totalLines = $fileObj->key();
+            
+            $startLine = max(0, $totalLines - $lines);
+            $result = [];
+            
+            $fileObj->seek($startLine);
+            
+            while (!$fileObj->eof()) {
+                $line = $fileObj->fgets();
+                if ($line !== false) {
+                    $result[] = rtrim($line);
+                }
+            }
+            
+            return $result;
+        } catch (Exception $e) {
+            // Fallback to simple file reading for smaller files
+            $content = file_get_contents($file);
+            if ($content === false) {
+                return [];
+            }
+            
+            $allLines = explode("\n", $content);
+            return array_slice($allLines, -$lines);
         }
     }
 }

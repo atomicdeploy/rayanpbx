@@ -135,23 +135,6 @@ export const useApi = () => {
     },
     
     /**
-     * Create an EventSource for live console streaming
-     * This provides similar output to `asterisk -rvvvvvvvvv`
-     */
-    createLiveConsoleStream(verbosity: number = 5): EventSource | null {
-      if (!authStore.token) {
-        return null
-      }
-      
-      const url = `${config.public.apiBase}/console/live?verbosity=${verbosity}`
-      
-      // EventSource doesn't support custom headers, so we need to use fetch + ReadableStream
-      // For SSE with auth, we'll return null here and let the component handle it
-      // The component will need to use a custom approach
-      return null
-    },
-    
-    /**
      * Get the URL for live console streaming (for SSE connection)
      */
     getLiveConsoleUrl(verbosity: number = 5): string {

@@ -4998,13 +4998,13 @@ func (m model) renderLiveConsole() string {
 		content.WriteString("│ " + helpStyle.Render("No output yet. Press 's' to start streaming, 'r' to refresh.") + strings.Repeat(" ", 25) + " │\n")
 	} else {
 		for _, line := range displayLines {
-			// Format line with color based on content
-			formattedLine := m.formatConsoleLine(line)
-			
-			// Truncate if too long
-			if len(line) > 76 {
-				line = line[:73] + "..."
+			// Truncate if too long before formatting
+			displayLine := line
+			if len(displayLine) > 76 {
+				displayLine = displayLine[:73] + "..."
 			}
+			// Format line with color based on content
+			formattedLine := m.formatConsoleLine(displayLine)
 			content.WriteString(fmt.Sprintf("│ %s\n", formattedLine))
 		}
 	}
