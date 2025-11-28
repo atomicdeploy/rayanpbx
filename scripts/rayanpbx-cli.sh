@@ -14,14 +14,22 @@ if [ -f "$VERSION_FILE" ]; then
 fi
 
 # Source ini-helper for backup functionality
-if [ -f "$SCRIPT_DIR/ini-helper.sh" ]; then
-    source "$SCRIPT_DIR/ini-helper.sh"
-fi
+# Try multiple paths for installation flexibility
+for _helper_dir in "$SCRIPT_DIR" "${RAYANPBX_ROOT:-/opt/rayanpbx}/scripts" "/opt/rayanpbx/scripts"; do
+    if [ -f "$_helper_dir/ini-helper.sh" ]; then
+        source "$_helper_dir/ini-helper.sh"
+        break
+    fi
+done
 
 # Source jq-wrapper for debugging jq errors
-if [ -f "$SCRIPT_DIR/jq-wrapper.sh" ]; then
-    source "$SCRIPT_DIR/jq-wrapper.sh"
-fi
+for _helper_dir in "$SCRIPT_DIR" "${RAYANPBX_ROOT:-/opt/rayanpbx}/scripts" "/opt/rayanpbx/scripts"; do
+    if [ -f "$_helper_dir/jq-wrapper.sh" ]; then
+        source "$_helper_dir/jq-wrapper.sh"
+        break
+    fi
+done
+unset _helper_dir
 
 # Colors
 RED='\033[0;31m'
@@ -256,8 +264,10 @@ load_env_files() {
     if [ -f "$primary_env" ] && [[ -n "${VITE_WS_URL:-}" ]] && [[ "$VITE_WS_URL" == *"ws://localhost:"* ]] && [[ "$VITE_WS_URL" != *":${WEBSOCKET_PORT}"* ]] && [[ "$VITE_WS_URL" != *":[0-9]*"* ]]; then
         print_warn ".env file has variable ordering issues. Auto-fixing..."
         
-        if [ -f "$SCRIPT_DIR/normalize-env.sh" ]; then
-            bash "$SCRIPT_DIR/normalize-env.sh" "$primary_env" > /dev/null 2>&1
+        local scripts_dir
+        scripts_dir=$(get_scripts_dir)
+        if [ -f "$scripts_dir/normalize-env.sh" ]; then
+            bash "$scripts_dir/normalize-env.sh" "$primary_env" > /dev/null 2>&1
             print_success ".env file normalized. Variables now properly ordered."
             # Re-source the normalized file
             unset VITE_WS_URL WEBSOCKET_PORT
