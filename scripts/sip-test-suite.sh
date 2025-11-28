@@ -570,19 +570,19 @@ ${BOLD}EXAMPLES:${RESET}
     $0 install sipexer
     
     # Test registration
-    $0 register 1001 mypassword
+    $0 register 101 mypassword
     
     # Test call between extensions
-    $0 call 1001 pass1 1002 pass2
+    $0 call 101 pass1 102 pass2
     
     # Make a call and play an audio file
-    $0 audio 1001 mypassword 1002 /path/to/audio.wav
+    $0 audio 101 mypassword 102 /path/to/audio.wav
     
     # Run full test suite
-    $0 full 1001 pass1 1002 pass2
+    $0 full 101 pass1 102 pass2
     
     # Test with remote server
-    $0 -s 192.168.1.100 register 1001 mypassword
+    $0 -s 192.168.1.100 register 101 mypassword
 
 ${BOLD}AUDIO PLAYBACK:${RESET}
     pjsua is the recommended tool for audio playback testing.

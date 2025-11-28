@@ -109,25 +109,25 @@ Manage SIP extensions.
 php artisan rayanpbx:extension list
 
 # Create a new extension
-php artisan rayanpbx:extension create 1001 --name="John Doe" --email="john@example.com" --secret="strongpassword"
+php artisan rayanpbx:extension create 101 --name="John Doe" --email="john@example.com" --secret="strongpassword"
 
 # Create extension interactively
 php artisan rayanpbx:extension create
 
 # Show extension details
-php artisan rayanpbx:extension show 1001
+php artisan rayanpbx:extension show 101
 
 # Enable an extension
-php artisan rayanpbx:extension enable 1001
+php artisan rayanpbx:extension enable 101
 
 # Disable an extension
-php artisan rayanpbx:extension disable 1001
+php artisan rayanpbx:extension disable 101
 
 # Delete an extension
-php artisan rayanpbx:extension delete 1001
+php artisan rayanpbx:extension delete 101
 
 # Delete without confirmation
-php artisan rayanpbx:extension delete 1001 --all
+php artisan rayanpbx:extension delete 101 --all
 ```
 
 After creating, enabling, or disabling extensions, remember to reload the configuration:
@@ -259,7 +259,7 @@ php artisan rayanpbx:service restart all
 
 ```bash
 # 1. Create the extension
-php artisan rayanpbx:extension create 1001 \
+php artisan rayanpbx:extension create 101 \
   --name="John Doe" \
   --email="john@example.com" \
   --secret="strongpassword"
@@ -386,7 +386,7 @@ php artisan rayanpbx:backup --compress
 
 ```bash
 # Create extensions with a script
-for ext in {1001..1010}; do
+for ext in {101..110}; do
   php artisan rayanpbx:extension create $ext \
     --name="User $ext" \
     --email="user$ext@example.com" \

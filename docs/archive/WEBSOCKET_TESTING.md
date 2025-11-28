@@ -194,7 +194,7 @@ window.$nuxt.$root.$data  // Look for WebSocket store state
   "type": "extension.created",
   "payload": {
     "id": 123,
-    "extension_number": "1001",
+    "extension_number": "101",
     "name": "John Doe",
     "enabled": true
   },

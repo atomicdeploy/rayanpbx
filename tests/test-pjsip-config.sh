@@ -108,7 +108,7 @@ if [[ -f /etc/asterisk/extensions.conf ]]; then
 ; RayanPBX Internal Extensions
 [from-internal]
 ; Pattern match for all extensions
-exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})
+exten => _1XX,1,NoOp(Extension to extension call: ${EXTEN})
  same => n,Dial(PJSIP/${EXTEN},30)
  same => n,Hangup()
 
@@ -239,7 +239,7 @@ echo -e "  1. Create extensions via Web UI or API"
 echo -e "  2. Configure your SIP client with:"
 echo -e "     - Server: $(hostname -I | awk '{print $1}')"
 echo -e "     - Port: 5060"
-echo -e "     - Extension: 1001 (example)"
+echo -e "     - Extension: 101 (example)"
 echo -e "     - Password: Your configured password"
 echo -e "  3. Monitor events: php artisan rayanpbx:monitor-events"
 echo ""
