@@ -2520,12 +2520,12 @@ cmd_help() {
         echo -e "   ${GREEN}sync${NC} status|db-to-asterisk|...   Sync extensions with Asterisk"
         echo ""
         
-        echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
-        echo -e "   ${GREEN}tui${NC}                               Launch interactive TUI interface"
+        echo -e "${CYAN}🔊 monitor-events${NC} ${DIM}- Event monitoring${NC}"
+        echo -e "   ${GREEN}monitor-events${NC}                    Monitor Asterisk AMI events"
         echo ""
         
-        echo -e "${CYAN}🔗 artisan${NC} ${DIM}- Run any artisan command directly${NC}"
-        echo -e "   ${GREEN}artisan${NC} <command> [options]       Execute any php artisan command"
+        echo -e "${CYAN}🎨 tui${NC} ${DIM}- Launch Terminal UI${NC}"
+        echo -e "   ${GREEN}tui${NC}                               Launch interactive TUI interface"
         echo ""
         
         echo -e "${CYAN}❓ help${NC} ${DIM}- Help and documentation${NC}"
@@ -2541,12 +2541,12 @@ cmd_help() {
         echo -e "  ${YELLOW}rayanpbx-cli extension create 100 \"John Doe\" secret123${NC}\n"
         echo -e "  ${DIM}# Run diagnostics${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli diag health-check${NC}\n"
-        echo -e "  ${DIM}# Run any artisan command directly${NC}"
-        echo -e "  ${YELLOW}rayanpbx-cli artisan rayanpbx:extension list${NC}\n"
         echo -e "  ${DIM}# Check system health${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli health${NC}\n"
         echo -e "  ${DIM}# View service status${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli status${NC}\n"
+        echo -e "  ${DIM}# Manage services${NC}"
+        echo -e "  ${YELLOW}rayanpbx-cli service restart asterisk${NC}\n"
         
         echo -e "${MAGENTA}${BOLD}EXIT CODES:${NC}"
         echo -e "  ${GREEN}0${NC}  Success"
@@ -2557,7 +2557,7 @@ cmd_help() {
         echo ""
         
         echo -e "${DIM}For detailed command help: ${YELLOW}rayanpbx-cli help <command>${NC}"
-        echo -e "${DIM}Direct artisan access: ${YELLOW}rayanpbx-cli artisan <command>${NC}"
+        echo -e "${DIM}All rayanpbx artisan commands are automatically available${NC}"
         echo -e "${DIM}Configuration file: ${CYAN}$ENV_FILE${NC}"
         echo ""
     else
@@ -2730,9 +2730,46 @@ run_artisan() {
     cd "$backend_dir" && php artisan --ansi "$@"
 }
 
-# Artisan passthrough - for direct artisan command access
-cmd_artisan() {
-    run_artisan "$@"
+# Check if a rayanpbx artisan command exists
+# Returns 0 if command exists, 1 otherwise
+artisan_command_exists() {
+    local cmd="$1"
+    local backend_dir
+    backend_dir=$(get_backend_dir)
+    
+    if [ ! -f "$backend_dir/artisan" ]; then
+        return 1
+    fi
+    
+    # Check if the rayanpbx:$cmd command exists
+    cd "$backend_dir" && php artisan list --raw 2>/dev/null | grep -q "^rayanpbx:${cmd}$"
+}
+
+# Get list of available rayanpbx artisan commands
+get_artisan_commands() {
+    local backend_dir
+    backend_dir=$(get_backend_dir)
+    
+    if [ ! -f "$backend_dir/artisan" ]; then
+        return
+    fi
+    
+    cd "$backend_dir" && php artisan list --raw 2>/dev/null | grep "^rayanpbx:" | sed 's/^rayanpbx://'
+}
+
+# Try to run a command via artisan first
+# Returns the artisan command's exit code if found, or 1 if not found
+try_artisan_command() {
+    local cmd="$1"
+    shift
+    
+    if artisan_command_exists "$cmd"; then
+        run_artisan "rayanpbx:${cmd}" "$@"
+        # Return the actual exit code from artisan
+        return $?
+    fi
+    
+    return 1
 }
 
 main() {
@@ -2775,11 +2812,6 @@ main() {
             ;;
         help)
             cmd_help "${2:-}"
-            ;;
-        # Artisan passthrough - run any artisan command directly
-        artisan)
-            shift
-            run_artisan "$@"
             ;;
         # Extension commands - delegate to artisan when possible
         extension)
@@ -3100,16 +3132,45 @@ main() {
             shift
             run_artisan rayanpbx:generate-config "$@"
             ;;
+        # Monitor events - delegate to artisan
+        monitor-events)
+            shift
+            run_artisan rayanpbx:monitor-events "$@"
+            ;;
+        # Restore - delegate to artisan
+        restore)
+            shift
+            run_artisan rayanpbx:restore "$@"
+            ;;
         # TUI launcher
         tui)
             shift
             cmd_tui "$@"
             ;;
         *)
-            print_banner
-            echo "Unknown command: $1"
-            echo "Run 'rayanpbx-cli help' for usage information"
-            exit 2
+            # Dynamic artisan command routing - try to find a matching rayanpbx:$cmd
+            local cmd="$1"
+            shift
+            
+            # Check if artisan command exists first
+            if artisan_command_exists "$cmd"; then
+                # Command exists, run it and exit with its status
+                run_artisan "rayanpbx:${cmd}" "$@"
+                exit $?
+            else
+                # No artisan command found, show error
+                print_banner
+                echo "Unknown command: $cmd"
+                echo ""
+                echo "Run 'rayanpbx-cli help' for usage information"
+                echo ""
+                echo "Available artisan commands:"
+                # Use process substitution to avoid subshell issue
+                while read -r acmd; do
+                    echo "  $acmd"
+                done < <(get_artisan_commands)
+                exit 2
+            fi
             ;;
     esac
 }
