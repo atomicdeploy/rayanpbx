@@ -167,6 +167,7 @@ const (
 	quickSetupScreen
 	resetConfigurationScreen
 	resetConfirmScreen
+	consolePhoneScreen // Console as SIP phone/intercom
 )
 
 type model struct {
@@ -226,7 +227,8 @@ type model struct {
 	currentPhoneStatus     *PhoneStatus
 	phoneCredentials       map[string]map[string]string
 	voipEditingExistingIP  string // If set, we're editing credentials for an existing phone
-	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA)
+	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA, 4=Direct Call)
+	directCallManager      *DirectCallManager // For direct SIP calls and console intercom
 	
 	// Menu position memory (preserve cursor position when navigating back)
 	mainMenuCursor        int
@@ -267,6 +269,11 @@ type model struct {
 	quickSetupComplete    bool     // Whether setup is complete
 	quickSetupError       string   // Error message during setup
 	quickSetupResult      string   // Result message after setup
+
+	// Console Phone (host as SIP client/intercom)
+	consolePhoneMenu     []string // Menu items for console phone operations
+	consolePhoneOutput   string   // Output from console operations
+	consolePhoneStatus   *ConsoleState // Current console state
 
 	// Live Console
 	liveConsoleOutput     []string // Live console log lines
@@ -346,6 +353,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
 			"📞 VoIP Phones Management",
+			"🎙️  Console Phone/Intercom",
 			"⚙️  Asterisk Management",
 			"🔍 Diagnostics & Debugging",
 			"📊 System Status",
@@ -411,6 +419,17 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📤 Sync All Asterisk → DB",
 			"🔍 Refresh Sync Status",
 			"🔙 Back to Extensions",
+		},
+		consolePhoneMenu: []string{
+			"📞 Dial Extension",
+			"🔊 Call Phone by IP (Audio File)",
+			"🎙️  Call Phone by IP (Console)",
+			"✅ Answer Incoming Call",
+			"📴 Hangup",
+			"📊 Console Status",
+			"⚙️  Configure Console Endpoint",
+			"📋 Show Active Calls",
+			"🔙 Back to Main Menu",
 		},
 		resetMenu: []string{
 			"🗑️  Reset All Configuration",
@@ -525,6 +544,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "a", "m", "c", "r", "p", "e", "A", "d", "left", "right", "h", "l":
 				m.handleVoIPPhonesKeyPress(msg.String())
+				return m, nil
+			}
+		}
+		
+		// Handle Console Phone screen
+		if m.currentScreen == consolePhoneScreen {
+			if m.inputMode {
+				return m.handleInputMode(msg)
+			}
+			switch msg.String() {
+			case "up", "k", "down", "j", "enter":
+				m.handleConsolePhoneKeyPress(msg.String())
+				return m, nil
+			case "esc":
+				m.currentScreen = mainMenu
+				m.cursor = m.mainMenuCursor
+				m.errorMsg = ""
+				m.successMsg = ""
 				return m, nil
 			}
 		}
@@ -939,6 +976,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
 				case 4:
+					// Console Phone/Intercom
+					m.mainMenuCursor = m.cursor
+					m.initConsolePhoneScreen()
+				case 5:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -946,7 +987,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 5:
+				case 6:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -954,32 +995,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 6:
-					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = statusScreen
 				case 7:
 					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = logsScreen
+					m.currentScreen = statusScreen
 				case 8:
-					// Live Asterisk Console
+					m.mainMenuCursor = m.cursor // Save main menu position
+					m.currentScreen = logsScreen
+				case 9: // Live Asterisk Console
 					m.mainMenuCursor = m.cursor
 					m.initLiveConsole()
-				case 9:
+				case 10:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 10:
+				case 11:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 11:
+				case 12:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 12:
+				case 13:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -1260,6 +1300,8 @@ func (m model) View() string {
 		s += m.renderResetConfirm()
 	case quickSetupScreen:
 		s += m.renderQuickSetup()
+	case consolePhoneScreen:
+		s += m.renderConsolePhone()
 	}
 
 	// Footer with emojis
@@ -2422,6 +2464,9 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.currentScreen == voipPhoneProvisionScreen {
 			// Go back to phone details screen
 			m.currentScreen = voipPhoneDetailsScreen
+		} else if m.currentScreen == consolePhoneScreen {
+			// Stay on console phone screen, just cancel input
+			m.consolePhoneOutput = ""
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
@@ -2480,6 +2525,8 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.executeVoIPProvision()
 			} else if m.currentScreen == usageInputScreen {
 				return m, m.executeParameterizedCommand()
+			} else if m.currentScreen == consolePhoneScreen {
+				m.handleConsolePhoneInput()
 			}
 		}
 
