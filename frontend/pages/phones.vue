@@ -6,6 +6,9 @@
         <h1>📱 VoIP Phones Management</h1>
       </div>
       <div class="header-actions">
+        <button @click="showAddPhoneModal = true" class="btn btn-success">
+          ➕ Add Phone
+        </button>
         <button @click="refreshPhones" class="btn btn-primary">
           🔄 Refresh
         </button>
@@ -18,6 +21,61 @@
         <button @click="discoverArpNeighbors" class="btn btn-secondary">
           🌐 ARP Discovery
         </button>
+      </div>
+    </div>
+
+    <!-- Add Phone Modal -->
+    <div v-if="showAddPhoneModal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>➕ Add VoIP Phone</h3>
+        <p class="help-text">Manually add a VoIP phone by entering its IP address and credentials.</p>
+        <div class="form-group">
+          <label class="label">IP Address *</label>
+          <input
+            v-model="newPhone.ip"
+            type="text"
+            placeholder="192.168.1.100"
+            class="input"
+          />
+        </div>
+        <div class="form-group">
+          <label class="label">Username</label>
+          <input
+            v-model="newPhone.username"
+            type="text"
+            placeholder="admin"
+            class="input"
+          />
+        </div>
+        <div class="form-group">
+          <label class="label">Password</label>
+          <input
+            v-model="newPhone.password"
+            type="password"
+            placeholder="Phone admin password"
+            class="input"
+          />
+        </div>
+        <div class="form-group">
+          <label class="label">Friendly Name (optional)</label>
+          <input
+            v-model="newPhone.name"
+            type="text"
+            placeholder="e.g., Reception Desk Phone"
+            class="input"
+          />
+        </div>
+        <div v-if="addPhoneError" class="error-message">
+          {{ addPhoneError }}
+        </div>
+        <div class="modal-actions">
+          <button @click="addManualPhone" class="btn btn-primary" :disabled="!newPhone.ip || addingPhone">
+            {{ addingPhone ? '🔄 Adding...' : '✅ Add Phone' }}
+          </button>
+          <button @click="showAddPhoneModal = false; addPhoneError = ''" class="btn btn-secondary">
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
 
@@ -104,18 +162,18 @@
 
       <div v-else class="phone-cards">
         <div
-          v-for="phone in phones"
+          v-for="phone in sortedPhones"
           :key="phone.ip"
           class="phone-card"
           @click="selectPhone(phone)"
         >
           <div class="phone-icon">
-            {{ phone.status === 'online' ? '🟢' : '🔴' }}
+            {{ phone.discovery_type === 'lldp' ? '📡' : (phone.status === 'online' ? '🟢' : '🔴') }}
           </div>
           <div class="phone-info">
-            <h3>{{ phone.extension || 'Unknown' }}</h3>
+            <h3>{{ phone.name || phone.extension || 'Unknown' }}</h3>
             <p class="phone-ip">{{ phone.ip }}</p>
-            <p class="phone-model">{{ phone.user_agent || 'GrandStream' }}</p>
+            <p class="phone-model">{{ phone.model || phone.user_agent || 'GrandStream' }}</p>
           </div>
           <div class="phone-status">
             <span :class="['status-badge', phone.status]">
@@ -627,6 +685,17 @@ const notification = ref(null)
 const actionUrlStatus = ref(null)
 const actionUrlConflicts = ref(null)
 
+// Add Phone modal state
+const showAddPhoneModal = ref(false)
+const addingPhone = ref(false)
+const addPhoneError = ref('')
+const newPhone = ref({
+  ip: '',
+  username: 'admin',
+  password: '',
+  name: ''
+})
+
 // Discovery state
 const showDiscoveryPanel = ref(false)
 const discoveryTab = ref('all')
@@ -668,6 +737,35 @@ const currentDiscoveryList = computed(() => {
   }
 })
 
+// Computed property for sorted phones list - consistent with TUI (by extension, then IP)
+const sortedPhones = computed(() => {
+  return [...phones.value].sort((a, b) => {
+    // First sort by extension - empty extensions go at the end
+    const extA = a.extension || ''
+    const extB = b.extension || ''
+    
+    if (extA === '' && extB !== '') return 1
+    if (extA !== '' && extB === '') return -1
+    
+    if (extA !== '' && extB !== '') {
+      // Try numeric comparison
+      const numA = parseInt(extA, 10)
+      const numB = parseInt(extB, 10)
+      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+        return numA - numB
+      } else if (extA !== extB) {
+        return extA.localeCompare(extB)
+      }
+    }
+    
+    // Then sort by IP address
+    return (a.ip || '').localeCompare(b.ip || '')
+  })
+})
+
+// Auto-refresh interval (10 seconds, consistent with TUI)
+let autoRefreshInterval = null
+
 // Store provision context for re-provisioning with force flag
 const provisionContext = ref(null)
 
@@ -684,12 +782,24 @@ onMounted(async () => {
   }
   refreshPhones()
   loadExtensions()
+  
+  // Start auto-refresh interval (10 seconds, consistent with TUI)
+  // Only refresh when viewing the phone list (not phone details)
+  autoRefreshInterval = setInterval(() => {
+    const isViewingPhoneList = !selectedPhone.value
+    if (isViewingPhoneList) {
+      refreshPhones()
+    }
+  }, 10000)
 })
 
 onUnmounted(() => {
-  // Clean up interval when leaving page
+  // Clean up intervals when leaving page
   if (ctiRefreshInterval) {
     clearInterval(ctiRefreshInterval)
+  }
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval)
   }
 })
 
@@ -807,6 +917,56 @@ function addDiscoveredDeviceToPhones(device) {
 // Keep addLldpNeighborToPhones for backward compatibility
 function addLldpNeighborToPhones(neighbor) {
   addDiscoveredDeviceToPhones(neighbor)
+}
+
+// Validate IPv4 address format
+function isValidIPv4(ip) {
+  const ipRegex = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+  return ipRegex.test(ip)
+}
+
+// Add a phone manually by IP address
+async function addManualPhone() {
+  if (!newPhone.value.ip) {
+    addPhoneError.value = 'IP address is required'
+    return
+  }
+  
+  // Validate IP address format
+  if (!isValidIPv4(newPhone.value.ip)) {
+    addPhoneError.value = 'Invalid IP address format'
+    return
+  }
+  
+  addingPhone.value = true
+  addPhoneError.value = ''
+  
+  try {
+    // Try to add the phone via API
+    const data = await api.addPhone({
+      ip: newPhone.value.ip,
+      credentials: {
+        username: newPhone.value.username || 'admin',
+        password: newPhone.value.password
+      },
+      name: newPhone.value.name
+    })
+    
+    if (data.success) {
+      showNotification('Phone added successfully', 'success')
+      showAddPhoneModal.value = false
+      // Reset form
+      newPhone.value = { ip: '', username: 'admin', password: '', name: '' }
+      // Refresh phone list
+      await refreshPhones()
+    } else {
+      addPhoneError.value = data.error || data.message || 'Failed to add phone'
+    }
+  } catch (error) {
+    addPhoneError.value = error?.message || 'Failed to add phone'
+  } finally {
+    addingPhone.value = false
+  }
 }
 
 async function refreshPhones() {

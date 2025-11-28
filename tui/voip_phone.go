@@ -134,6 +134,7 @@ type PhoneInfo struct {
 	Status    string
 	UserAgent string
 	Online    bool
+	Name      string // Friendly name for the phone
 }
 
 // parseEndpoints parses the output of "pjsip show endpoints"

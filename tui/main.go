@@ -225,6 +225,7 @@ type model struct {
 	currentPhoneStatus     *PhoneStatus
 	phoneCredentials       map[string]map[string]string
 	voipEditingExistingIP  string // If set, we're editing credentials for an existing phone
+	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA)
 	
 	// Menu position memory (preserve cursor position when navigating back)
 	mainMenuCursor        int
@@ -415,7 +416,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 			// Handle VoIP-specific keys first
 			switch msg.String() {
-			case "m", "c", "r", "p", "e", "A":
+			case "a", "m", "c", "r", "p", "e", "A", "d", "left", "right", "h", "l":
 				m.handleVoIPPhonesKeyPress(msg.String())
 				return m, nil
 			}
@@ -2302,6 +2303,13 @@ func (m model) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.currentScreen == usageInputScreen {
 			m.currentScreen = usageScreen
 			m.usageCommandTemplate = ""
+		} else if m.currentScreen == voipManualIPScreen {
+			// Go back to VoIP phones screen
+			m.currentScreen = voipPhonesScreen
+			m.voipEditingExistingIP = ""
+		} else if m.currentScreen == voipPhoneProvisionScreen {
+			// Go back to phone details screen
+			m.currentScreen = voipPhoneDetailsScreen
 		}
 		m.errorMsg = ""
 		m.successMsg = ""
