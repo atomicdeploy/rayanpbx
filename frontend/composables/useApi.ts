@@ -24,8 +24,21 @@ export const useApi = () => {
       }
       
       // Enhance error with message from backend if available
-      if (error.data?.message && !error.message) {
-        error.message = error.data.message
+      // Laravel can return errors in various formats depending on the exception type
+      if (!error.message) {
+        if (error.data?.message) {
+          error.message = error.data.message
+        } else if (error.data?.error) {
+          error.message = error.data.error
+        } else if (error.data?.exception) {
+          // For unhandled Laravel exceptions, show a more user-friendly message
+          error.message = `Server error: ${error.data.exception}`
+        }
+      }
+      
+      // Also ensure error.data.message is set for components that check it directly
+      if (error.data && !error.data.message && error.message) {
+        error.data.message = error.message
       }
       
       throw error

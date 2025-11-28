@@ -24,6 +24,21 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div class="card">
+        <!-- Page-level Error Banner -->
+        <div v-if="pageError" class="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+          <div class="flex items-start space-x-3">
+            <span class="text-red-600 dark:text-red-400 text-xl">❌</span>
+            <div class="flex-1">
+              <h3 class="font-semibold text-red-700 dark:text-red-300">{{ $t('common.error') }}</h3>
+              <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ pageError }}</p>
+              <button @click="retryLoad" class="mt-2 text-sm text-red-700 dark:text-red-300 hover:underline">
+                🔄 {{ $t('common.retry') || 'Retry' }}
+              </button>
+            </div>
+            <button @click="pageError = ''" class="text-red-500 hover:text-red-700">✕</button>
+          </div>
+        </div>
+
         <!-- Sync Status Banner -->
         <div v-if="syncStatus && (syncStatus.summary.db_only > 0 || syncStatus.summary.asterisk_only > 0 || syncStatus.summary.mismatched > 0)" 
              class="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
@@ -689,6 +704,7 @@ const saving = ref(false)
 const saveError = ref('')
 const showAdvanced = ref(false)
 const togglingExtension = ref<number | null>(null)
+const pageError = ref('')
 
 // Sync status
 const showSyncModal = ref(false)
@@ -886,18 +902,45 @@ const toggleExtension = async (ext: any) => {
   }
 }
 
+// Helper function to extract error message from various error formats
+const extractErrorMessage = (error: any): string => {
+  // Try to get the most specific error message available
+  if (error.data?.message) {
+    return error.data.message
+  }
+  if (error.data?.error) {
+    return error.data.error
+  }
+  if (error.message) {
+    return error.message
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  return t('common.error') || 'An error occurred'
+}
+
 const fetchExtensions = async () => {
   loading.value = true
+  pageError.value = ''
   try {
     const response = await api.getExtensions()
     extensions.value = response.extensions
     
     // Fetch live status for each extension
     await enrichWithLiveStatus()
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching extensions:', error)
+    pageError.value = extractErrorMessage(error)
   }
   loading.value = false
+}
+
+// Retry loading data after an error
+const retryLoad = async () => {
+  pageError.value = ''
+  await fetchExtensions()
+  await refreshSyncStatus()
 }
 
 const enrichWithLiveStatus = async () => {
@@ -1037,10 +1080,14 @@ const refreshSyncStatus = async () => {
     syncError.value = false
     const response = await api.apiFetch('/extensions/sync/status')
     syncStatus.value = response
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching sync status:', error)
     syncError.value = true
-    syncMessage.value = 'Failed to fetch sync status'
+    syncMessage.value = extractErrorMessage(error)
+    // Also show in page-level error if it's a significant issue
+    if (!pageError.value) {
+      pageError.value = extractErrorMessage(error)
+    }
   } finally {
     syncing.value = false
   }
@@ -1061,7 +1108,7 @@ const syncSingleDbToAsterisk = async (extensionNumber: string) => {
   } catch (error: any) {
     console.error('Error syncing to Asterisk:', error)
     syncError.value = true
-    syncMessage.value = error.message || 'Failed to sync to Asterisk'
+    syncMessage.value = extractErrorMessage(error)
   } finally {
     syncing.value = false
   }
@@ -1082,7 +1129,7 @@ const syncSingleAsteriskToDb = async (extensionNumber: string) => {
   } catch (error: any) {
     console.error('Error syncing to database:', error)
     syncError.value = true
-    syncMessage.value = error.message || 'Failed to sync to database'
+    syncMessage.value = extractErrorMessage(error)
   } finally {
     syncing.value = false
   }
@@ -1106,7 +1153,7 @@ const syncAllDbToAsterisk = async () => {
   } catch (error: any) {
     console.error('Error syncing all to Asterisk:', error)
     syncError.value = true
-    syncMessage.value = error.message || 'Failed to sync all to Asterisk'
+    syncMessage.value = extractErrorMessage(error)
   } finally {
     syncing.value = false
   }
@@ -1130,7 +1177,7 @@ const syncAllAsteriskToDb = async () => {
   } catch (error: any) {
     console.error('Error syncing all to database:', error)
     syncError.value = true
-    syncMessage.value = error.message || 'Failed to sync all to database'
+    syncMessage.value = extractErrorMessage(error)
   } finally {
     syncing.value = false
   }
