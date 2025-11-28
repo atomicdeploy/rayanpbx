@@ -82,9 +82,38 @@ func (m model) renderVoIPPhones() string {
 	
 	content += fmt.Sprintf("📊 Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
 	
-	// Header - aligned with data columns
-	content += helpStyle.Render("  Ext          Name/IP              Status         Vendor/Model") + "\n"
-	content += helpStyle.Render("  ─────────────────────────────────────────────────────────────────────") + "\n"
+	// Column definitions for dynamic table generation
+	type columnDef struct {
+		header string
+		width  int
+	}
+	columns := []columnDef{
+		{"Ext", 10},
+		{"Name/IP", 20},
+		{"Status", 14},
+		{"Vendor/Model", 23},
+	}
+	
+	// Generate header row dynamically
+	headerRow := "  " // Leading space for cursor column
+	for i, col := range columns {
+		headerRow += fmt.Sprintf("%-*s", col.width, col.header)
+		if i < len(columns)-1 {
+			headerRow += "  " // Column separator
+		}
+	}
+	content += helpStyle.Render(headerRow) + "\n"
+	
+	// Generate separator line dynamically - calculate total width
+	totalWidth := 2 // Leading space for cursor
+	for i, col := range columns {
+		totalWidth += col.width
+		if i < len(columns)-1 {
+			totalWidth += 2 // Column separator
+		}
+	}
+	separatorLine := "  " + strings.Repeat("─", totalWidth-2)
+	content += helpStyle.Render(separatorLine) + "\n"
 	
 	for i, phone := range m.voipPhones {
 		cursor := " "
@@ -116,39 +145,43 @@ func (m model) renderVoIPPhones() string {
 			status = "📡" + status[2:] // Replace first emoji with LLDP indicator
 		}
 		
-		// Extract vendor and model from user agent
+		// Extract vendor and model from user agent - use column width
 		vendorModel := phone.UserAgent
 		if vendorModel == "" {
 			vendorModel = "Unknown"
 		}
-		if len(vendorModel) > 20 {
-			vendorModel = vendorModel[:20] + "..."
+		vendorColWidth := columns[3].width
+		if len(vendorModel) > vendorColWidth-3 {
+			vendorModel = vendorModel[:vendorColWidth-3] + "..."
 		}
 		
-		// Format extension
+		// Format extension - use column width
 		ext := phone.Extension
 		if ext == "" {
 			ext = "---"
 		}
-		if len(ext) > 10 {
-			ext = ext[:10]
+		extColWidth := columns[0].width
+		if len(ext) > extColWidth {
+			ext = ext[:extColWidth]
 		}
 		
-		// Display name - prefer friendly name if set, otherwise fall back to IP
+		// Display name - prefer friendly name if set, otherwise fall back to IP - use column width
 		displayName := phone.Name
 		if displayName == "" {
 			displayName = phone.IP
 		}
-		if len(displayName) > 18 {
-			displayName = displayName[:18] + ".."
+		nameColWidth := columns[1].width
+		if len(displayName) > nameColWidth-2 {
+			displayName = displayName[:nameColWidth-2] + ".."
 		}
 		
-		line := fmt.Sprintf("%s %-10s  %-20s %s  %s\n",
+		// Build row using column widths for consistent alignment
+		line := fmt.Sprintf("%s %-*s  %-*s %s  %-*s\n",
 			cursor,
-			successStyle.Render(ext),
-			displayName,
-			statusStyle.Render(fmt.Sprintf("%-12s", status)),
-			helpStyle.Render(vendorModel),
+			columns[0].width, successStyle.Render(ext),
+			columns[1].width, displayName,
+			statusStyle.Render(fmt.Sprintf("%-*s", columns[2].width, status)),
+			columns[3].width, helpStyle.Render(vendorModel),
 		)
 		content += line
 	}
