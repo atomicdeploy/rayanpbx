@@ -442,7 +442,7 @@ class GrandStreamProvisioningService
         }
 
         if (empty($allDevices)) {
-            throw new \Exception('LLDP discovery requires lldpd to be installed');
+            throw new \Exception('No LLDP neighbors found. Ensure lldpd is installed and network devices are connected.');
         }
 
         // Deduplicate and merge device data by MAC address
