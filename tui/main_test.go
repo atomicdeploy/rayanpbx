@@ -1256,7 +1256,7 @@ t.Error("Expected output to contain DB Only status")
 if !strings.Contains(output, "⚡ Ast Only") {
 t.Error("Expected output to contain Asterisk Only status")
 }
-if !strings.Contains(output, "⚠️  Mismatch") {
+if !strings.Contains(output, "⚠️ Mismatch") {
 t.Error("Expected output to contain Mismatch status")
 }
 

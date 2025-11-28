@@ -4174,7 +4174,7 @@ func (m model) renderExtensionSync() string {
 				asteriskCol = "✓ Present"
 				databaseCol = "✗ Missing"
 			case SyncStatusMismatch:
-				statusIcon = "⚠️  Mismatch"
+				statusIcon = "⚠️ Mismatch"
 				asteriskCol = "≠ Differs"
 				databaseCol = "≠ Differs"
 			}
