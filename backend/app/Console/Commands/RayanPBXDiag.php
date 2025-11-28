@@ -2,9 +2,9 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
 use App\Services\SystemctlService;
 use Exception;
+use Illuminate\Console\Command;
 
 class RayanPBXDiag extends Command
 {
@@ -44,9 +44,10 @@ class RayanPBXDiag extends Command
 
         $validActions = ['health-check', 'check-sip', 'check-ami', 'check-laravel', 'test-extension', 'fix-ami', 'reapply-ami'];
 
-        if (!in_array($action, $validActions)) {
+        if (! in_array($action, $validActions)) {
             $this->error("❌ Invalid action: {$action}");
-            $this->info("Valid actions: " . implode(', ', $validActions));
+            $this->info('Valid actions: '.implode(', ', $validActions));
+
             return 1;
         }
 
@@ -68,7 +69,8 @@ class RayanPBXDiag extends Command
                     return $this->reapplyAmi();
             }
         } catch (Exception $e) {
-            $this->error('❌ Error: ' . $e->getMessage());
+            $this->error('❌ Error: '.$e->getMessage());
+
             return 1;
         }
 
@@ -97,7 +99,7 @@ class RayanPBXDiag extends Command
                 $allPassed = false;
             }
         } catch (Exception $e) {
-            $this->error('  ❌ Cannot check Asterisk: ' . $e->getMessage());
+            $this->error('  ❌ Cannot check Asterisk: '.$e->getMessage());
             $results['asterisk'] = ['status' => 'error', 'passed' => false, 'error' => $e->getMessage()];
             $allPassed = false;
         }
@@ -120,7 +122,7 @@ class RayanPBXDiag extends Command
         $this->comment('Checking API Server...');
         try {
             $response = @file_get_contents('http://localhost:8000/api/health', false, stream_context_create([
-                'http' => ['timeout' => 5]
+                'http' => ['timeout' => 5],
             ]));
             if ($response !== false) {
                 $this->info('  ✅ API server is responding');
@@ -130,7 +132,7 @@ class RayanPBXDiag extends Command
                 $results['api'] = ['status' => 'not_responding', 'passed' => false];
             }
         } catch (Exception $e) {
-            $this->warn('  ⚠️  Cannot check API: ' . $e->getMessage());
+            $this->warn('  ⚠️  Cannot check API: '.$e->getMessage());
             $results['api'] = ['status' => 'error', 'passed' => false, 'error' => $e->getMessage()];
         }
 
@@ -192,7 +194,7 @@ class RayanPBXDiag extends Command
         // Check if Asterisk is running
         $this->comment('Checking Asterisk service...');
         try {
-            if (!$this->systemctl->isRunning('asterisk')) {
+            if (! $this->systemctl->isRunning('asterisk')) {
                 $this->error('  ❌ Asterisk service is not running');
                 if ($autoFix) {
                     $this->info('  🔧 Attempting to start Asterisk...');
@@ -201,6 +203,7 @@ class RayanPBXDiag extends Command
                         $this->info('  ✅ Asterisk service started');
                     } else {
                         $this->error('  ❌ Failed to start Asterisk');
+
                         return 1;
                     }
                 } else {
@@ -210,7 +213,8 @@ class RayanPBXDiag extends Command
                 $this->info('  ✅ Asterisk service is running');
             }
         } catch (Exception $e) {
-            $this->error('  ❌ Error checking Asterisk: ' . $e->getMessage());
+            $this->error('  ❌ Error checking Asterisk: '.$e->getMessage());
+
             return 1;
         }
 
@@ -229,16 +233,16 @@ class RayanPBXDiag extends Command
         $this->comment("Checking if port {$port} is listening...");
         if ($this->isPortListening($port)) {
             $this->info("  ✅ SIP port {$port} is listening");
-            
+
             // Get server IP for display
             $serverIp = trim(shell_exec("hostname -I | awk '{print \$1}'") ?? '127.0.0.1');
-            
+
             $this->newLine();
             $this->info('🚀 SIP Endpoint for clients:');
             $this->line("  Address:  {$serverIp}:{$port}");
-            $this->line("  Protocol: UDP/TCP");
-            $this->comment("  Configure your SIP phones to connect to this address");
-            
+            $this->line('  Protocol: UDP/TCP');
+            $this->comment('  Configure your SIP phones to connect to this address');
+
             return 0;
         } else {
             $this->error("  ❌ SIP port {$port} is NOT listening");
@@ -247,24 +251,25 @@ class RayanPBXDiag extends Command
             $this->newLine();
             $this->comment('Possible causes:');
             $this->line('  1. PJSIP transport not configured correctly');
-            $this->line('  2. Another process using port ' . $port);
+            $this->line('  2. Another process using port '.$port);
             $this->line('  3. Firewall blocking the port');
             $this->line('  4. Asterisk failed to bind to the port');
-            
+
             if ($autoFix) {
                 $this->newLine();
                 $this->info('🔧 Attempting to fix by reloading PJSIP...');
                 $this->systemctl->execAsteriskCLI('pjsip reload');
                 sleep(3);
-                
+
                 if ($this->isPortListening($port)) {
                     $this->info("  ✅ SIP port {$port} is now listening after reload");
+
                     return 0;
                 } else {
                     $this->error('  ❌ Could not fix SIP port issue automatically');
                 }
             }
-            
+
             return 1;
         }
     }
@@ -285,8 +290,9 @@ class RayanPBXDiag extends Command
 
         // Check if AMI port is listening
         $this->comment('Checking AMI port...');
-        if (!$this->isPortListening($amiPort)) {
+        if (! $this->isPortListening($amiPort)) {
             $this->error("  ❌ AMI port {$amiPort} is not listening");
+
             return 1;
         }
         $this->info("  ✅ AMI port {$amiPort} is listening");
@@ -295,22 +301,24 @@ class RayanPBXDiag extends Command
         $this->newLine();
         $this->comment('Testing AMI authentication...');
         $amiResult = $this->testAmiConnection($amiHost, $amiPort, $amiUsername, $amiSecret);
-        
+
         if ($amiResult['success']) {
             $this->info('  ✅ AMI authentication successful');
+
             return 0;
         } else {
             $this->error('  ❌ AMI authentication failed');
             if (isset($amiResult['error'])) {
                 $this->line("  Error: {$amiResult['error']}");
             }
-            
+
             if ($autoFix) {
                 $this->newLine();
                 $this->info('🔧 Attempting to fix AMI configuration...');
+
                 return $this->fixAmi();
             }
-            
+
             return 1;
         }
     }
@@ -328,7 +336,7 @@ class RayanPBXDiag extends Command
 
         // Check vendor directory
         $this->comment('Checking vendor directory...');
-        if (!is_dir($backendDir . '/vendor')) {
+        if (! is_dir($backendDir.'/vendor')) {
             $this->error('  ❌ Vendor directory not found');
             if ($autoFix) {
                 $this->info('  🔧 Running composer install...');
@@ -337,10 +345,12 @@ class RayanPBXDiag extends Command
                     $this->info('  ✅ Composer dependencies installed');
                 } else {
                     $this->error('  ❌ Failed to install dependencies');
+
                     return 1;
                 }
             } else {
                 $this->info("  Run: cd {$backendDir} && composer install");
+
                 return 1;
             }
         } else {
@@ -350,7 +360,7 @@ class RayanPBXDiag extends Command
         // Check autoload.php
         $this->newLine();
         $this->comment('Checking autoload...');
-        if (!file_exists($backendDir . '/vendor/autoload.php')) {
+        if (! file_exists($backendDir.'/vendor/autoload.php')) {
             $this->error('  ❌ Autoload.php not found');
             if ($autoFix) {
                 $this->info('  🔧 Running composer dump-autoload...');
@@ -359,10 +369,12 @@ class RayanPBXDiag extends Command
                     $this->info('  ✅ Autoload regenerated');
                 } else {
                     $this->error('  ❌ Failed to regenerate autoload');
+
                     return 1;
                 }
             } else {
                 $this->info("  Run: cd {$backendDir} && composer dump-autoload -o");
+
                 return 1;
             }
         } else {
@@ -380,34 +392,38 @@ class RayanPBXDiag extends Command
 
         $failedClasses = [];
         foreach ($criticalClasses as $class) {
-            if (!class_exists($class)) {
+            if (! class_exists($class)) {
                 $failedClasses[] = $class;
             }
         }
 
         if (empty($failedClasses)) {
             $this->info('  ✅ All critical classes are loadable');
+
             return 0;
         } else {
-            $this->error('  ❌ Failed to load classes: ' . implode(', ', $failedClasses));
+            $this->error('  ❌ Failed to load classes: '.implode(', ', $failedClasses));
             if ($autoFix) {
                 $this->info('  🔧 Regenerating autoload...');
                 exec("cd {$backendDir} && composer dump-autoload -o 2>&1", $output, $returnCode);
                 // Retest
                 $stillFailed = [];
                 foreach ($failedClasses as $class) {
-                    if (!class_exists($class, true)) {
+                    if (! class_exists($class, true)) {
                         $stillFailed[] = $class;
                     }
                 }
                 if (empty($stillFailed)) {
                     $this->info('  ✅ Autoload fixed - all classes now loadable');
+
                     return 0;
                 } else {
                     $this->error('  ❌ Classes still not loadable after autoload regeneration');
+
                     return 1;
                 }
             }
+
             return 1;
         }
     }
@@ -419,12 +435,13 @@ class RayanPBXDiag extends Command
     {
         $extension = $this->option('extension');
 
-        if (!$extension) {
+        if (! $extension) {
             $extension = $this->ask('Extension number to test');
         }
 
-        if (!$extension) {
+        if (! $extension) {
             $this->error('❌ Extension number required');
+
             return 1;
         }
 
@@ -440,17 +457,18 @@ class RayanPBXDiag extends Command
             $this->line('  1. Extension not configured in database');
             $this->line('  2. Phone/softphone not registered');
             $this->line('  3. Incorrect credentials');
+
             return 1;
         }
 
         $this->info('  ✅ Extension is registered');
-        
+
         // Extract and display contact and status info
         if (preg_match('/Contact:.*$/m', $output, $matches)) {
-            $this->line('  ' . trim($matches[0]));
+            $this->line('  '.trim($matches[0]));
         }
         if (preg_match('/Status:.*$/m', $output, $matches)) {
-            $this->line('  ' . trim($matches[0]));
+            $this->line('  '.trim($matches[0]));
         }
 
         return 0;
@@ -465,17 +483,17 @@ class RayanPBXDiag extends Command
 
         $managerConf = '/etc/asterisk/manager.conf';
         $envFile = base_path('.env');
-        
+
         // Read current AMI secret from .env
         $amiSecret = config('services.asterisk.ami_secret', 'rayanpbx_ami_secret');
         $amiUsername = config('services.asterisk.ami_username', 'admin');
 
-        if (!file_exists($managerConf)) {
+        if (! file_exists($managerConf)) {
             $this->info('Creating manager.conf...');
         } else {
             $this->info('Updating manager.conf...');
             // Backup current config
-            $backupFile = $managerConf . '.backup.' . date('YmdHis');
+            $backupFile = $managerConf.'.backup.'.date('YmdHis');
             copy($managerConf, $backupFile);
             $this->info("  Backup saved to: {$backupFile}");
         }
@@ -501,6 +519,7 @@ EOF;
         if (file_put_contents($managerConf, $managerContent) === false) {
             $this->error('❌ Failed to write manager.conf');
             $this->info('You may need to run this command with sudo');
+
             return 1;
         }
 
@@ -519,13 +538,15 @@ EOF;
         // Verify the fix
         $this->comment('Verifying AMI connection...');
         $amiResult = $this->testAmiConnection('127.0.0.1', 5038, $amiUsername, $amiSecret);
-        
+
         if ($amiResult['success']) {
             $this->info('  ✅ AMI connection and authentication now working!');
+
             return 0;
         } else {
             $this->warn('  ⚠️  AMI may need a full Asterisk restart');
             $this->info('  Try: systemctl restart asterisk');
+
             return 1;
         }
     }
@@ -539,25 +560,26 @@ EOF;
 
         // This essentially does the same as fix-ami but with more verification
         $managerConf = '/etc/asterisk/manager.conf';
-        
+
         $amiUsername = config('services.asterisk.ami_username', 'admin');
         $amiSecret = config('services.asterisk.ami_secret', 'rayanpbx_ami_secret');
 
         $this->info("Expected AMI username from .env: {$amiUsername}");
 
-        if (!file_exists($managerConf)) {
+        if (! file_exists($managerConf)) {
             $this->error('manager.conf not found');
             $this->info('Run: php artisan rayanpbx:diag fix-ami');
+
             return 1;
         }
 
         // Parse current values
         $this->newLine();
         $this->comment('Current manager.conf configuration:');
-        
+
         $content = file_get_contents($managerConf);
         $lines = explode("\n", $content);
-        
+
         $inGeneral = false;
         $inUserSection = false;
         $issues = [];
@@ -594,30 +616,33 @@ EOF;
         if (empty($issues)) {
             $this->newLine();
             $this->info('✅ All AMI configuration values appear correct!');
-            
+
             // Test AMI connection
             $this->newLine();
             $this->comment('Testing AMI connection...');
             $amiResult = $this->testAmiConnection('127.0.0.1', 5038, $amiUsername, $amiSecret);
-            
+
             if ($amiResult['success']) {
                 $this->info('  ✅ AMI connection and authentication successful!');
+
                 return 0;
             } else {
                 $this->error('  ❌ AMI authentication failed');
                 $this->info('  Try: asterisk -rx "manager reload"');
+
                 return 1;
             }
         }
 
         $this->newLine();
-        $this->warn('Issues found: ' . count($issues));
+        $this->warn('Issues found: '.count($issues));
         foreach ($issues as $issue) {
             $this->line("  • {$issue}");
         }
 
         $this->newLine();
         $this->info('Applying fixes...');
+
         return $this->fixAmi();
     }
 
@@ -630,12 +655,13 @@ EOF;
         if ($port < 1 || $port > 65535) {
             return false;
         }
-        
+
         // Use ss command (modern replacement for netstat)
         // Since port is validated as integer, we can safely use it directly
         $command = "ss -tuln | grep -E ':{$port}([[:space:]]|\$)' 2>/dev/null";
         exec($command, $output);
-        return !empty($output);
+
+        return ! empty($output);
     }
 
     /**
@@ -644,31 +670,31 @@ EOF;
     private function testAmiConnection(string $host, int $port, string $username, string $secret): array
     {
         $socket = @fsockopen($host, $port, $errno, $errstr, 5);
-        
-        if (!$socket) {
+
+        if (! $socket) {
             return ['success' => false, 'error' => "Cannot connect: {$errstr}"];
         }
 
         // Read banner
         $banner = fgets($socket, 1024);
-        
+
         // Send login
         $loginCommand = "Action: Login\r\nUsername: {$username}\r\nSecret: {$secret}\r\n\r\n";
         fwrite($socket, $loginCommand);
-        
+
         // Read response
         $response = '';
         $startTime = time();
-        while (!feof($socket) && (time() - $startTime) < 5) {
+        while (! feof($socket) && (time() - $startTime) < 5) {
             $line = fgets($socket, 1024);
             $response .= $line;
             if (trim($line) === '') {
                 break;
             }
         }
-        
+
         fclose($socket);
-        
+
         if (stripos($response, 'Success') !== false) {
             return ['success' => true];
         } elseif (stripos($response, 'Authentication failed') !== false) {

@@ -2,12 +2,12 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use App\Services\SystemctlService;
 use App\Models\Extension;
 use App\Models\Trunk;
-use Illuminate\Support\Facades\File;
+use App\Services\SystemctlService;
 use Exception;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
 
 class RayanPBXSystem extends Command
 {
@@ -46,9 +46,10 @@ class RayanPBXSystem extends Command
 
         $validActions = ['set-mode', 'toggle-debug', 'reset', 'update', 'upgrade', 'version'];
 
-        if (!in_array($action, $validActions)) {
+        if (! in_array($action, $validActions)) {
             $this->error("❌ Invalid action: {$action}");
-            $this->info("Valid actions: " . implode(', ', $validActions));
+            $this->info('Valid actions: '.implode(', ', $validActions));
+
             return 1;
         }
 
@@ -68,7 +69,8 @@ class RayanPBXSystem extends Command
                     return $this->showVersion();
             }
         } catch (Exception $e) {
-            $this->error('❌ Error: ' . $e->getMessage());
+            $this->error('❌ Error: '.$e->getMessage());
+
             return 1;
         }
 
@@ -82,7 +84,7 @@ class RayanPBXSystem extends Command
     {
         $mode = $this->option('mode');
 
-        if (!$mode) {
+        if (! $mode) {
             $mode = $this->choice('Select application mode', ['production', 'development', 'local'], 0);
         }
 
@@ -96,17 +98,19 @@ class RayanPBXSystem extends Command
             'local' => ['APP_ENV' => 'local', 'APP_DEBUG' => 'true'],
         ];
 
-        if (!isset($modeConfig[$mode])) {
+        if (! isset($modeConfig[$mode])) {
             $this->error("❌ Invalid mode: {$mode}");
             $this->info('Valid modes: production, development, local');
+
             return 1;
         }
 
         $config = $modeConfig[$mode];
         $envFile = base_path('.env');
 
-        if (!file_exists($envFile)) {
+        if (! file_exists($envFile)) {
             $this->error('❌ .env file not found');
+
             return 1;
         }
 
@@ -114,7 +118,7 @@ class RayanPBXSystem extends Command
 
         // Update .env file
         $envContent = file_get_contents($envFile);
-        
+
         foreach ($config as $key => $value) {
             if (preg_match("/^{$key}=.*/m", $envContent)) {
                 $envContent = preg_replace("/^{$key}=.*/m", "{$key}={$value}", $envContent);
@@ -125,8 +129,8 @@ class RayanPBXSystem extends Command
 
         file_put_contents($envFile, $envContent);
 
-        $this->info('  ✅ APP_ENV set to: ' . $config['APP_ENV']);
-        $this->info('  ✅ APP_DEBUG set to: ' . $config['APP_DEBUG']);
+        $this->info('  ✅ APP_ENV set to: '.$config['APP_ENV']);
+        $this->info('  ✅ APP_DEBUG set to: '.$config['APP_DEBUG']);
 
         // Clear config cache
         $this->newLine();
@@ -157,13 +161,14 @@ class RayanPBXSystem extends Command
 
         $envFile = base_path('.env');
 
-        if (!file_exists($envFile)) {
+        if (! file_exists($envFile)) {
             $this->error('❌ .env file not found');
+
             return 1;
         }
 
         $envContent = file_get_contents($envFile);
-        
+
         // Get current debug state
         $currentDebug = 'false';
         if (preg_match('/^APP_DEBUG=(.*)$/m', $envContent, $matches)) {
@@ -207,21 +212,22 @@ class RayanPBXSystem extends Command
         $this->warn('⚠️  WARNING: This will reset ALL configuration!');
         $this->line('');
         $this->line('This will:');
-        
-        if (!$this->option('keep-database')) {
+
+        if (! $this->option('keep-database')) {
             $this->line('  • Delete all extensions from database');
             $this->line('  • Delete all trunks from database');
         } else {
             $this->info('  • Keep database data (--keep-database flag set)');
         }
-        
+
         $this->line('  • Reset pjsip.conf to clean state');
         $this->line('  • Reset extensions.conf to clean state');
         $this->line('');
 
-        if (!$this->option('yes')) {
-            if (!$this->confirm('Are you sure you want to continue?', false)) {
+        if (! $this->option('yes')) {
+            if (! $this->confirm('Are you sure you want to continue?', false)) {
                 $this->info('Cancelled');
+
                 return 0;
             }
 
@@ -229,6 +235,7 @@ class RayanPBXSystem extends Command
             $confirmText = $this->ask('Type "RESET" to confirm');
             if ($confirmText !== 'RESET') {
                 $this->info('Cancelled - confirmation text did not match');
+
                 return 0;
             }
         }
@@ -237,11 +244,11 @@ class RayanPBXSystem extends Command
         $this->comment('Resetting configuration...');
 
         // Reset database
-        if (!$this->option('keep-database')) {
+        if (! $this->option('keep-database')) {
             $this->info('Clearing database...');
             Extension::query()->delete();
             $this->info('  ✅ Extensions cleared');
-            
+
             Trunk::query()->delete();
             $this->info('  ✅ Trunks cleared');
         }
@@ -250,11 +257,11 @@ class RayanPBXSystem extends Command
         $pjsipConf = '/etc/asterisk/pjsip.conf';
         if (file_exists($pjsipConf)) {
             $this->info('Resetting pjsip.conf...');
-            
+
             // Backup first
-            $backupFile = $pjsipConf . '.backup.' . date('YmdHis');
+            $backupFile = $pjsipConf.'.backup.'.date('YmdHis');
             copy($pjsipConf, $backupFile);
-            
+
             $pjsipContent = <<<'EOF'
 ; RayanPBX PJSIP Configuration
 ; Reset to clean state by RayanPBX Reset Configuration
@@ -274,7 +281,7 @@ bind=0.0.0.0:5060
 allow_reload=yes
 
 EOF;
-            
+
             file_put_contents($pjsipConf, $pjsipContent);
             $this->info('  ✅ pjsip.conf reset to clean state');
         }
@@ -283,11 +290,11 @@ EOF;
         $extensionsConf = '/etc/asterisk/extensions.conf';
         if (file_exists($extensionsConf)) {
             $this->info('Resetting extensions.conf...');
-            
+
             // Backup first
-            $backupFile = $extensionsConf . '.backup.' . date('YmdHis');
+            $backupFile = $extensionsConf.'.backup.'.date('YmdHis');
             copy($extensionsConf, $backupFile);
-            
+
             $extensionsContent = <<<'EOF'
 ; RayanPBX Dialplan Configuration
 ; Reset to clean state by RayanPBX Reset Configuration
@@ -302,7 +309,7 @@ writeprotect=no
 ; Add your extension dialplan rules here
 
 EOF;
-            
+
             file_put_contents($extensionsConf, $extensionsContent);
             $this->info('  ✅ extensions.conf reset to clean state');
         }
@@ -313,11 +320,11 @@ EOF;
         try {
             $this->systemctl->execAsteriskCLI('module reload res_pjsip.so');
             $this->info('  ✅ PJSIP module reloaded');
-            
+
             $this->systemctl->execAsteriskCLI('dialplan reload');
             $this->info('  ✅ Dialplan reloaded');
         } catch (Exception $e) {
-            $this->warn('  ⚠️  Could not reload Asterisk: ' . $e->getMessage());
+            $this->warn('  ⚠️  Could not reload Asterisk: '.$e->getMessage());
         }
 
         $this->newLine();
@@ -337,14 +344,15 @@ EOF;
         $this->printHeader('🚀 Updating RayanPBX');
 
         $rootDir = dirname(dirname(dirname(dirname(base_path()))));
-        
+
         // Check if it's a git repository
-        if (!is_dir($rootDir . '/.git')) {
+        if (! is_dir($rootDir.'/.git')) {
             // Try parent directories
             $rootDir = dirname(base_path());
-            if (!is_dir($rootDir . '/.git')) {
+            if (! is_dir($rootDir.'/.git')) {
                 $this->error('❌ Not a git repository');
                 $this->info('Update is only available for git-based installations');
+
                 return 1;
             }
         }
@@ -355,10 +363,11 @@ EOF;
         $this->newLine();
         $this->comment('Pulling latest changes...');
         exec("cd {$rootDir} && git pull origin main 2>&1", $output, $returnCode);
-        
+
         if ($returnCode !== 0) {
             $this->error('❌ Failed to pull changes');
             $this->line(implode("\n", $output));
+
             return 1;
         }
         $this->info('  ✅ Git pull completed');
@@ -366,7 +375,7 @@ EOF;
         // Update backend dependencies
         $this->newLine();
         $this->comment('Updating backend dependencies...');
-        exec("cd " . base_path() . " && composer install --no-dev 2>&1", $output, $returnCode);
+        exec('cd '.base_path().' && composer install --no-dev 2>&1', $output, $returnCode);
         if ($returnCode === 0) {
             $this->info('  ✅ Backend dependencies updated');
         } else {
@@ -388,17 +397,18 @@ EOF;
     {
         $this->printHeader('🚀 Upgrading RayanPBX');
 
-        $scriptsDir = dirname(dirname(dirname(dirname(base_path())))) . '/scripts';
-        $upgradeScript = $scriptsDir . '/upgrade.sh';
+        $scriptsDir = dirname(dirname(dirname(dirname(base_path())))).'/scripts';
+        $upgradeScript = $scriptsDir.'/upgrade.sh';
 
-        if (!file_exists($upgradeScript)) {
+        if (! file_exists($upgradeScript)) {
             // Try alternative location
             $upgradeScript = '/opt/rayanpbx/scripts/upgrade.sh';
         }
 
-        if (!file_exists($upgradeScript)) {
+        if (! file_exists($upgradeScript)) {
             $this->error('❌ Upgrade script not found');
             $this->info('Expected location: /opt/rayanpbx/scripts/upgrade.sh');
+
             return 1;
         }
 
@@ -416,9 +426,9 @@ EOF;
      */
     private function showVersion(): int
     {
-        $versionFile = dirname(dirname(dirname(dirname(base_path())))) . '/VERSION';
-        
-        if (!file_exists($versionFile)) {
+        $versionFile = dirname(dirname(dirname(dirname(base_path())))).'/VERSION';
+
+        if (! file_exists($versionFile)) {
             $versionFile = '/opt/rayanpbx/VERSION';
         }
 
@@ -432,8 +442,8 @@ EOF;
         $this->info('║        RayanPBX System Info           ║');
         $this->info('╠═══════════════════════════════════════╣');
         $this->line("║  Version:      {$version}                  ║");
-        $this->line('║  PHP:          ' . PHP_VERSION . str_repeat(' ', 24 - strlen(PHP_VERSION)) . '║');
-        $this->line('║  Laravel:      ' . app()->version() . str_repeat(' ', 24 - strlen(app()->version())) . '║');
+        $this->line('║  PHP:          '.PHP_VERSION.str_repeat(' ', 24 - strlen(PHP_VERSION)).'║');
+        $this->line('║  Laravel:      '.app()->version().str_repeat(' ', 24 - strlen(app()->version())).'║');
         $this->info('╚═══════════════════════════════════════╝');
         $this->line('');
 
