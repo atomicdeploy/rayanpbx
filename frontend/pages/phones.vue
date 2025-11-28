@@ -736,7 +736,8 @@ async function discoverLldpNeighbors() {
         showNotification(data.message || 'No LLDP neighbors found', 'info')
       }
     } else {
-      showNotification(data.error || 'LLDP discovery failed', 'error')
+      // Use message for better context, fallback to error for raw message
+      showNotification(data.message || data.error || 'LLDP discovery failed', 'error')
     }
   } catch (error) {
     showNotification('LLDP discovery failed', 'error')
