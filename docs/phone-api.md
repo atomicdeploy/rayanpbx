@@ -21,7 +21,7 @@ List all discovered phones from SIP registrations.
   "success": true,
   "phones": [
     {
-      "extension": "1001",
+      "extension": "101",
       "ip": "192.168.1.100",
       "status": "Registered",
       "user_agent": "Grandstream GXP1630"
@@ -134,8 +134,8 @@ Get phone configuration.
   "success": true,
   "config": {
     "P147": "192.168.1.1",
-    "P135": "1001",
-    "P13": "Extension 1001"
+    "P135": "101",
+    "P13": "Extension 101"
   },
   "ip": "192.168.1.100"
 }
@@ -151,7 +151,7 @@ Set phone configuration parameters.
   "action": "set_config",
   "config": {
     "P147": "192.168.1.1",
-    "P135": "1001",
+    "P135": "101",
     "P134": "secret123"
   },
   "credentials": {
@@ -278,9 +278,9 @@ Configure SIP account via TR-069.
   "sip_config": {
     "server": "pbx.example.com",
     "port": "5060",
-    "username": "1001",
+    "username": "101",
     "password": "secret123",
-    "extension": "1001"
+    "extension": "101"
   }
 }
 ```
@@ -325,7 +325,7 @@ Receive webhook events from phones.
 {
   "event": "registration|call_start|call_end|config_change",
   "data": {
-    "extension": "1001",
+    "extension": "101",
     "ip": "192.168.1.100",
     "timestamp": "2024-01-01T12:00:00Z"
   }
@@ -354,7 +354,7 @@ List discovered GrandStream devices.
   "success": true,
   "devices": [
     {
-      "extension": "1001",
+      "extension": "101",
       "ip": "192.168.1.100",
       "status": "Registered",
       "user_agent": "Grandstream GXP1630"
@@ -404,7 +404,7 @@ Configure a phone via provisioning server.
   "extension_id": 1,
   "model": "GXP1630",
   "account_number": 1,
-  "blf_list": ["1002", "1003"],
+  "blf_list": ["102", "103"],
   "network": {
     "dhcp": 1
   }
@@ -417,7 +417,7 @@ Configure a phone via provisioning server.
   "success": true,
   "message": "Phone configured successfully",
   "mac": "000B82123456",
-  "extension": "1001",
+  "extension": "101",
   "config_url": "http://server/api/grandstream/provision/000B82123456"
 }
 ```
@@ -673,7 +673,7 @@ For real-time updates, connect to WebSocket:
 {
   "event": "phone.registered",
   "data": {
-    "extension": "1001",
+    "extension": "101",
     "ip": "192.168.1.100",
     "timestamp": "2024-01-01T12:00:00Z"
   }

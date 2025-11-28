@@ -172,10 +172,10 @@ test_commit_changes() {
     print_test "Commit changes"
     
     # Make a change
-    echo "; New extension 1002" >> "$ASTERISK_DIR/pjsip.conf"
+    echo "; New extension 102" >> "$ASTERISK_DIR/pjsip.conf"
     
     # Commit using the script
-    output=$(ASTERISK_CONFIG_DIR="$ASTERISK_DIR" SOURCE="Test" "$COMMIT_SCRIPT" commit "extension-create" "Added extension 1002" 2>&1)
+    output=$(ASTERISK_CONFIG_DIR="$ASTERISK_DIR" SOURCE="Test" "$COMMIT_SCRIPT" commit "extension-create" "Added extension 102" 2>&1)
     
     # Check if commit was made
     cd "$ASTERISK_DIR"

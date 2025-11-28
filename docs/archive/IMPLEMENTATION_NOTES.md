@@ -150,7 +150,7 @@ sudo ./tests/test-pjsip-config.sh
 ### Manual Testing Steps
 1. Create extension via API or Web UI
 2. Verify with: `asterisk -rx "pjsip show endpoints"`
-3. Check dialplan: `asterisk -rx "dialplan show internal"`
+3. Check dialplan: `asterisk -rx "dialplan show from-internal"`
 4. Configure MicroSIP with extension credentials
 5. Verify registration: Extension should show "Available" state
 6. Test call: Dial another extension number
@@ -176,15 +176,15 @@ Sections are identified by their `[name]` and `type=` property. This allows:
 
 ### Sections Created Per Extension
 ```ini
-[1001]
+[101]
 type=endpoint
 ...
 
-[1001]
+[101]
 type=auth
 ...
 
-[1001]
+[101]
 type=aor
 ...
 ```
@@ -227,7 +227,7 @@ Extension commands now:
 
 ### Issue: Endpoints don't appear in Asterisk
 **Solution**:
-1. Check config was written: `grep "Extension 1001" /etc/asterisk/pjsip.conf`
+1. Check config was written: `grep "Extension 101" /etc/asterisk/pjsip.conf`
 2. Check transport exists: `asterisk -rx "pjsip show transports"`
 3. Reload PJSIP: `asterisk -rx "pjsip reload"`
 4. Run test script: `sudo ./tests/test-pjsip-config.sh`
@@ -242,10 +242,10 @@ Extension commands now:
 
 ### Issue: Can't call between extensions
 **Solution**:
-1. Check dialplan: `asterisk -rx "dialplan show internal"`
-2. Verify context is "internal" in pjsip.conf
+1. Check dialplan: `asterisk -rx "dialplan show from-internal"`
+2. Verify context is "from-internal" in pjsip.conf
 3. Check both extensions are registered
-4. Test from CLI: `asterisk -rx "channel originate PJSIP/1001 extension 1002@internal"`
+4. Test from CLI: `asterisk -rx "channel originate PJSIP/101 extension 102@from-internal"`
 
 ## Future Improvements
 

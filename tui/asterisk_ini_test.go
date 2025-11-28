@@ -267,7 +267,7 @@ bind=0.0.0.0:5060
 
 [101]
 type=endpoint
-context=internal
+context=from-internal
 `
 
 	err := os.WriteFile(testFile, []byte(initial), 0644)
@@ -481,7 +481,7 @@ func TestPreserveKeyOrder(t *testing.T) {
 	
 	// Add properties in specific order
 	section.SetProperty("type", "endpoint")
-	section.SetProperty("context", "internal")
+	section.SetProperty("context", "from-internal")
 	section.SetProperty("disallow", "all")
 	section.SetProperty("allow", "ulaw")
 	section.SetProperty("transport", "transport-udp")

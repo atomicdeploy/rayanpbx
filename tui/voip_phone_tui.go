@@ -3,15 +3,20 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
+// Auto-refresh interval for VoIP phones list
+const voipAutoRefreshInterval = 10 * time.Second
+
 // Discovery state for background scanning
 type discoveryState struct {
 	isScanning      bool
 	lastScanTime    time.Time
+	lastRefreshTime time.Time
 	scanError       string
 	lldpError       string
 	mutex           sync.Mutex
@@ -31,14 +36,22 @@ func isRunningAsRoot() bool {
 // renderVoIPPhones renders the VoIP phones list screen
 func (m model) renderVoIPPhones() string {
 	content := infoStyle.Render("📱 VoIP Phones Management") + "\n"
-	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
 	
 	// Show discovery status
 	voipDiscoveryState.mutex.Lock()
 	isScanning := voipDiscoveryState.isScanning
 	scanError := voipDiscoveryState.scanError
 	lldpError := voipDiscoveryState.lldpError
+	lastRefresh := voipDiscoveryState.lastRefreshTime
 	voipDiscoveryState.mutex.Unlock()
+	
+	// Show auto-refresh status
+	if !lastRefresh.IsZero() {
+		elapsed := time.Since(lastRefresh)
+		refreshStr := fmt.Sprintf("🔄 Auto-refreshing every %ds (last: %ds ago)", int(voipAutoRefreshInterval.Seconds()), int(elapsed.Seconds()))
+		content += helpStyle.Render(refreshStr) + "\n\n"
+	}
 	
 	if isScanning {
 		content += warningStyle.Render("🔍 Discovering phones on the network...") + "\n\n"
@@ -60,7 +73,7 @@ func (m model) renderVoIPPhones() string {
 		content += "📭 No phones detected\n\n"
 		content += helpStyle.Render("💡 Phones are detected automatically via:") + "\n"
 		content += helpStyle.Render("   • SIP registrations from Asterisk") + "\n"
-		content += helpStyle.Render("   • LLDP network discovery") + "\n"
+		content += helpStyle.Render("   • LLDP network discovery (📡)") + "\n"
 		content += helpStyle.Render("   • Network scanning (VoIP phone OUI detection)") + "\n\n"
 		content += helpStyle.Render("   Press 'a' to manually add a phone by IP address") + "\n"
 		content += helpStyle.Render("   Press 'A' to add all discovered phones")
@@ -69,9 +82,38 @@ func (m model) renderVoIPPhones() string {
 	
 	content += fmt.Sprintf("📊 Total Phones: %s\n\n", successStyle.Render(fmt.Sprintf("%d", len(m.voipPhones))))
 	
-	// Header
-	content += helpStyle.Render("  Extension      IP Address         Status        Vendor") + "\n"
-	content += helpStyle.Render("  ──────────────────────────────────────────────────────") + "\n"
+	// Column definitions for dynamic table generation
+	type columnDef struct {
+		header string
+		width  int
+	}
+	columns := []columnDef{
+		{"Ext", 10},
+		{"Name/IP", 20},
+		{"Status", 14},
+		{"Vendor/Model", 23},
+	}
+	
+	// Generate header row dynamically
+	headerRow := "  " // Leading space for cursor column
+	for i, col := range columns {
+		headerRow += fmt.Sprintf("%-*s", col.width, col.header)
+		if i < len(columns)-1 {
+			headerRow += "  " // Column separator
+		}
+	}
+	content += helpStyle.Render(headerRow) + "\n"
+	
+	// Generate separator line dynamically - calculate total width
+	totalWidth := 2 // Leading space for cursor
+	for i, col := range columns {
+		totalWidth += col.width
+		if i < len(columns)-1 {
+			totalWidth += 2 // Column separator
+		}
+	}
+	separatorLine := "  " + strings.Repeat("─", totalWidth-2)
+	content += helpStyle.Render(separatorLine) + "\n"
 	
 	for i, phone := range m.voipPhones {
 		cursor := " "
@@ -79,7 +121,7 @@ func (m model) renderVoIPPhones() string {
 			cursor = "▶"
 		}
 		
-		// Status with emoji
+		// Status with emoji (including LLDP indicator)
 		status := "🔴 Offline"
 		statusStyle := errorStyle
 		if phone.Status == "Registered" || phone.Status == "Available" || phone.Status == "online" {
@@ -90,34 +132,65 @@ func (m model) renderVoIPPhones() string {
 			statusStyle = warningStyle
 		}
 		
-		// Extract vendor from user agent
-		vendor := phone.UserAgent
-		if len(vendor) > 15 {
-			vendor = vendor[:15] + "..."
+		// Add LLDP indicator for phones discovered via LLDP
+		// Check if this phone was discovered via LLDP by looking at discovered phones
+		isLLDP := false
+		for _, disc := range m.discoveredPhones {
+			if disc.IP == phone.IP && disc.DiscoveryType == "lldp" {
+				isLLDP = true
+				break
+			}
+		}
+		if isLLDP {
+			status = "📡" + status[2:] // Replace first emoji with LLDP indicator
 		}
 		
-		// Format extension
+		// Extract vendor and model from user agent - use column width
+		vendorModel := phone.UserAgent
+		if vendorModel == "" {
+			vendorModel = "Unknown"
+		}
+		vendorColWidth := columns[3].width
+		if len(vendorModel) > vendorColWidth-3 {
+			vendorModel = vendorModel[:vendorColWidth-3] + "..."
+		}
+		
+		// Format extension - use column width
 		ext := phone.Extension
 		if ext == "" {
 			ext = "---"
 		}
-		if len(ext) > 12 {
-			ext = ext[:12]
+		extColWidth := columns[0].width
+		if len(ext) > extColWidth {
+			ext = ext[:extColWidth]
 		}
 		
-		line := fmt.Sprintf("%s %-12s  %-18s %s  %s\n",
+		// Display name - prefer friendly name if set, otherwise fall back to IP - use column width
+		displayName := phone.Name
+		if displayName == "" {
+			displayName = phone.IP
+		}
+		nameColWidth := columns[1].width
+		if len(displayName) > nameColWidth-2 {
+			displayName = displayName[:nameColWidth-2] + ".."
+		}
+		
+		// Build row using column widths for consistent alignment
+		line := fmt.Sprintf("%s %-*s  %-*s %s  %-*s\n",
 			cursor,
-			successStyle.Render(ext),
-			phone.IP,
-			statusStyle.Render(fmt.Sprintf("%-10s", status)),
-			helpStyle.Render(vendor),
+			columns[0].width, successStyle.Render(ext),
+			columns[1].width, displayName,
+			statusStyle.Render(fmt.Sprintf("%-*s", columns[2].width, status)),
+			columns[3].width, helpStyle.Render(vendorModel),
 		)
 		content += line
 	}
 	
 	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
-	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details/Add credentials") + "\n"
-	content += helpStyle.Render("   a    Add manually    A      Add all discovered    r  Refresh    ESC  Back")
+	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View/Edit    c  Control menu") + "\n"
+	content += helpStyle.Render("   a    Add manually    d      Delete       A  Add all discovered") + "\n"
+	content += helpStyle.Render("   r    Refresh         ESC    Back")
+	content += "\n" + helpStyle.Render("   📡 = LLDP discovered")
 	
 	return menuStyle.Render(content)
 }
@@ -221,7 +294,7 @@ func (m model) renderVoIPPhoneDetails() string {
 	return menuStyle.Render(content)
 }
 
-// renderVoIPPhoneControl renders the phone control menu
+// renderVoIPPhoneControl renders the phone control menu with tabs
 func (m model) renderVoIPPhoneControl() string {
 	if m.selectedPhoneIdx >= len(m.voipPhones) {
 		return menuStyle.Render(errorStyle.Render("No phone selected"))
@@ -229,48 +302,69 @@ func (m model) renderVoIPPhoneControl() string {
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
 	
-	content := infoStyle.Render(fmt.Sprintf("🎛️  Phone Control: %s", phone.Extension)) + "\n"
-	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
+	// Title with phone info
+	displayName := phone.Name
+	if displayName == "" {
+		displayName = phone.Extension
+	}
+	if displayName == "" {
+		displayName = phone.IP
+	}
+	
+	content := infoStyle.Render(fmt.Sprintf("🎛️  Phone Control: %s", displayName)) + "\n"
+	content += helpStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━") + "\n\n"
+	
+	// Render tab bar
+	content += "  "
+	for i, tabName := range voipControlTabNames {
+		if i == m.voipControlTab {
+			content += selectedItemStyle.Render(fmt.Sprintf(" [%s] ", tabName))
+		} else {
+			content += helpStyle.Render(fmt.Sprintf("  %s  ", tabName))
+		}
+		if i < len(voipControlTabNames)-1 {
+			content += "│"
+		}
+	}
+	content += "\n"
+	content += helpStyle.Render("  ─────────────────────────────────────────────────────────────────────") + "\n\n"
+	
+	// Show error/success messages
+	if m.errorMsg != "" {
+		content += errorStyle.Render("❌ "+m.errorMsg) + "\n\n"
+	}
+	if m.successMsg != "" {
+		content += successStyle.Render("✅ "+m.successMsg) + "\n\n"
+	}
 	
 	// Show operation output if any
 	if m.voipPhoneOutput != "" {
 		content += successStyle.Render("📋 Output:") + "\n"
-		content += "┌─────────────────────────────────────┐\n"
+		content += "┌─────────────────────────────────────────────────────────────────────┐\n"
 		outputLines := strings.Split(m.voipPhoneOutput, "\n")
 		for _, line := range outputLines {
 			if line != "" {
+				// Truncate long lines
+				if len(line) > 67 {
+					line = line[:67] + "..."
+				}
 				content += "│ " + line + "\n"
 			}
 		}
-		content += "└─────────────────────────────────────┘\n\n"
+		content += "└─────────────────────────────────────────────────────────────────────┘\n\n"
 	}
 	
-	// Render menu items with section styling
+	// Render menu items for current tab
 	for i, item := range m.voipControlMenu {
-		// Check if it's a separator line
-		if strings.HasPrefix(item, "────") {
-			content += helpStyle.Render("  ─────────────────────────────────") + "\n"
-			continue
-		}
-		
-		// Check if it's a section header
-		if strings.HasSuffix(item, ":") && !strings.HasPrefix(item, "  ") {
-			content += "\n" + infoStyle.Render(item) + "\n"
-			continue
-		}
-		
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
-			// Skip separators and headers from selection
 			item = selectedItemStyle.Render(item)
-		} else {
-			item = fmt.Sprintf("%s", item)
 		}
-		content += fmt.Sprintf("%s %s\n", cursor, item)
+		content += fmt.Sprintf("  %s %s\n", cursor, item)
 	}
 	
-	content += "\n" + helpStyle.Render("💡 Use ↑/↓ to navigate, Enter to select, ESC to go back")
+	content += "\n" + helpStyle.Render("💡 ←/→ Switch tabs  │  ↑/↓ Navigate  │  Enter Select  │  ESC Back")
 	
 	return menuStyle.Render(content)
 }
@@ -440,6 +534,9 @@ func (m *model) loadRegisteredPhones() {
 					if dbp.UserAgent != "" {
 						existing.UserAgent = dbp.UserAgent
 					}
+					if dbp.Name != "" {
+						existing.Name = dbp.Name
+					}
 					phoneMap[dbp.IP] = existing
 				} else {
 					// Add database-only phone
@@ -448,6 +545,7 @@ func (m *model) loadRegisteredPhones() {
 						IP:        dbp.IP,
 						Status:    dbp.Status,
 						UserAgent: dbp.UserAgent,
+						Name:      dbp.Name,
 					}
 				}
 			}
@@ -460,10 +558,55 @@ func (m *model) loadRegisteredPhones() {
 		}
 	}
 	
+	// Sort phones: by extension first, then by IP address
+	sortVoIPPhones(phones)
+	
 	m.voipPhones = phones
+	
+	// Update refresh time
+	voipDiscoveryState.mutex.Lock()
+	voipDiscoveryState.lastRefreshTime = time.Now()
+	voipDiscoveryState.mutex.Unlock()
+	
 	if len(phones) > 0 {
 		m.successMsg = fmt.Sprintf("Found %d phone(s)", len(phones))
 	}
+}
+
+// sortVoIPPhones sorts phones by extension (numeric if possible), then by IP address
+func sortVoIPPhones(phones []PhoneInfo) {
+	sort.Slice(phones, func(i, j int) bool {
+		// First sort by extension
+		extI := phones[i].Extension
+		extJ := phones[j].Extension
+		
+		// Handle empty extensions - put them at the end
+		if extI == "" && extJ != "" {
+			return false
+		}
+		if extI != "" && extJ == "" {
+			return true
+		}
+		
+		// If both have extensions, compare them
+		if extI != "" && extJ != "" {
+			// Try numeric comparison first
+			var numI, numJ int
+			_, errI := fmt.Sscanf(extI, "%d", &numI)
+			_, errJ := fmt.Sscanf(extJ, "%d", &numJ)
+			
+			if errI == nil && errJ == nil {
+				if numI != numJ {
+					return numI < numJ
+				}
+			} else if extI != extJ {
+				return extI < extJ
+			}
+		}
+		
+		// Then sort by IP address
+		return phones[i].IP < phones[j].IP
+	})
 }
 
 // handleVoIPPhonesKeyPress handles key presses in VoIP phones screens
@@ -472,22 +615,38 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 	case voipPhonesScreen:
 		switch key {
 		case "up", "k":
+			// Process any pending discovered phones
+			m.processPendingDiscoveredPhones()
+			
 			if m.selectedPhoneIdx > 0 {
 				m.selectedPhoneIdx--
 			} else if len(m.voipPhones) > 0 {
 				m.selectedPhoneIdx = len(m.voipPhones) - 1
 			}
 		case "down", "j":
+			// Process any pending discovered phones
+			m.processPendingDiscoveredPhones()
+			
 			if m.selectedPhoneIdx < len(m.voipPhones)-1 {
 				m.selectedPhoneIdx++
 			} else if len(m.voipPhones) > 0 {
 				m.selectedPhoneIdx = 0
 			}
 		case "enter":
+			// Check for auto-refresh before processing
+			m.checkAutoRefresh()
+			
 			// Show phone details or go to add credentials if no phones
 			if len(m.voipPhones) > 0 {
-				// Check if this phone has credentials, if not redirect to add credentials
 				phone := m.voipPhones[m.selectedPhoneIdx]
+				
+				// For discovered phones (no extension), go to add/edit menu
+				if phone.Status == "discovered" || phone.Extension == "" {
+					m.initManualIPInputWithIP(phone.IP)
+					return
+				}
+				
+				// Check if this phone has credentials
 				hasCredentials := false
 				if m.phoneCredentials != nil {
 					if creds, ok := m.phoneCredentials[phone.IP]; ok && creds["password"] != "" {
@@ -512,11 +671,32 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "A":
 			// Add all discovered phones
 			m.addAllDiscoveredPhones()
+		case "d":
+			// Delete/remove selected phone
+			if len(m.voipPhones) > 0 {
+				m.deleteSelectedPhone()
+			}
 		case "r":
 			// Process any pending discovered phones first
 			m.processPendingDiscoveredPhones()
 			// Refresh phone list with background discovery
 			m.loadRegisteredPhonesWithDiscovery()
+		case "c":
+			// Go directly to control menu from phone list
+			if len(m.voipPhones) > 0 {
+				phone := m.voipPhones[m.selectedPhoneIdx]
+				hasCredentials := false
+				if m.phoneCredentials != nil {
+					if creds, ok := m.phoneCredentials[phone.IP]; ok && creds["password"] != "" {
+						hasCredentials = true
+					}
+				}
+				if !hasCredentials {
+					m.initManualIPInputWithIP(phone.IP)
+				} else {
+					m.initVoIPControlMenu()
+				}
+			}
 		}
 		
 	case voipPhoneDetailsScreen:
@@ -552,9 +732,94 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 			} else if len(m.voipControlMenu) > 0 {
 				m.cursor = 0
 			}
+		case "left", "h":
+			// Switch to previous tab
+			if m.voipControlTab > 0 {
+				m.voipControlTab--
+			} else {
+				m.voipControlTab = len(voipControlTabNames) - 1
+			}
+			m.voipControlMenu = getVoIPControlMenuItems(m.voipControlTab)
+			m.cursor = 0
+			m.voipPhoneOutput = ""
+			m.errorMsg = ""
+			m.successMsg = ""
+		case "right", "l":
+			// Switch to next tab
+			if m.voipControlTab < len(voipControlTabNames)-1 {
+				m.voipControlTab++
+			} else {
+				m.voipControlTab = 0
+			}
+			m.voipControlMenu = getVoIPControlMenuItems(m.voipControlTab)
+			m.cursor = 0
+			m.voipPhoneOutput = ""
+			m.errorMsg = ""
+			m.successMsg = ""
 		case "enter":
 			m.executeVoIPControlAction()
 		}
+	}
+}
+
+// VoIP Control Menu Tab constants
+const (
+	voipTabStatus       = 0
+	voipTabManagement   = 1
+	voipTabProvisioning = 2
+	voipTabCTI          = 3
+)
+
+// voipControlTabNames contains the tab names for the control menu
+var voipControlTabNames = []string{"📊 Status", "🔧 Management", "🔧 Provisioning", "📞 CTI/CSTA"}
+
+// getVoIPControlMenuItems returns the menu items for the current tab
+func getVoIPControlMenuItems(tab int) []string {
+	switch tab {
+	case voipTabStatus:
+		return []string{
+			"📊 Get Phone Status",
+			"📱 Get Phone State",
+			"📊 Live Monitoring",
+			"🧪 Test CTI/SNMP",
+			"🔙 Back to Phone List",
+		}
+	case voipTabManagement:
+		return []string{
+			"🔄 Reboot Phone",
+			"🏭 Factory Reset",
+			"📋 Get Configuration",
+			"⚙️ Set Configuration",
+			"🔙 Back to Phone List",
+		}
+	case voipTabProvisioning:
+		return []string{
+			"🔧 Provision Extension",
+			"📡 TR-069 Management",
+			"🔗 Webhook Configuration",
+			"🔧 Enable CTI Features",
+			"🔙 Back to Phone List",
+		}
+	case voipTabCTI:
+		return []string{
+			"✅ Accept Call",
+			"❌ Reject Call",
+			"🔚 End Call",
+			"⏸️  Hold Call",
+			"▶️  Resume Call",
+			"🔇 Mute/Unmute",
+			"📲 Dial Number",
+			"🔢 Send DTMF",
+			"↗️  Blind Transfer",
+			"👥 Attended Transfer",
+			"🎙️ Conference Call",
+			"🚫 Toggle DND",
+			"↗️  Call Forward",
+			"📺 LCD Message",
+			"🔙 Back to Phone List",
+		}
+	default:
+		return []string{"🔙 Back to Phone List"}
 	}
 }
 
@@ -562,37 +827,12 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 func (m *model) initVoIPControlMenu() {
 	m.currentScreen = voipPhoneControlScreen
 	m.cursor = 0
+	m.voipControlTab = voipTabStatus // Start on Status tab
 	m.voipPhoneOutput = ""
 	m.errorMsg = ""
 	m.successMsg = ""
 	
-	m.voipControlMenu = []string{
-		"📊 Get Phone Status",
-		"🔄 Reboot Phone",
-		"🏭 Factory Reset",
-		"📋 Get Configuration",
-		"⚙️ Set Configuration",
-		"🔧 Provision Extension",
-		"📡 TR-069 Management",
-		"🔗 Webhook Configuration",
-		"📊 Live Monitoring",
-		"────────────────────", // Separator
-		"📞 CTI/CSTA Operations:",
-		"  📱 Get Phone State",
-		"  ✅ Accept Call",
-		"  ❌ Reject Call",
-		"  🔚 End Call",
-		"  ⏸️  Hold Call",
-		"  ▶️  Resume Call",
-		"  📲 Dial Number",
-		"  🔢 Send DTMF",
-		"  ↗️  Blind Transfer",
-		"  🚫 Toggle DND",
-		"────────────────────", // Separator
-		"🔧 Enable CTI Features",
-		"🧪 Test CTI/SNMP",
-		"🔙 Back to Details",
-	}
+	m.voipControlMenu = getVoIPControlMenuItems(m.voipControlTab)
 }
 
 // initManualIPInput initializes the phone edit screen for adding a new phone
@@ -697,6 +937,48 @@ func (m *model) addAllDiscoveredPhones() {
 	}
 }
 
+// deleteSelectedPhone deletes the currently selected phone from the list and database
+func (m *model) deleteSelectedPhone() {
+	if m.selectedPhoneIdx >= len(m.voipPhones) || len(m.voipPhones) == 0 {
+		m.errorMsg = "No phone selected to delete"
+		return
+	}
+	
+	phone := m.voipPhones[m.selectedPhoneIdx]
+	
+	// Delete from database
+	if m.db != nil {
+		err := DeleteVoIPPhoneByIP(m.db, phone.IP)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to delete phone from database: %v", err)
+			return
+		}
+	}
+	
+	// Remove from in-memory list
+	m.voipPhones = append(m.voipPhones[:m.selectedPhoneIdx], m.voipPhones[m.selectedPhoneIdx+1:]...)
+	
+	// Also remove from discovered phones if present
+	for i, disc := range m.discoveredPhones {
+		if disc.IP == phone.IP {
+			m.discoveredPhones = append(m.discoveredPhones[:i], m.discoveredPhones[i+1:]...)
+			break
+		}
+	}
+	
+	// Remove credentials if stored
+	if m.phoneCredentials != nil {
+		delete(m.phoneCredentials, phone.IP)
+	}
+	
+	// Adjust selected index if needed
+	if m.selectedPhoneIdx >= len(m.voipPhones) && len(m.voipPhones) > 0 {
+		m.selectedPhoneIdx = len(m.voipPhones) - 1
+	}
+	
+	m.successMsg = fmt.Sprintf("Phone %s deleted successfully", phone.IP)
+}
+
 // loadRegisteredPhonesWithDiscovery loads phones and triggers background discovery
 func (m *model) loadRegisteredPhonesWithDiscovery() {
 	// Process any pending discovered phones from previous background scan
@@ -794,6 +1076,23 @@ func (m *model) processPendingDiscoveredPhones() {
 	m.mergeDiscoveredPhones(pending)
 }
 
+// checkAutoRefresh checks if auto-refresh is needed and triggers refresh if so
+func (m *model) checkAutoRefresh() {
+	voipDiscoveryState.mutex.Lock()
+	lastRefresh := voipDiscoveryState.lastRefreshTime
+	voipDiscoveryState.mutex.Unlock()
+	
+	// Process any pending discovered phones first
+	m.processPendingDiscoveredPhones()
+	
+	// Check if we need to refresh (only if lastRefresh was set and auto-refresh interval has passed)
+	// Skip auto-refresh if lastRefresh was never set (to avoid refreshing on first access)
+	if !lastRefresh.IsZero() && time.Since(lastRefresh) > voipAutoRefreshInterval {
+		// Reload registered phones (quick operation)
+		m.loadRegisteredPhones()
+	}
+}
+
 // mergeDiscoveredPhones merges discovered phones into the existing list and saves to DB
 func (m *model) mergeDiscoveredPhones(discovered []DiscoveredPhone) {
 	for _, disc := range discovered {
@@ -840,6 +1139,9 @@ func (m *model) mergeDiscoveredPhones(discovered []DiscoveredPhone) {
 			}
 		}
 	}
+	
+	// Re-sort the list to maintain consistent order
+	sortVoIPPhones(m.voipPhones)
 }
 
 // initVoIPProvisionScreen initializes the provision screen
@@ -919,13 +1221,23 @@ func (m *model) refreshPhoneStatus() {
 	m.voipPhoneOutput = ""
 }
 
-// executeVoIPControlAction executes the selected control action
+// executeVoIPControlAction executes the selected control action based on current tab
 func (m *model) executeVoIPControlAction() {
 	if m.selectedPhoneIdx >= len(m.voipPhones) {
 		return
 	}
 	
 	phone := m.voipPhones[m.selectedPhoneIdx]
+	menuItem := ""
+	if m.cursor < len(m.voipControlMenu) {
+		menuItem = m.voipControlMenu[m.cursor]
+	}
+	
+	// Handle "Back to Phone List" action
+	if strings.Contains(menuItem, "Back to Phone List") {
+		m.currentScreen = voipPhonesScreen
+		return
+	}
 	
 	// Get credentials from stored credentials or prompt for manual entry
 	credentials := map[string]string{
@@ -956,8 +1268,23 @@ func (m *model) executeVoIPControlAction() {
 	m.successMsg = ""
 	m.voipPhoneOutput = ""
 	
-	switch m.cursor {
-	case 0: // Get Phone Status
+	// Execute action based on tab and menu item
+	switch m.voipControlTab {
+	case voipTabStatus:
+		m.executeStatusTabAction(menuItem, phone, phoneInstance)
+	case voipTabManagement:
+		m.executeManagementTabAction(menuItem, phoneInstance)
+	case voipTabProvisioning:
+		m.executeProvisioningTabAction(menuItem, phone, phoneInstance)
+	case voipTabCTI:
+		m.executeCTITabAction(menuItem, phone, phoneInstance)
+	}
+}
+
+// executeStatusTabAction handles Status tab actions
+func (m *model) executeStatusTabAction(menuItem string, phone PhoneInfo, phoneInstance VoIPPhone) {
+	switch {
+	case strings.Contains(menuItem, "Get Phone Status"):
 		status, err := phoneInstance.GetStatus()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to get status: %v", err)
@@ -975,98 +1302,10 @@ func (m *model) executeVoIPControlAction() {
 			m.successMsg = "Status retrieved successfully"
 		}
 		
-	case 1: // Reboot Phone
-		err := phoneInstance.Reboot()
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to reboot: %v", err)
-		} else {
-			m.successMsg = "Reboot command sent successfully"
-			m.voipPhoneOutput = "Phone is rebooting... This may take a few minutes."
-		}
-		
-	case 2: // Factory Reset
-		err := phoneInstance.FactoryReset()
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to factory reset: %v", err)
-		} else {
-			m.successMsg = "Factory reset command sent successfully"
-			m.voipPhoneOutput = "Phone is resetting to factory defaults... This may take a few minutes."
-		}
-		
-	case 3: // Get Configuration
-		config, err := phoneInstance.GetConfig()
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to get config: %v", err)
-		} else {
-			var output strings.Builder
-			output.WriteString("Current Configuration:\n")
-			for key, value := range config {
-				output.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
-			}
-			m.voipPhoneOutput = output.String()
-			m.successMsg = "Configuration retrieved successfully"
-		}
-		
-	case 4: // Set Configuration
-		m.voipPhoneOutput = "Configuration setting not yet implemented in TUI.\nUse Web UI for advanced configuration."
-		
-	case 5: // Provision Extension
-		m.initVoIPProvisionScreen()
-		
-	case 6: // TR-069 Management
-		m.voipPhoneOutput = "TR-069 Management:\n\n"
-		m.voipPhoneOutput += "TR-069 (CWMP) provides advanced management capabilities:\n"
-		m.voipPhoneOutput += "- Firmware updates\n"
-		m.voipPhoneOutput += "- Remote configuration\n"
-		m.voipPhoneOutput += "- Parameter monitoring\n"
-		m.voipPhoneOutput += "- Bulk operations\n\n"
-		m.voipPhoneOutput += "Use the Web UI or API for TR-069 management."
-		
-	case 7: // Webhook Configuration
-		m.voipPhoneOutput = "Webhook Configuration:\n\n"
-		m.voipPhoneOutput += "Configure webhooks for phone events:\n"
-		m.voipPhoneOutput += "- Registration events\n"
-		m.voipPhoneOutput += "- Call start/end events\n"
-		m.voipPhoneOutput += "- Configuration changes\n\n"
-		
-		// Get server address from config or environment
-		serverAddr := "your-server"
-		if m.config != nil && m.config.APIBaseURL != "" {
-			serverAddr = strings.TrimPrefix(m.config.APIBaseURL, "http://")
-			serverAddr = strings.TrimPrefix(serverAddr, "https://")
-			serverAddr = strings.TrimSuffix(serverAddr, "/api")
-		}
-		
-		m.voipPhoneOutput += fmt.Sprintf("Webhook URL: http://%s/api/phones/webhook\n", serverAddr)
-		m.voipPhoneOutput += "Configure in phone web interface under Events/Hooks."
-		
-	case 8: // Live Monitoring
-		m.voipPhoneOutput = "Live Monitoring:\n\n"
-		if m.currentPhoneStatus != nil {
-			m.voipPhoneOutput += fmt.Sprintf("Phone: %s\n", phone.IP)
-			m.voipPhoneOutput += fmt.Sprintf("Status: %s\n", m.currentPhoneStatus.Vendor)
-			m.voipPhoneOutput += fmt.Sprintf("Model: %s\n", m.currentPhoneStatus.Model)
-			m.voipPhoneOutput += fmt.Sprintf("Firmware: %s\n", m.currentPhoneStatus.Firmware)
-			m.voipPhoneOutput += fmt.Sprintf("Active Calls: %d\n", m.currentPhoneStatus.ActiveCalls)
-			m.voipPhoneOutput += fmt.Sprintf("Registered: %v\n", m.currentPhoneStatus.Registered)
-		} else {
-			m.voipPhoneOutput += "No status data available. Get phone status first."
-		}
-		
-	case 9: // Separator - do nothing
-		// Separator line
-		
-	case 10: // CTI/CSTA header - do nothing
-		m.voipPhoneOutput = "CTI/CSTA Operations:\n\n"
-		m.voipPhoneOutput += "Computer-Telephony Integration (CTI) and\n"
-		m.voipPhoneOutput += "Computer Supported Telecommunications Applications (CSTA)\n"
-		m.voipPhoneOutput += "provide programmatic control over phone operations.\n\n"
-		m.voipPhoneOutput += "Select an operation from the menu below."
-		
-	case 11: // Get Phone State
+	case strings.Contains(menuItem, "Get Phone State"):
 		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
 		if !ok {
-			m.errorMsg = "CTI operations only available for GrandStream phones"
+			m.errorMsg = "Phone state only available for GrandStream phones"
 			return
 		}
 		state, err := gsPhone.GetPhoneState()
@@ -1095,133 +1334,20 @@ func (m *model) executeVoIPControlAction() {
 			m.successMsg = "Phone state retrieved successfully"
 		}
 		
-	case 12: // Accept Call
-		err := phoneInstance.AcceptCall(1)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to accept call: %v", err)
+	case strings.Contains(menuItem, "Live Monitoring"):
+		m.voipPhoneOutput = "Live Monitoring:\n\n"
+		if m.currentPhoneStatus != nil {
+			m.voipPhoneOutput += fmt.Sprintf("Phone: %s\n", phone.IP)
+			m.voipPhoneOutput += fmt.Sprintf("Vendor: %s\n", m.currentPhoneStatus.Vendor)
+			m.voipPhoneOutput += fmt.Sprintf("Model: %s\n", m.currentPhoneStatus.Model)
+			m.voipPhoneOutput += fmt.Sprintf("Firmware: %s\n", m.currentPhoneStatus.Firmware)
+			m.voipPhoneOutput += fmt.Sprintf("Active Calls: %d\n", m.currentPhoneStatus.ActiveCalls)
+			m.voipPhoneOutput += fmt.Sprintf("Registered: %v\n", m.currentPhoneStatus.Registered)
 		} else {
-			m.successMsg = "Accept call command sent successfully"
+			m.voipPhoneOutput += "No status data. Run 'Get Phone Status' first."
 		}
 		
-	case 13: // Reject Call
-		err := phoneInstance.RejectCall(1)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to reject call: %v", err)
-		} else {
-			m.successMsg = "Reject call command sent successfully"
-		}
-		
-	case 14: // End Call
-		err := phoneInstance.EndCall(1)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to end call: %v", err)
-		} else {
-			m.successMsg = "End call command sent successfully"
-		}
-		
-	case 15: // Hold Call
-		err := phoneInstance.HoldCall(1)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to hold call: %v", err)
-		} else {
-			m.successMsg = "Hold call command sent successfully"
-		}
-		
-	case 16: // Resume Call
-		err := phoneInstance.ResumeCall(1)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to resume call: %v", err)
-		} else {
-			m.successMsg = "Resume call command sent successfully"
-		}
-		
-	case 17: // Dial Number
-		// Dial functionality requires interactive input which is complex in TUI
-		// Users should use the Web API or Web UI for dialing
-		m.voipPhoneOutput = "Dial Number:\n\n"
-		m.voipPhoneOutput += "To dial a number programmatically, use the Web API:\n"
-		m.voipPhoneOutput += "POST /api/grandstream/cti/operation\n"
-		m.voipPhoneOutput += "{\n"
-		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
-		m.voipPhoneOutput += "  \"operation\": \"dial\",\n"
-		m.voipPhoneOutput += "  \"number\": \"<destination>\"\n"
-		m.voipPhoneOutput += "}\n\n"
-		m.voipPhoneOutput += "Or use the Web UI for interactive dialing."
-		
-	case 18: // Send DTMF
-		m.voipPhoneOutput = "Send DTMF:\n\n"
-		m.voipPhoneOutput += "To send DTMF tones, use the Web API:\n"
-		m.voipPhoneOutput += "POST /api/phones/control\n"
-		m.voipPhoneOutput += "{\n"
-		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
-		m.voipPhoneOutput += "  \"action\": \"dtmf\",\n"
-		m.voipPhoneOutput += "  \"digits\": \"<dtmf-digits>\"\n"
-		m.voipPhoneOutput += "}"
-		
-	case 19: // Blind Transfer
-		m.voipPhoneOutput = "Blind Transfer:\n\n"
-		m.voipPhoneOutput += "To perform blind transfer, use the Web API:\n"
-		m.voipPhoneOutput += "POST /api/phones/control\n"
-		m.voipPhoneOutput += "{\n"
-		m.voipPhoneOutput += "  \"ip\": \"" + phone.IP + "\",\n"
-		m.voipPhoneOutput += "  \"action\": \"blind_transfer\",\n"
-		m.voipPhoneOutput += "  \"target\": \"<extension>\"\n"
-		m.voipPhoneOutput += "}"
-		
-	case 20: // Toggle DND
-		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
-		if !ok {
-			m.errorMsg = "DND toggle only available for GrandStream phones"
-			return
-		}
-		// Get current state first
-		state, err := gsPhone.GetPhoneState()
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to get phone state: %v", err)
-			return
-		}
-		// Toggle DND
-		newDND := !state.DNDEnabled
-		err = gsPhone.SetDND(newDND)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to toggle DND: %v", err)
-		} else {
-			if newDND {
-				m.successMsg = "DND enabled successfully"
-			} else {
-				m.successMsg = "DND disabled successfully"
-			}
-		}
-		
-	case 21: // Separator - do nothing
-		// Separator line
-		
-	case 22: // Enable CTI Features
-		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
-		if !ok {
-			m.errorMsg = "CTI features only available for GrandStream phones"
-			return
-		}
-		// Enable CTI with SNMP
-		snmpConfig := &SNMPConfig{
-			Enabled:   true,
-			Community: "public",
-			Version:   "v2c",
-		}
-		err := gsPhone.EnableCTIFeatures(true, snmpConfig)
-		if err != nil {
-			m.errorMsg = fmt.Sprintf("Failed to enable CTI features: %v", err)
-		} else {
-			m.successMsg = "CTI and SNMP features enabled successfully"
-			m.voipPhoneOutput = "CTI Features Enabled:\n\n"
-			m.voipPhoneOutput += "✅ CTI API access enabled\n"
-			m.voipPhoneOutput += "✅ SNMP monitoring enabled\n"
-			m.voipPhoneOutput += "✅ Community: public\n"
-			m.voipPhoneOutput += "✅ Version: v2c\n\n"
-			m.voipPhoneOutput += "You may need to reboot the phone for all changes to take effect."
-		}
-		
-	case 23: // Test CTI/SNMP
+	case strings.Contains(menuItem, "Test CTI/SNMP"):
 		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
 		if !ok {
 			m.errorMsg = "CTI test only available for GrandStream phones"
@@ -1246,14 +1372,228 @@ func (m *model) executeVoIPControlAction() {
 		}
 		
 		if !ctiOK || !snmpOK {
-			output.WriteString("\n💡 Use 'Enable CTI Features' to enable these features.\n")
+			output.WriteString("\n💡 Go to Provisioning tab → 'Enable CTI Features'\n")
 		}
 		
 		m.voipPhoneOutput = output.String()
 		m.successMsg = "CTI/SNMP test completed"
+	}
+}
+
+// executeManagementTabAction handles Management tab actions
+func (m *model) executeManagementTabAction(menuItem string, phoneInstance VoIPPhone) {
+	switch {
+	case strings.Contains(menuItem, "Reboot Phone"):
+		err := phoneInstance.Reboot()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reboot: %v", err)
+		} else {
+			m.successMsg = "Reboot command sent successfully"
+			m.voipPhoneOutput = "Phone is rebooting... This may take a few minutes."
+		}
 		
-	case 24: // Back to Details
-		m.currentScreen = voipPhoneDetailsScreen
+	case strings.Contains(menuItem, "Factory Reset"):
+		err := phoneInstance.FactoryReset()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to factory reset: %v", err)
+		} else {
+			m.successMsg = "Factory reset command sent successfully"
+			m.voipPhoneOutput = "Phone is resetting to factory defaults..."
+		}
+		
+	case strings.Contains(menuItem, "Get Configuration"):
+		config, err := phoneInstance.GetConfig()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to get config: %v", err)
+		} else {
+			var output strings.Builder
+			output.WriteString("Current Configuration:\n")
+			for key, value := range config {
+				output.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+			}
+			m.voipPhoneOutput = output.String()
+			m.successMsg = "Configuration retrieved successfully"
+		}
+		
+	case strings.Contains(menuItem, "Set Configuration"):
+		m.voipPhoneOutput = "Set Configuration:\n\n"
+		m.voipPhoneOutput += "Configuration setting not yet implemented in TUI.\n"
+		m.voipPhoneOutput += "Use Web UI for advanced configuration."
+	}
+}
+
+// executeProvisioningTabAction handles Provisioning tab actions
+func (m *model) executeProvisioningTabAction(menuItem string, phone PhoneInfo, phoneInstance VoIPPhone) {
+	switch {
+	case strings.Contains(menuItem, "Provision Extension"):
+		m.initVoIPProvisionScreen()
+		
+	case strings.Contains(menuItem, "TR-069"):
+		m.voipPhoneOutput = "TR-069 Management:\n\n"
+		m.voipPhoneOutput += "TR-069 (CWMP) provides advanced management:\n"
+		m.voipPhoneOutput += "- Firmware updates\n"
+		m.voipPhoneOutput += "- Remote configuration\n"
+		m.voipPhoneOutput += "- Parameter monitoring\n"
+		m.voipPhoneOutput += "- Bulk operations\n\n"
+		m.voipPhoneOutput += "Use the Web UI or API for TR-069 management."
+		
+	case strings.Contains(menuItem, "Webhook"):
+		m.voipPhoneOutput = "Webhook Configuration:\n\n"
+		m.voipPhoneOutput += "Configure webhooks for phone events:\n"
+		m.voipPhoneOutput += "- Registration events\n"
+		m.voipPhoneOutput += "- Call start/end events\n"
+		m.voipPhoneOutput += "- Configuration changes\n\n"
+		
+		serverAddr := "your-server"
+		if m.config != nil && m.config.APIBaseURL != "" {
+			serverAddr = strings.TrimPrefix(m.config.APIBaseURL, "http://")
+			serverAddr = strings.TrimPrefix(serverAddr, "https://")
+			serverAddr = strings.TrimSuffix(serverAddr, "/api")
+		}
+		m.voipPhoneOutput += fmt.Sprintf("Webhook URL: http://%s/api/phones/webhook\n", serverAddr)
+		
+	case strings.Contains(menuItem, "Enable CTI Features"):
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "CTI features only available for GrandStream phones"
+			return
+		}
+		snmpConfig := &SNMPConfig{
+			Enabled:   true,
+			Community: "public",
+			Version:   "v2c",
+		}
+		err := gsPhone.EnableCTIFeatures(true, snmpConfig)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to enable CTI features: %v", err)
+		} else {
+			m.successMsg = "CTI and SNMP features enabled successfully"
+			m.voipPhoneOutput = "CTI Features Enabled:\n\n"
+			m.voipPhoneOutput += "✅ CTI API access enabled\n"
+			m.voipPhoneOutput += "✅ SNMP monitoring enabled\n"
+			m.voipPhoneOutput += "✅ Community: public\n"
+			m.voipPhoneOutput += "✅ Version: v2c\n\n"
+			m.voipPhoneOutput += "Reboot the phone to apply changes."
+		}
+	}
+}
+
+// executeCTITabAction handles CTI/CSTA tab actions
+func (m *model) executeCTITabAction(menuItem string, phone PhoneInfo, phoneInstance VoIPPhone) {
+	switch {
+	case strings.Contains(menuItem, "Accept Call"):
+		err := phoneInstance.AcceptCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to accept call: %v", err)
+		} else {
+			m.successMsg = "Accept call command sent successfully"
+		}
+		
+	case strings.Contains(menuItem, "Reject Call"):
+		err := phoneInstance.RejectCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to reject call: %v", err)
+		} else {
+			m.successMsg = "Reject call command sent successfully"
+		}
+		
+	case strings.Contains(menuItem, "End Call"):
+		err := phoneInstance.EndCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to end call: %v", err)
+		} else {
+			m.successMsg = "End call command sent successfully"
+		}
+		
+	case strings.Contains(menuItem, "Hold Call"):
+		err := phoneInstance.HoldCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to hold call: %v", err)
+		} else {
+			m.successMsg = "Hold call command sent successfully"
+		}
+		
+	case strings.Contains(menuItem, "Resume Call"):
+		err := phoneInstance.ResumeCall(1)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to resume call: %v", err)
+		} else {
+			m.successMsg = "Resume call command sent successfully"
+		}
+		
+	case strings.Contains(menuItem, "Mute"):
+		m.voipPhoneOutput = "Mute/Unmute:\n\n"
+		m.voipPhoneOutput += "Use the Web API to mute/unmute:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'mute' or 'unmute'"
+		
+	case strings.Contains(menuItem, "Dial Number"):
+		m.voipPhoneOutput = "Dial Number:\n\n"
+		m.voipPhoneOutput += "Use the Web API to dial:\n"
+		m.voipPhoneOutput += "POST /api/grandstream/cti/operation\n"
+		m.voipPhoneOutput += fmt.Sprintf("ip: %s, operation: dial, number: <dest>\n\n", phone.IP)
+		m.voipPhoneOutput += "Or use the Web UI for interactive dialing."
+		
+	case strings.Contains(menuItem, "Send DTMF"):
+		m.voipPhoneOutput = "Send DTMF:\n\n"
+		m.voipPhoneOutput += "Use the Web API:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'dtmf', digits: '<0-9,*,#>'"
+		
+	case strings.Contains(menuItem, "Blind Transfer"):
+		m.voipPhoneOutput = "Blind Transfer:\n\n"
+		m.voipPhoneOutput += "Use the Web API:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'blind_transfer', target: '<extension>'"
+		
+	case strings.Contains(menuItem, "Attended Transfer"):
+		m.voipPhoneOutput = "Attended Transfer:\n\n"
+		m.voipPhoneOutput += "Use the Web API:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'attended_transfer', target: '<extension>'"
+		
+	case strings.Contains(menuItem, "Conference"):
+		m.voipPhoneOutput = "Conference Call:\n\n"
+		m.voipPhoneOutput += "Use the Web API:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'conference'"
+		
+	case strings.Contains(menuItem, "Toggle DND"):
+		gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+		if !ok {
+			m.errorMsg = "DND toggle only available for GrandStream phones"
+			return
+		}
+		state, err := gsPhone.GetPhoneState()
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to get phone state: %v", err)
+			return
+		}
+		newDND := !state.DNDEnabled
+		err = gsPhone.SetDND(newDND)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to toggle DND: %v", err)
+		} else {
+			if newDND {
+				m.successMsg = "DND enabled successfully"
+			} else {
+				m.successMsg = "DND disabled successfully"
+			}
+		}
+		
+	case strings.Contains(menuItem, "Call Forward"):
+		m.voipPhoneOutput = "Call Forward:\n\n"
+		m.voipPhoneOutput += "Use the Web API:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'forward', target: '<extension>'\n"
+		m.voipPhoneOutput += "forward_type: 'unconditional|busy|no_answer'"
+		
+	case strings.Contains(menuItem, "LCD Message"):
+		m.voipPhoneOutput = "LCD Message:\n\n"
+		m.voipPhoneOutput += "Use the Web API:\n"
+		m.voipPhoneOutput += fmt.Sprintf("POST /api/phones/control with ip: %s\n", phone.IP)
+		m.voipPhoneOutput += "action: 'lcd_message', message: '<text>'\n"
+		m.voipPhoneOutput += "duration: <seconds>"
 	}
 }
 

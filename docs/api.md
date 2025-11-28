@@ -21,15 +21,15 @@ Content-Type: application/json
 Authorization: Bearer {token}
 
 {
-  "extension_number": "1001",
+  "extension_number": "101",
   "name": "User Name",
   "secret": "SecurePassword123",
   "enabled": true,
-  "context": "internal",
+  "context": "from-internal",
   "transport": "udp",
   "codecs": ["ulaw", "alaw", "g722"],
   "max_contacts": 1,
-  "caller_id": "\"User\" <1001>",
+  "caller_id": "\"User\" <101>",
   "voicemail_enabled": false
 }
 ```
@@ -87,10 +87,10 @@ Authorization: Bearer {token}
 Returns:
 ```json
 {
-  "extension": "1001",
+  "extension": "101",
   "registered": true,
   "status": "Created",
-  "uri": "sip:1001@192.168.1.100:5060",
+  "uri": "sip:101@192.168.1.100:5060",
   "timestamp": "2024-01-01T12:00:00Z"
 }
 ```
@@ -146,10 +146,10 @@ Monitors and displays:
 php artisan rayanpbx:extension list
 
 # Create extension
-php artisan rayanpbx:extension create 1001
+php artisan rayanpbx:extension create 101
 
 # Delete extension
-php artisan rayanpbx:extension delete 1001
+php artisan rayanpbx:extension delete 101
 ```
 
 ### Asterisk Commands
@@ -169,10 +169,10 @@ php artisan rayanpbx:config reload
 am := NewAsteriskManager()
 
 // Verify single endpoint
-exists, output, err := am.VerifyEndpoint("1001")
+exists, output, err := am.VerifyEndpoint("101")
 
 // Get endpoint status
-status, err := am.GetEndpointStatus("1001")
+status, err := am.GetEndpointStatus("101")
 // Returns: "registered", "offline", "not_found", or "error"
 
 // List all endpoints
@@ -225,7 +225,7 @@ Sections are identified by their `[name]` and `type=` property. RayanPBX will ad
 Same section-based approach:
 ```ini
 [from-internal]
-exten => 1001,1,Dial(PJSIP/1001)
+exten => 101,1,Dial(PJSIP/101)
  same => n,Hangup()
 
 [outbound-routes]
@@ -237,7 +237,7 @@ exten => _9X.,1,Dial(PJSIP/${EXTEN:1}@trunk)
 ### From Command Line
 ```bash
 # Check if endpoint exists
-asterisk -rx "pjsip show endpoint 1001"
+asterisk -rx "pjsip show endpoint 101"
 
 # Show all endpoints
 asterisk -rx "pjsip show endpoints"
@@ -246,10 +246,10 @@ asterisk -rx "pjsip show endpoints"
 asterisk -rx "pjsip show registrations"
 
 # Test dialplan
-asterisk -rx "dialplan show internal"
+asterisk -rx "dialplan show from-internal"
 
 # Originate test call
-asterisk -rx "channel originate PJSIP/1001 extension 1002@internal"
+asterisk -rx "channel originate PJSIP/1001 extension 102@from-internal"
 ```
 
 ### From API
@@ -274,7 +274,7 @@ RESPONSE=$(curl -s -X POST http://localhost:8000/api/extensions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "extension_number": "1001",
+    "extension_number": "101",
     "name": "Test User",
     "secret": "TestPass123"
   }')
@@ -287,7 +287,7 @@ curl -s http://localhost:8000/api/extensions/$EXT_ID/verify \
   -H "Authorization: Bearer $TOKEN" | jq
 
 # 4. Monitor registration
-watch -n 2 "curl -s http://localhost:8000/api/events/extension/1001 \
+watch -n 2 "curl -s http://localhost:8000/api/events/extension/101 \
   -H 'Authorization: Bearer $TOKEN' | jq"
 ```
 
@@ -316,7 +316,7 @@ Debug:
 tail -f /var/log/asterisk/messages
 
 # Check config file
-grep "Extension 1001" /etc/asterisk/pjsip.conf
+grep "Extension 101" /etc/asterisk/pjsip.conf
 
 # Try manual reload
 asterisk -rx "pjsip reload"
