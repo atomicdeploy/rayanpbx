@@ -255,7 +255,7 @@ class GrandStreamProvisioningService
      */
     public function discoverPhones($network = '192.168.1.0/24')
     {
-        Log::info("Discovering phones on the network");
+        Log::info('Discovering phones on the network');
 
         $devices = [];
 
@@ -299,12 +299,50 @@ class GrandStreamProvisioningService
     }
 
     /**
+     * Check if the output contains a permission error
+     *
+     * @param  array  $output  Command output lines
+     * @param  int  $returnCode  Command return code
+     * @return bool True if a permission error was detected
+     */
+    protected function hasPermissionError(array $output, int $returnCode): bool
+    {
+        $outputStr = implode("\n", $output);
+
+        // Check for common permission error patterns
+        $permissionPatterns = [
+            '/permission denied/i',
+            '/not permitted/i',
+            '/operation not permitted/i',
+            '/access denied/i',
+            '/cannot access/i',
+            '/unable to connect.*socket/i',
+        ];
+
+        foreach ($permissionPatterns as $pattern) {
+            if (preg_match($pattern, $outputStr)) {
+                return true;
+            }
+        }
+
+        // Return code 126 means command found but not executable (permission denied)
+        // Return code 127 means command not found
+        if ($returnCode === 126) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Discover phones via LLDP protocol
      * Runs all available lldpctl formats and merges results for maximum data
      */
     protected function discoverViaLLDP()
     {
         $allDevices = [];
+        $permissionDenied = false;
+        $permissionErrorMsg = '';
 
         // Try json0 format first (most structured and verbose, easiest to parse)
         $devices = [];
@@ -314,7 +352,11 @@ class GrandStreamProvisioningService
         $returnCode = 0;
         exec('lldpctl -f json0 2>&1', $output, $returnCode);
 
-        if ($returnCode === 0) {
+        // Check for permission errors first
+        if ($this->hasPermissionError($output, $returnCode)) {
+            $permissionDenied = true;
+            $permissionErrorMsg = implode("\n", $output);
+        } elseif ($returnCode === 0) {
             $parsedDevices = $this->parseLLDPCtlJson0(implode("\n", $output));
             if (! empty($parsedDevices)) {
                 $allDevices = array_merge($allDevices, $parsedDevices);
@@ -325,7 +367,12 @@ class GrandStreamProvisioningService
         $output = [];
         exec('lldpctl -f plain 2>&1', $output, $returnCode);
 
-        if ($returnCode === 0) {
+        if ($this->hasPermissionError($output, $returnCode)) {
+            $permissionDenied = true;
+            if (empty($permissionErrorMsg)) {
+                $permissionErrorMsg = implode("\n", $output);
+            }
+        } elseif ($returnCode === 0) {
             $parsedDevices = $this->parseLLDPCtlPlain(implode("\n", $output));
             if (! empty($parsedDevices)) {
                 $allDevices = array_merge($allDevices, $parsedDevices);
@@ -336,7 +383,12 @@ class GrandStreamProvisioningService
         $output = [];
         exec('lldpctl -f json 2>&1', $output, $returnCode);
 
-        if ($returnCode === 0) {
+        if ($this->hasPermissionError($output, $returnCode)) {
+            $permissionDenied = true;
+            if (empty($permissionErrorMsg)) {
+                $permissionErrorMsg = implode("\n", $output);
+            }
+        } elseif ($returnCode === 0) {
             $parsedDevices = $this->parseLLDPCtlJson(implode("\n", $output));
             if (! empty($parsedDevices)) {
                 $allDevices = array_merge($allDevices, $parsedDevices);
@@ -359,11 +411,26 @@ class GrandStreamProvisioningService
         $output = [];
         exec('lldpctl -f keyvalue 2>&1', $output, $returnCode);
 
-        if ($returnCode === 0) {
+        if ($this->hasPermissionError($output, $returnCode)) {
+            $permissionDenied = true;
+            if (empty($permissionErrorMsg)) {
+                $permissionErrorMsg = implode("\n", $output);
+            }
+        } elseif ($returnCode === 0) {
             $parsedDevices = $this->parseLLDPCtlOutput(implode("\n", $output));
             if (! empty($parsedDevices)) {
                 $allDevices = array_merge($allDevices, $parsedDevices);
             }
+        }
+
+        // Throw specific error for permission issues
+        if ($permissionDenied && empty($allDevices)) {
+            throw new \Exception(
+                'LLDP discovery failed due to permission error. '.
+                'The web server user (www-data) needs permission to access /var/run/lldpd.socket. '.
+                'Run: sudo usermod -aG _lldpd www-data && sudo systemctl restart lldpd && sudo systemctl restart rayanpbx-api. '.
+                'Error: '.$permissionErrorMsg
+            );
         }
 
         if (empty($allDevices)) {

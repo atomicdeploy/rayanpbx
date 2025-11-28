@@ -2178,6 +2178,23 @@ if next_step "Essential Dependencies" "dependencies"; then
             print_verbose "Starting lldpd service..."
             systemctl start lldpd > /dev/null 2>&1 || print_warning "Failed to start lldpd service"
         fi
+        
+        # Configure www-data user to access lldpd socket for LLDP phone discovery
+        # The lldpd daemon creates /var/run/lldpd.socket owned by _lldpd:_lldpd
+        # www-data needs to be in the _lldpd group to access it via lldpctl
+        print_verbose "Configuring www-data access to lldpd socket..."
+        if getent group _lldpd > /dev/null 2>&1; then
+            if ! id -nG www-data 2>/dev/null | grep -qw "_lldpd"; then
+                print_verbose "Adding www-data to _lldpd group..."
+                usermod -aG _lldpd www-data > /dev/null 2>&1 || print_warning "Failed to add www-data to _lldpd group"
+                print_success "www-data added to _lldpd group for LLDP discovery access"
+            else
+                print_verbose "www-data already in _lldpd group"
+            fi
+        else
+            print_warning "_lldpd group not found - lldpd may not have created it yet"
+        fi
+        
         print_success "lldpd service configured for VoIP phone discovery"
     fi
 
