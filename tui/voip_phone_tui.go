@@ -726,11 +726,21 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 			} else if len(m.voipControlMenu) > 0 {
 				m.cursor = len(m.voipControlMenu) - 1
 			}
+			// Also update codec selection when in codec tab with loaded codecs
+			if m.voipControlTab == voipTabCodecs && len(m.currentCodecOrder) > 0 && m.codecSelectedIndex > 0 {
+				m.codecSelectedIndex--
+				m.updateCodecDisplay()
+			}
 		case "down", "j":
 			if m.cursor < len(m.voipControlMenu)-1 {
 				m.cursor++
 			} else if len(m.voipControlMenu) > 0 {
 				m.cursor = 0
+			}
+			// Also update codec selection when in codec tab with loaded codecs
+			if m.voipControlTab == voipTabCodecs && len(m.currentCodecOrder) > 0 && m.codecSelectedIndex < len(m.currentCodecOrder)-1 {
+				m.codecSelectedIndex++
+				m.updateCodecDisplay()
 			}
 		case "left", "h":
 			// Switch to previous tab
@@ -744,6 +754,13 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 			m.voipPhoneOutput = ""
 			m.errorMsg = ""
 			m.successMsg = ""
+			// Reset codec state when switching tabs
+			if m.voipControlTab != voipTabCodecs {
+				m.currentCodecOrder = nil
+				m.originalCodecOrder = nil
+				m.codecOrderModified = false
+				m.codecSelectedIndex = 0
+			}
 		case "right", "l":
 			// Switch to next tab
 			if m.voipControlTab < len(voipControlTabNames)-1 {
@@ -756,6 +773,13 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 			m.voipPhoneOutput = ""
 			m.errorMsg = ""
 			m.successMsg = ""
+			// Reset codec state when switching tabs
+			if m.voipControlTab != voipTabCodecs {
+				m.currentCodecOrder = nil
+				m.originalCodecOrder = nil
+				m.codecOrderModified = false
+				m.codecSelectedIndex = 0
+			}
 		case "enter":
 			m.executeVoIPControlAction()
 		}
@@ -768,10 +792,11 @@ const (
 	voipTabManagement   = 1
 	voipTabProvisioning = 2
 	voipTabCTI          = 3
+	voipTabCodecs       = 4
 )
 
 // voipControlTabNames contains the tab names for the control menu
-var voipControlTabNames = []string{"📊 Status", "🔧 Management", "🔧 Provisioning", "📞 CTI/CSTA"}
+var voipControlTabNames = []string{"📊 Status", "🔧 Management", "🔧 Provisioning", "📞 CTI/CSTA", "🎵 Codecs"}
 
 // getVoIPControlMenuItems returns the menu items for the current tab
 func getVoIPControlMenuItems(tab int) []string {
@@ -816,6 +841,16 @@ func getVoIPControlMenuItems(tab int) []string {
 			"🚫 Toggle DND",
 			"↗️  Call Forward",
 			"📺 LCD Message",
+			"🔙 Back to Phone List",
+		}
+	case voipTabCodecs:
+		return []string{
+			"📋 View Current Codec Order",
+			"⬆️  Move Codec Up",
+			"⬇️  Move Codec Down",
+			"⭐ Apply Recommended Order",
+			"💾 Save Changes",
+			"↩️  Reset Changes",
 			"🔙 Back to Phone List",
 		}
 	default:
@@ -1278,6 +1313,8 @@ func (m *model) executeVoIPControlAction() {
 		m.executeProvisioningTabAction(menuItem, phone, phoneInstance)
 	case voipTabCTI:
 		m.executeCTITabAction(menuItem, phone, phoneInstance)
+	case voipTabCodecs:
+		m.executeCodecsTabAction(menuItem, phone, phoneInstance)
 	}
 }
 
@@ -1595,6 +1632,227 @@ func (m *model) executeCTITabAction(menuItem string, phone PhoneInfo, phoneInsta
 		m.voipPhoneOutput += "action: 'lcd_message', message: '<text>'\n"
 		m.voipPhoneOutput += "duration: <seconds>"
 	}
+}
+
+// executeCodecsTabAction handles SIP Codec Priority tab actions
+func (m *model) executeCodecsTabAction(menuItem string, phone PhoneInfo, phoneInstance VoIPPhone) {
+	gsPhone, ok := phoneInstance.(*GrandStreamPhone)
+	if !ok {
+		m.errorMsg = "Codec configuration only available for GrandStream phones"
+		return
+	}
+
+	switch {
+	case strings.Contains(menuItem, "View Current Codec Order"):
+		m.viewCodecConfig(gsPhone)
+
+	case strings.Contains(menuItem, "Move Codec Up"):
+		if m.codecSelectedIndex > 0 && len(m.currentCodecOrder) > 0 {
+			// Swap with previous
+			m.currentCodecOrder[m.codecSelectedIndex], m.currentCodecOrder[m.codecSelectedIndex-1] =
+				m.currentCodecOrder[m.codecSelectedIndex-1], m.currentCodecOrder[m.codecSelectedIndex]
+			m.codecSelectedIndex--
+			m.codecOrderModified = true
+			m.updateCodecDisplay()
+			m.successMsg = "Codec moved up"
+		} else {
+			m.errorMsg = "Cannot move codec up (first in list or no codecs loaded)"
+		}
+
+	case strings.Contains(menuItem, "Move Codec Down"):
+		if m.codecSelectedIndex < len(m.currentCodecOrder)-1 && len(m.currentCodecOrder) > 0 {
+			// Swap with next
+			m.currentCodecOrder[m.codecSelectedIndex], m.currentCodecOrder[m.codecSelectedIndex+1] =
+				m.currentCodecOrder[m.codecSelectedIndex+1], m.currentCodecOrder[m.codecSelectedIndex]
+			m.codecSelectedIndex++
+			m.codecOrderModified = true
+			m.updateCodecDisplay()
+			m.successMsg = "Codec moved down"
+		} else {
+			m.errorMsg = "Cannot move codec down (last in list or no codecs loaded)"
+		}
+
+	case strings.Contains(menuItem, "Apply Recommended Order"):
+		m.applyRecommendedCodecOrder(gsPhone)
+
+	case strings.Contains(menuItem, "Save Changes"):
+		if m.codecOrderModified && len(m.currentCodecOrder) > 0 {
+			m.saveCodecOrder(gsPhone)
+		} else {
+			m.errorMsg = "No changes to save"
+		}
+
+	case strings.Contains(menuItem, "Reset Changes"):
+		if len(m.originalCodecOrder) > 0 {
+			m.currentCodecOrder = make([]CodecInfo, len(m.originalCodecOrder))
+			copy(m.currentCodecOrder, m.originalCodecOrder)
+			m.codecOrderModified = false
+			m.codecSelectedIndex = 0
+			m.updateCodecDisplay()
+			m.successMsg = "Changes reset to original order"
+		} else {
+			m.errorMsg = "No original order to reset to"
+		}
+	}
+}
+
+// CodecInfo represents a SIP codec with its ID and name
+type CodecInfo struct {
+	ID   string
+	Name string
+}
+
+// Available SIP codecs for GrandStream phones
+var availableCodecs = map[string]string{
+	"18": "G.729A/B",
+	"4":  "G.723.1",
+	"0":  "PCMU",
+	"8":  "PCMA",
+	"2":  "G.726-32",
+	"9":  "G.722(wide band)",
+	"98": "iLBC",
+}
+
+// Recommended codec order based on quality
+var recommendedCodecOrder = []string{"18", "4", "0", "8", "2", "9", "98"}
+
+// Codec priority P-value parameters
+var codecPriorityPValues = []string{"P57", "P58", "P59", "P60", "P61", "P62", "P46"}
+
+// viewCodecConfig fetches and displays current codec configuration
+func (m *model) viewCodecConfig(gsPhone *GrandStreamPhone) {
+	m.voipPhoneOutput = "🔄 Fetching codec configuration...\n"
+
+	// Get phone configuration
+	config, err := gsPhone.GetConfig()
+	if err != nil {
+		m.errorMsg = "Unable to fetch current information"
+		m.voipPhoneOutput = ""
+		m.currentCodecOrder = nil
+		m.originalCodecOrder = nil
+		return
+	}
+
+	// Extract codec priorities from config
+	m.currentCodecOrder = make([]CodecInfo, 0)
+	for _, pValue := range codecPriorityPValues {
+		if codecID, ok := config[pValue]; ok {
+			codecIDStr := fmt.Sprintf("%v", codecID)
+			codecName := availableCodecs[codecIDStr]
+			if codecName == "" {
+				codecName = fmt.Sprintf("Unknown (%s)", codecIDStr)
+			}
+			m.currentCodecOrder = append(m.currentCodecOrder, CodecInfo{
+				ID:   codecIDStr,
+				Name: codecName,
+			})
+		}
+	}
+
+	if len(m.currentCodecOrder) == 0 {
+		m.errorMsg = "Unable to fetch current information"
+		m.voipPhoneOutput = ""
+		return
+	}
+
+	// Store original order for reset
+	m.originalCodecOrder = make([]CodecInfo, len(m.currentCodecOrder))
+	copy(m.originalCodecOrder, m.currentCodecOrder)
+	m.codecOrderModified = false
+	m.codecSelectedIndex = 0
+
+	m.updateCodecDisplay()
+	m.successMsg = "Codec configuration loaded successfully"
+}
+
+// updateCodecDisplay updates the codec display output
+func (m *model) updateCodecDisplay() {
+	var output strings.Builder
+	output.WriteString("🎵 SIP Codec Priority Order\n")
+	output.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	for i, codec := range m.currentCodecOrder {
+		marker := "  "
+		if i == m.codecSelectedIndex {
+			marker = "▶ "
+		}
+		output.WriteString(fmt.Sprintf("%s%d. %-20s (ID: %s)\n", marker, i+1, codec.Name, codec.ID))
+	}
+
+	output.WriteString("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	output.WriteString("💡 Use ↑/↓ to select, then 'Move Up/Down' to reorder\n")
+	
+	if m.codecOrderModified {
+		output.WriteString("⚠️  Unsaved changes - use 'Save Changes' to apply\n")
+	}
+
+	m.voipPhoneOutput = output.String()
+}
+
+// applyRecommendedCodecOrder applies the recommended codec order
+func (m *model) applyRecommendedCodecOrder(gsPhone *GrandStreamPhone) {
+	m.voipPhoneOutput = "⭐ Applying recommended codec order...\n"
+
+	// Build configuration
+	config := make(map[string]interface{})
+	for i, codecID := range recommendedCodecOrder {
+		if i < len(codecPriorityPValues) {
+			config[codecPriorityPValues[i]] = codecID
+		}
+	}
+
+	// Apply to phone
+	err := gsPhone.SetConfig(config)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to apply codec order: %v", err)
+		m.voipPhoneOutput = ""
+		return
+	}
+
+	// Update local state
+	m.currentCodecOrder = make([]CodecInfo, 0)
+	for _, codecID := range recommendedCodecOrder {
+		m.currentCodecOrder = append(m.currentCodecOrder, CodecInfo{
+			ID:   codecID,
+			Name: availableCodecs[codecID],
+		})
+	}
+	m.originalCodecOrder = make([]CodecInfo, len(m.currentCodecOrder))
+	copy(m.originalCodecOrder, m.currentCodecOrder)
+	m.codecOrderModified = false
+	m.codecSelectedIndex = 0
+
+	m.updateCodecDisplay()
+	m.successMsg = "Recommended codec order applied successfully"
+}
+
+// saveCodecOrder saves the current codec order to the phone
+func (m *model) saveCodecOrder(gsPhone *GrandStreamPhone) {
+	m.voipPhoneOutput = "💾 Saving codec order...\n"
+
+	// Build configuration
+	config := make(map[string]interface{})
+	for i, codec := range m.currentCodecOrder {
+		if i < len(codecPriorityPValues) {
+			config[codecPriorityPValues[i]] = codec.ID
+		}
+	}
+
+	// Apply to phone
+	err := gsPhone.SetConfig(config)
+	if err != nil {
+		m.errorMsg = fmt.Sprintf("Failed to save codec order: %v", err)
+		m.voipPhoneOutput = ""
+		return
+	}
+
+	// Update original order to match current
+	m.originalCodecOrder = make([]CodecInfo, len(m.currentCodecOrder))
+	copy(m.originalCodecOrder, m.currentCodecOrder)
+	m.codecOrderModified = false
+
+	m.updateCodecDisplay()
+	m.successMsg = "Codec order saved successfully"
 }
 
 // executeManualIPAdd executes the phone add/edit action

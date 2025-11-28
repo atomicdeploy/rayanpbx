@@ -352,5 +352,31 @@ export const useApi = () => {
         body: { ip, credentials },
       })
     },
+
+    // SIP Codec Priority Configuration
+    async getCodecInfo() {
+      return apiFetch('/grandstream/codecs/info')
+    },
+
+    async getCodecConfig(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/codecs/get', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
+
+    async setCodecConfig(ip: string, codecOrder: string[], credentials: any = {}) {
+      return apiFetch('/grandstream/codecs/set', {
+        method: 'POST',
+        body: { ip, codec_order: codecOrder, credentials },
+      })
+    },
+
+    async applyRecommendedCodecOrder(ip: string, credentials: any = {}) {
+      return apiFetch('/grandstream/codecs/apply-recommended', {
+        method: 'POST',
+        body: { ip, credentials },
+      })
+    },
   }
 }

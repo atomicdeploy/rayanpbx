@@ -454,6 +454,96 @@
         </div>
       </div>
 
+      <!-- SIP Codec Priority Panel - Only show when authenticated -->
+      <div v-if="isAuthenticated" class="codec-panel">
+        <div class="panel-header-section codec-header">
+          <h3>🎵 SIP Codec Priority</h3>
+          <div class="codec-actions-top">
+            <button @click="refreshCodecConfig" class="btn btn-info btn-sm" :disabled="codecLoading">
+              {{ codecLoading ? '🔄 Loading...' : '🔄 Refresh' }}
+            </button>
+            <button @click="applyRecommendedCodecs" class="btn btn-success btn-sm" :disabled="codecLoading || codecApplying">
+              {{ codecApplying ? '⏳ Applying...' : '⭐ Apply Recommended' }}
+            </button>
+          </div>
+        </div>
+        
+        <p class="codec-help-text">
+          Drag codecs to reorder priority, or use the arrow buttons. Priority 1 is highest.
+        </p>
+
+        <!-- Error State -->
+        <div v-if="codecError" class="codec-error">
+          <span class="error-icon">⚠️</span>
+          <span>{{ codecError }}</span>
+          <button @click="refreshCodecConfig" class="btn btn-sm btn-secondary">Retry</button>
+        </div>
+
+        <!-- Loading State -->
+        <div v-else-if="codecLoading" class="codec-loading">
+          <span>Loading codec configuration...</span>
+        </div>
+
+        <!-- Codec List -->
+        <div v-else-if="codecPriorities.length > 0" class="codec-list">
+          <div
+            v-for="(codec, index) in codecPriorities"
+            :key="codec.p_value"
+            class="codec-item"
+            :class="{ 'is-dragging': draggedIndex === index }"
+            draggable="true"
+            @dragstart="onDragStart($event, index)"
+            @dragover="onDragOver($event, index)"
+            @drop="onDrop($event, index)"
+            @dragend="onDragEnd"
+          >
+            <div class="codec-priority">
+              <span class="priority-number">{{ index + 1 }}</span>
+            </div>
+            <div class="codec-info-block">
+              <span class="codec-name">{{ codec.codec_name }}</span>
+              <span class="codec-id">ID: {{ codec.codec_id }}</span>
+            </div>
+            <div class="codec-controls">
+              <button 
+                @click="moveCodecUp(index)" 
+                class="codec-btn" 
+                :disabled="index === 0"
+                title="Move up"
+              >
+                ⬆️
+              </button>
+              <button 
+                @click="moveCodecDown(index)" 
+                class="codec-btn" 
+                :disabled="index === codecPriorities.length - 1"
+                title="Move down"
+              >
+                ⬇️
+              </button>
+            </div>
+            <div class="drag-handle" title="Drag to reorder">
+              ⋮⋮
+            </div>
+          </div>
+        </div>
+
+        <!-- No codecs found -->
+        <div v-else class="codec-empty">
+          <p>No codec configuration found. Click Refresh to load.</p>
+        </div>
+
+        <!-- Apply Changes Button -->
+        <div v-if="codecPriorities.length > 0 && codecOrderChanged" class="codec-apply-section">
+          <button @click="saveCodecOrder" class="btn btn-primary" :disabled="codecApplying">
+            {{ codecApplying ? '⏳ Saving...' : '💾 Save Changes' }}
+          </button>
+          <button @click="resetCodecOrder" class="btn btn-secondary">
+            ↩️ Reset
+          </button>
+        </div>
+      </div>
+
       <!-- Action URLs Panel - Only show when authenticated -->
       <div v-if="isAuthenticated" class="action-urls-panel">
         <h3>📡 Action URLs</h3>
@@ -717,6 +807,25 @@ const lcdDuration = ref(10)
 const forwardType = ref('unconditional')
 const forwardTarget = ref('')
 let ctiRefreshInterval = null
+
+// Codec configuration state
+const codecPriorities = ref([])
+const originalCodecPriorities = ref([])
+const codecLoading = ref(false)
+const codecApplying = ref(false)
+const codecError = ref('')
+const draggedIndex = ref(null)
+
+// Computed property to check if codec order has changed
+const codecOrderChanged = computed(() => {
+  if (codecPriorities.value.length !== originalCodecPriorities.value.length) return true
+  for (let i = 0; i < codecPriorities.value.length; i++) {
+    if (codecPriorities.value[i].codec_id !== originalCodecPriorities.value[i].codec_id) {
+      return true
+    }
+  }
+  return false
+})
 
 // Authentication state
 const isAuthenticated = ref(false)
@@ -993,6 +1102,10 @@ async function selectPhone(phone) {
   phoneState.value = null
   ctiStatus.value = { cti_working: false, snmp_enabled: false }
   credentials.value = { username: 'admin', password: '' }
+  // Reset codec state
+  codecPriorities.value = []
+  originalCodecPriorities.value = []
+  codecError.value = ''
   
   // Try to authenticate using stored credentials (the API will use them if available)
   if (phone.id) {
@@ -1021,6 +1134,10 @@ function goBackToList() {
   phoneStatus.value = null
   phoneConfig.value = null
   phoneState.value = null
+  // Reset codec state
+  codecPriorities.value = []
+  originalCodecPriorities.value = []
+  codecError.value = ''
 }
 
 // Authenticate to phone using the new /phones/authenticate endpoint
@@ -1058,6 +1175,8 @@ async function authenticateToPhone(showErrors = true) {
       // Now fetch full status and start polling
       await refreshPhoneStatus()
       await refreshCTIStatus()
+      // Load codec configuration
+      await refreshCodecConfig()
       
       // Start real-time status polling
       if (ctiRefreshInterval) {
@@ -1114,6 +1233,8 @@ async function verifyAndApplyCredentials() {
       // Refresh phone data
       await refreshPhoneStatus()
       await refreshCTIStatus()
+      // Load codec configuration
+      await refreshCodecConfig()
       
       // Start polling
       if (ctiRefreshInterval) clearInterval(ctiRefreshInterval)
@@ -1293,6 +1414,132 @@ async function testCTI() {
   } catch (error) {
     showNotification('CTI test failed', 'error')
   }
+}
+
+// SIP Codec Priority Functions
+async function refreshCodecConfig() {
+  if (!selectedPhone.value || !isAuthenticated.value) return
+  
+  codecLoading.value = true
+  codecError.value = ''
+  
+  try {
+    const data = await api.getCodecConfig(selectedPhone.value.ip, credentials.value)
+    
+    if (data.success) {
+      codecPriorities.value = data.codec_priorities || []
+      // Store original order for change detection
+      originalCodecPriorities.value = JSON.parse(JSON.stringify(codecPriorities.value))
+      codecError.value = ''
+    } else {
+      codecError.value = data.error || 'Unable to fetch current information'
+      codecPriorities.value = []
+      originalCodecPriorities.value = []
+    }
+  } catch (error) {
+    codecError.value = 'Unable to fetch current information'
+    codecPriorities.value = []
+    originalCodecPriorities.value = []
+  } finally {
+    codecLoading.value = false
+  }
+}
+
+async function saveCodecOrder() {
+  if (!selectedPhone.value || !isAuthenticated.value) return
+  
+  codecApplying.value = true
+  
+  try {
+    const codecOrder = codecPriorities.value.map(c => c.codec_id)
+    const data = await api.setCodecConfig(selectedPhone.value.ip, codecOrder, credentials.value)
+    
+    if (data.success) {
+      showNotification('Codec priorities saved successfully', 'success')
+      // Update original order to match current
+      originalCodecPriorities.value = JSON.parse(JSON.stringify(codecPriorities.value))
+    } else {
+      showNotification(data.error || 'Failed to save codec priorities', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to save codec priorities', 'error')
+  } finally {
+    codecApplying.value = false
+  }
+}
+
+async function applyRecommendedCodecs() {
+  if (!selectedPhone.value || !isAuthenticated.value) return
+  
+  codecApplying.value = true
+  
+  try {
+    const data = await api.applyRecommendedCodecOrder(selectedPhone.value.ip, credentials.value)
+    
+    if (data.success) {
+      showNotification('Recommended codec order applied successfully', 'success')
+      // Refresh to get the updated order
+      await refreshCodecConfig()
+    } else {
+      showNotification(data.error || 'Failed to apply recommended codec order', 'error')
+    }
+  } catch (error) {
+    showNotification('Failed to apply recommended codec order', 'error')
+  } finally {
+    codecApplying.value = false
+  }
+}
+
+function resetCodecOrder() {
+  codecPriorities.value = JSON.parse(JSON.stringify(originalCodecPriorities.value))
+}
+
+function moveCodecUp(index) {
+  if (index <= 0) return
+  const temp = codecPriorities.value[index]
+  codecPriorities.value[index] = codecPriorities.value[index - 1]
+  codecPriorities.value[index - 1] = temp
+  // Force reactivity update
+  codecPriorities.value = [...codecPriorities.value]
+}
+
+function moveCodecDown(index) {
+  if (index >= codecPriorities.value.length - 1) return
+  const temp = codecPriorities.value[index]
+  codecPriorities.value[index] = codecPriorities.value[index + 1]
+  codecPriorities.value[index + 1] = temp
+  // Force reactivity update
+  codecPriorities.value = [...codecPriorities.value]
+}
+
+// Drag and drop handlers for codec reordering
+function onDragStart(event, index) {
+  draggedIndex.value = index
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', index)
+}
+
+function onDragOver(event, index) {
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function onDrop(event, targetIndex) {
+  event.preventDefault()
+  const sourceIndex = draggedIndex.value
+  
+  if (sourceIndex === null || sourceIndex === targetIndex) return
+  
+  const items = [...codecPriorities.value]
+  const [removed] = items.splice(sourceIndex, 1)
+  items.splice(targetIndex, 0, removed)
+  codecPriorities.value = items
+  
+  draggedIndex.value = null
+}
+
+function onDragEnd() {
+  draggedIndex.value = null
 }
 
 async function refreshPhoneStatus() {
@@ -2482,6 +2729,190 @@ function showNotification(message, type = 'info') {
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* SIP Codec Priority Panel Styles */
+.codec-panel {
+  background: linear-gradient(135deg, #1e40af 0%, #7c3aed 100%);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 30px;
+  color: white;
+  box-shadow: 0 10px 40px rgba(30, 64, 175, 0.3);
+}
+
+.codec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.codec-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.codec-actions-top {
+  display: flex;
+  gap: 10px;
+}
+
+.codec-help-text {
+  font-size: 13px;
+  opacity: 0.85;
+  margin-bottom: 20px;
+}
+
+.codec-error {
+  background: rgba(220, 38, 38, 0.2);
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.codec-error .error-icon {
+  font-size: 24px;
+}
+
+.codec-loading {
+  text-align: center;
+  padding: 40px 20px;
+  opacity: 0.8;
+}
+
+.codec-empty {
+  text-align: center;
+  padding: 40px 20px;
+  opacity: 0.8;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+.codec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.codec-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 14px 18px;
+  transition: all 0.2s ease;
+  cursor: grab;
+  user-select: none;
+}
+
+.codec-item:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateX(4px);
+}
+
+.codec-item.is-dragging {
+  opacity: 0.5;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.codec-priority {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.priority-number {
+  color: white;
+}
+
+.codec-info-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.codec-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.codec-id {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.codec-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.codec-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.codec-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.1);
+}
+
+.codec-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.drag-handle {
+  font-size: 18px;
+  opacity: 0.5;
+  cursor: grab;
+  padding: 0 4px;
+  letter-spacing: -2px;
+  user-select: none;
+}
+
+.drag-handle:hover {
+  opacity: 0.8;
+}
+
+.codec-apply-section {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  justify-content: flex-end;
+}
+
+.codec-apply-section .btn {
+  padding: 10px 20px;
+}
+
+/* Small button variant for codec panel */
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
 }
 
 /* Dark Mode Support */
