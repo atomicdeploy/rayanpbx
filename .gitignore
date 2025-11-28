@@ -63,6 +63,9 @@ bootstrap/cache/*
 tmp/
 *.tmp
 
+# Backup files (RayanPBX creates *.backup.* files)
+*.backup.*
+
 # Database
 *.sqlite
 *.db

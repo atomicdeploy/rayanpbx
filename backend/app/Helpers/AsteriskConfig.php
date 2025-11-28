@@ -4,6 +4,7 @@ namespace App\Helpers;
 
 /**
  * AsteriskConfig represents an Asterisk configuration file
+ * Supports both active and commented sections for extension toggling
  */
 class AsteriskConfig
 {
@@ -37,6 +38,7 @@ class AsteriskConfig
 
     /**
      * Parse Asterisk config from string content
+     * Supports both active sections [name] and commented sections ;[name]
      */
     public static function parseContent(string $content, string $filePath = ''): self
     {
@@ -50,16 +52,16 @@ class AsteriskConfig
         foreach ($lines as $line) {
             $trimmedLine = trim($line);
 
-            // Check for section header
-            if (preg_match('/^\s*\[([^\]]+)\]/', $line, $matches)) {
+            // Check for commented section header: ;[name]
+            if (preg_match('/^\s*;\s*\[([^\]]+)\]/', $line, $matches)) {
                 // Save current section if any
                 if ($currentSection !== null) {
                     $config->sections[] = $currentSection;
                 }
 
-                // Start new section
+                // Start new commented section
                 $sectionName = $matches[1];
-                $currentSection = new AsteriskSection($sectionName);
+                $currentSection = new AsteriskSection($sectionName, '', true);
                 $currentSection->comments = $pendingComments;
                 $pendingComments = [];
                 $inHeader = false;
@@ -67,8 +69,47 @@ class AsteriskConfig
                 continue;
             }
 
-            // Check for key=value
-            if (preg_match('/^\s*([^=;\s]+)\s*=\s*(.*)$/', $line, $matches) && $currentSection !== null) {
+            // Check for active section header: [name]
+            if (preg_match('/^\s*\[([^\]]+)\]/', $line, $matches)) {
+                // Save current section if any
+                if ($currentSection !== null) {
+                    $config->sections[] = $currentSection;
+                }
+
+                // Start new active section
+                $sectionName = $matches[1];
+                $currentSection = new AsteriskSection($sectionName, '', false);
+                $currentSection->comments = $pendingComments;
+                $pendingComments = [];
+                $inHeader = false;
+
+                continue;
+            }
+
+            // Check for commented key=value in a commented section: ;key=value
+            if ($currentSection !== null && $currentSection->commented) {
+                if (preg_match('/^\s*;\s*([^=;\s]+)\s*=\s*(.*)$/', $line, $matches)) {
+                    $key = trim($matches[1]);
+                    $value = trim($matches[2]);
+
+                    // If it's a type key, set the section type
+                    if ($key === 'type') {
+                        $currentSection->type = $value;
+                    }
+
+                    $currentSection->setProperty($key, $value);
+                    continue;
+                }
+                
+                // Preserve other comment lines as body comments
+                if (str_starts_with($trimmedLine, ';') && $trimmedLine !== ';') {
+                    $currentSection->addBodyComment($line);
+                    continue;
+                }
+            }
+
+            // Check for active key=value in an active section
+            if (preg_match('/^\s*([^=;\s]+)\s*=\s*(.*)$/', $line, $matches) && $currentSection !== null && !$currentSection->commented) {
                 $key = trim($matches[1]);
                 $value = trim($matches[2]);
 
@@ -89,8 +130,10 @@ class AsteriskConfig
                 } elseif ($currentSection === null) {
                     // Comments before any section after header
                     $pendingComments[] = $line;
+                } elseif ($currentSection !== null && !$currentSection->commented) {
+                    // Comments within an active section - preserve as body comments
+                    $currentSection->addBodyComment($line);
                 }
-                // Comments within a section are ignored for simplicity
             }
         }
 
@@ -103,11 +146,53 @@ class AsteriskConfig
     }
 
     /**
-     * Find all sections with a given name
+     * Find all sections with a given name (both active and commented)
      */
     public function findSectionsByName(string $name): array
     {
         return array_filter($this->sections, fn ($s) => $s->name === $name);
+    }
+    
+    /**
+     * Find all active (not commented) sections with a given name
+     */
+    public function findActiveSectionsByName(string $name): array
+    {
+        return array_values(array_filter($this->sections, fn ($s) => $s->name === $name && !$s->commented));
+    }
+    
+    /**
+     * Find all commented sections with a given name
+     */
+    public function findCommentedSectionsByName(string $name): array
+    {
+        return array_values(array_filter($this->sections, fn ($s) => $s->name === $name && $s->commented));
+    }
+    
+    /**
+     * Check if there's an active section with the given name
+     */
+    public function hasActiveSection(string $name): bool
+    {
+        foreach ($this->sections as $section) {
+            if ($section->name === $name && !$section->commented) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Check if there's a commented section with the given name
+     */
+    public function hasCommentedSection(string $name): bool
+    {
+        foreach ($this->sections as $section) {
+            if ($section->name === $name && $section->commented) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -125,7 +210,7 @@ class AsteriskConfig
     }
 
     /**
-     * Remove all sections with a given name
+     * Remove all sections with a given name (both active and commented)
      */
     public function removeSectionsByName(string $name): int
     {
@@ -133,6 +218,60 @@ class AsteriskConfig
         $this->sections = array_values(array_filter($this->sections, fn ($s) => $s->name !== $name));
 
         return $original - count($this->sections);
+    }
+    
+    /**
+     * Remove only active (not commented) sections with a given name
+     */
+    public function removeActiveSectionsByName(string $name): int
+    {
+        $original = count($this->sections);
+        $this->sections = array_values(array_filter($this->sections, fn ($s) => !($s->name === $name && !$s->commented)));
+
+        return $original - count($this->sections);
+    }
+    
+    /**
+     * Remove only commented sections with a given name
+     */
+    public function removeCommentedSectionsByName(string $name): int
+    {
+        $original = count($this->sections);
+        $this->sections = array_values(array_filter($this->sections, fn ($s) => !($s->name === $name && $s->commented)));
+
+        return $original - count($this->sections);
+    }
+    
+    /**
+     * Comment out all active sections with a given name
+     * This effectively disables the extension without removing it
+     */
+    public function commentOutSectionsByName(string $name): int
+    {
+        $count = 0;
+        foreach ($this->sections as $i => $section) {
+            if ($section->name === $name && !$section->commented) {
+                $this->sections[$i] = $section->withCommented(true);
+                $count++;
+            }
+        }
+        return $count;
+    }
+    
+    /**
+     * Uncomment all commented sections with a given name
+     * This effectively re-enables a disabled extension
+     */
+    public function uncommentSectionsByName(string $name): int
+    {
+        $count = 0;
+        foreach ($this->sections as $i => $section) {
+            if ($section->name === $name && $section->commented) {
+                $this->sections[$i] = $section->withCommented(false);
+                $count++;
+            }
+        }
+        return $count;
     }
 
     /**
@@ -175,7 +314,7 @@ class AsteriskConfig
     }
 
     /**
-     * Check if a section with the given name exists
+     * Check if a section with the given name exists (active or commented)
      */
     public function hasSection(string $name): bool
     {

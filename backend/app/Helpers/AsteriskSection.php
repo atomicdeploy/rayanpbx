@@ -7,9 +7,9 @@ namespace App\Helpers;
  * In Asterisk configs, multiple sections can have the same name but different types
  * (e.g., [101] for endpoint, auth, and aor)
  *
- * NOTE: Comments within a section body (between the section header and the next section)
- * are not preserved during parsing. Only comments that appear immediately before a section
- * header are captured in the $comments property.
+ * Sections can be "commented out" meaning the section header starts with `;[name]`
+ * and all properties are prefixed with `;`. This allows disabling extensions without
+ * deleting them from the config file.
  */
 class AsteriskSection
 {
@@ -22,11 +22,24 @@ class AsteriskSection
     public array $keys = [];
 
     public array $comments = [];
+    
+    /**
+     * Comments that appear within the section body (between properties)
+     * These are preserved when parsing and writing
+     */
+    public array $bodyComments = [];
 
-    public function __construct(string $name, string $type = '')
+    /**
+     * Whether this section is commented out (disabled)
+     * A commented section has ;[name] header and ;key=value properties
+     */
+    public bool $commented = false;
+
+    public function __construct(string $name, string $type = '', bool $commented = false)
     {
         $this->name = $name;
         $this->type = $type;
+        $this->commented = $commented;
     }
 
     /**
@@ -55,6 +68,14 @@ class AsteriskSection
     {
         return isset($this->properties[$key]);
     }
+    
+    /**
+     * Add a body comment (comment within the section)
+     */
+    public function addBodyComment(string $comment): void
+    {
+        $this->bodyComments[] = $comment;
+    }
 
     /**
      * Render the section as a config string
@@ -62,22 +83,41 @@ class AsteriskSection
     public function toString(): string
     {
         $output = '';
+        $prefix = $this->commented ? ';' : '';
 
-        // Write comments
+        // Write comments (these appear before the section header)
         foreach ($this->comments as $comment) {
             $output .= $comment."\n";
         }
 
         // Write section header
-        $output .= "[{$this->name}]\n";
+        $output .= "{$prefix}[{$this->name}]\n";
 
         // Write properties in order
         foreach ($this->keys as $key) {
             if (isset($this->properties[$key])) {
-                $output .= "{$key}={$this->properties[$key]}\n";
+                $output .= "{$prefix}{$key}={$this->properties[$key]}\n";
             }
+        }
+        
+        // Write body comments at the end of the section
+        foreach ($this->bodyComments as $comment) {
+            $output .= $comment."\n";
         }
 
         return $output;
+    }
+    
+    /**
+     * Create a copy of this section with commented state toggled
+     */
+    public function withCommented(bool $commented): self
+    {
+        $section = new self($this->name, $this->type, $commented);
+        $section->properties = $this->properties;
+        $section->keys = $this->keys;
+        $section->comments = $this->comments;
+        $section->bodyComments = $this->bodyComments;
+        return $section;
     }
 }

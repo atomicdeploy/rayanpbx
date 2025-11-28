@@ -346,6 +346,10 @@ class AsteriskAdapter
 
     /**
      * Write PJSIP configuration sections to file
+     * 
+     * If there are commented (disabled) sections with the same name, they will be
+     * removed and replaced with the new active sections. If there are active sections,
+     * they will also be removed and replaced.
      */
     public function writePjsipConfigSections(array $sections, string $identifier): bool
     {
@@ -370,11 +374,16 @@ class AsteriskAdapter
                 $sectionName = substr($identifier, 6);
             }
 
-            // Remove existing sections with this name
+            // Remove existing sections with this name (both active and commented)
+            // This ensures we replace any old configuration with the new one
             $config->removeSectionsByName($sectionName);
 
-            // Add new sections
+            // Add new sections (these will be active, not commented)
             foreach ($sections as $section) {
+                // Ensure new sections are not commented
+                if ($section->commented) {
+                    $section = $section->withCommented(false);
+                }
                 $config->addSection($section);
             }
 
@@ -408,7 +417,8 @@ class AsteriskAdapter
     }
 
     /**
-     * Remove configuration from file
+     * Remove configuration from file (permanently deletes sections)
+     * For disabling an extension without deleting, use commentOutPjsipConfig() instead
      */
     public function removePjsipConfig($identifier)
     {
@@ -427,7 +437,7 @@ class AsteriskAdapter
                 $sectionName = substr($identifier, 6);
             }
 
-            // Remove all sections with this name
+            // Remove all sections with this name (both active and commented)
             $config->removeSectionsByName($sectionName);
 
             $result = $config->save();
@@ -441,6 +451,141 @@ class AsteriskAdapter
         } catch (Exception $e) {
             report($e);
 
+            return false;
+        }
+    }
+    
+    /**
+     * Comment out (disable) PJSIP configuration sections for an extension/trunk
+     * This preserves the configuration in the file but disables it
+     */
+    public function commentOutPjsipConfig($identifier): bool
+    {
+        try {
+            $config = AsteriskConfig::parseFile($this->pjsipConfig);
+            
+            if ($config === null) {
+                return true; // Nothing to comment out
+            }
+
+            // Extract section name from identifier
+            $sectionName = $identifier;
+            if (str_starts_with($identifier, 'Extension ')) {
+                $sectionName = substr($identifier, 10);
+            } elseif (str_starts_with($identifier, 'Trunk ')) {
+                $sectionName = substr($identifier, 6);
+            }
+
+            // Comment out all active sections with this name
+            $count = $config->commentOutSectionsByName($sectionName);
+            
+            if ($count === 0) {
+                return true; // No sections to comment out
+            }
+
+            $result = $config->save();
+            
+            if ($result) {
+                $this->gitService->commitChange('pjsip-disable', "Disabled PJSIP config: {$identifier}");
+            }
+            
+            return $result;
+        } catch (Exception $e) {
+            report($e);
+            return false;
+        }
+    }
+    
+    /**
+     * Uncomment (re-enable) PJSIP configuration sections for an extension/trunk
+     */
+    public function uncommentPjsipConfig($identifier): bool
+    {
+        try {
+            $config = AsteriskConfig::parseFile($this->pjsipConfig);
+            
+            if ($config === null) {
+                return false; // No config file
+            }
+
+            // Extract section name from identifier
+            $sectionName = $identifier;
+            if (str_starts_with($identifier, 'Extension ')) {
+                $sectionName = substr($identifier, 10);
+            } elseif (str_starts_with($identifier, 'Trunk ')) {
+                $sectionName = substr($identifier, 6);
+            }
+
+            // Uncomment all commented sections with this name
+            $count = $config->uncommentSectionsByName($sectionName);
+            
+            if ($count === 0) {
+                return false; // No sections to uncomment
+            }
+
+            $result = $config->save();
+            
+            if ($result) {
+                $this->gitService->commitChange('pjsip-enable', "Enabled PJSIP config: {$identifier}");
+            }
+            
+            return $result;
+        } catch (Exception $e) {
+            report($e);
+            return false;
+        }
+    }
+    
+    /**
+     * Check if there are commented (disabled) sections for an extension/trunk
+     */
+    public function hasCommentedPjsipConfig($identifier): bool
+    {
+        try {
+            $config = AsteriskConfig::parseFile($this->pjsipConfig);
+            
+            if ($config === null) {
+                return false;
+            }
+
+            // Extract section name from identifier
+            $sectionName = $identifier;
+            if (str_starts_with($identifier, 'Extension ')) {
+                $sectionName = substr($identifier, 10);
+            } elseif (str_starts_with($identifier, 'Trunk ')) {
+                $sectionName = substr($identifier, 6);
+            }
+
+            return $config->hasCommentedSection($sectionName);
+        } catch (Exception $e) {
+            report($e);
+            return false;
+        }
+    }
+    
+    /**
+     * Check if there are active (enabled) sections for an extension/trunk
+     */
+    public function hasActivePjsipConfig($identifier): bool
+    {
+        try {
+            $config = AsteriskConfig::parseFile($this->pjsipConfig);
+            
+            if ($config === null) {
+                return false;
+            }
+
+            // Extract section name from identifier
+            $sectionName = $identifier;
+            if (str_starts_with($identifier, 'Extension ')) {
+                $sectionName = substr($identifier, 10);
+            } elseif (str_starts_with($identifier, 'Trunk ')) {
+                $sectionName = substr($identifier, 6);
+            }
+
+            return $config->hasActiveSection($sectionName);
+        } catch (Exception $e) {
+            report($e);
             return false;
         }
     }

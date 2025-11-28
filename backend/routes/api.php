@@ -117,6 +117,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/status', [StatusController::class, 'index']);
     Route::get('/status/extensions', [StatusController::class, 'extensions']);
     Route::get('/status/trunks', [StatusController::class, 'trunks']);
+    Route::get('/status/git', [StatusController::class, 'gitStatus']);
     
     // Logs
     Route::get('/logs', [LogController::class, 'index']);
