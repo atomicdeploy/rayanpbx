@@ -449,8 +449,8 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 func TestMenuItemsCount(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	
-	// We expect 12 menu items (including Quick Setup and Exit)
-	expectedItems := 12
+	// We expect 13 menu items (including Quick Setup, Console Phone and Exit)
+	expectedItems := 13
 	if len(m.menuItems) != expectedItems {
 		t.Errorf("Expected %d menu items, got %d", expectedItems, len(m.menuItems))
 	}
@@ -461,6 +461,7 @@ func TestMenuItemsCount(t *testing.T) {
 		"Extensions",
 		"Trunks",
 		"VoIP Phones",
+		"Console Phone",
 		"Asterisk",
 		"Diagnostics",
 		"Status",

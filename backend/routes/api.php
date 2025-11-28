@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\SipTestController;
 use App\Http\Controllers\Api\ExtensionSyncController;
 use App\Http\Controllers\Api\ResetController;
+use App\Http\Controllers\Api\DirectCallController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -260,6 +261,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // System Reset (destructive - requires confirmation)
     Route::get('/system/reset/summary', [ResetController::class, 'summary']);
     Route::post('/system/reset', [ResetController::class, 'reset']);
+    
+    // Direct Call & Console Softphone
+    Route::post('/calls/originate', [DirectCallController::class, 'originate']);
+    Route::post('/calls/dial-from-console', [DirectCallController::class, 'dialFromConsole']);
+    Route::post('/calls/console/answer', [DirectCallController::class, 'answerConsole']);
+    Route::post('/calls/console/hangup', [DirectCallController::class, 'hangupConsole']);
+    Route::get('/calls/console/status', [DirectCallController::class, 'getConsoleStatus']);
+    Route::post('/calls/console/configure', [DirectCallController::class, 'configureConsole']);
+    Route::get('/calls/console/dialplan', [DirectCallController::class, 'getConsoleDialplan']);
+    Route::get('/calls/status/{callId}', [DirectCallController::class, 'getCallStatus']);
+    Route::get('/calls/list', [DirectCallController::class, 'listCalls']);
+    Route::post('/calls/hangup', [DirectCallController::class, 'hangup']);
+    Route::post('/calls/dtmf', [DirectCallController::class, 'sendDTMF']);
+    Route::post('/calls/test', [DirectCallController::class, 'testCall']);
+    Route::post('/calls/phone', [DirectCallController::class, 'callPhone']);
 });
 
 // Health check endpoint (public)
