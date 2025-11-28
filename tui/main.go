@@ -2737,22 +2737,6 @@ func (m *model) editExtension() {
 		m.configManager.RemovePjsipConfig(fmt.Sprintf("Extension %s", oldNumber))
 	}
 	
-	// Update the in-memory extension in the extensions slice
-	extIdx := m.getSelectedExtensionIndex()
-	if extIdx >= 0 {
-		m.extensions[extIdx].ExtensionNumber = newNumber
-		m.extensions[extIdx].Name = m.inputValues[extFieldName]
-		m.extensions[extIdx].Context = context
-		m.extensions[extIdx].Transport = transport
-		m.extensions[extIdx].Codecs = codecs
-		m.extensions[extIdx].DirectMedia = directMedia
-		m.extensions[extIdx].MaxContacts = maxContacts
-		m.extensions[extIdx].QualifyFrequency = qualifyFreq
-		if m.inputValues[extFieldPassword] != "" {
-			m.extensions[extIdx].Secret = m.inputValues[extFieldPassword]
-		}
-	}
-	
 	// Build the updated extension for config generation
 	updatedExt := Extension{
 		ID:               ext.ID,
@@ -2878,8 +2862,21 @@ func (m *model) toggleExtension() {
 	}
 	
 	// Create a copy with updated enabled state for config generation
-	updatedExt := *ext
-	updatedExt.Enabled = newEnabled
+	updatedExt := Extension{
+		ID:               ext.ID,
+		ExtensionNumber:  ext.ExtensionNumber,
+		Name:             ext.Name,
+		Secret:           ext.Secret,
+		Context:          ext.Context,
+		Transport:        ext.Transport,
+		Codecs:           ext.Codecs,
+		DirectMedia:      ext.DirectMedia,
+		MaxContacts:      ext.MaxContacts,
+		QualifyFrequency: ext.QualifyFrequency,
+		Enabled:          newEnabled, // Updated enabled state
+		CallerID:         ext.CallerID,
+		VoicemailEnabled: ext.VoicemailEnabled,
+	}
 	
 	if newEnabled {
 		// Extension is being enabled - write PJSIP config
