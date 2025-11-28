@@ -150,37 +150,43 @@ sudo ./tests/test-pjsip-config.sh
 ### Manual Testing Steps
 1. Create extension via API or Web UI
 2. Verify with: `asterisk -rx "pjsip show endpoints"`
-3. Check dialplan: `asterisk -rx "dialplan show internal"`
+3. Check dialplan: `asterisk -rx "dialplan show from-internal"`
 4. Configure MicroSIP with extension credentials
 5. Verify registration: Extension should show "Available" state
 6. Test call: Dial another extension number
 
 ## Configuration File Management
 
-### Pattern: Managed Sections
-All automated configuration uses markers:
+### Pattern: Section-Based Management
+All automated configuration uses proper INI section manipulation:
 ```ini
-; BEGIN MANAGED - {identifier}
-[configuration sections]
-; END MANAGED - {identifier}
+[section-name]
+type=endpoint
+config=value
 ```
 
-This allows:
-- Safe automated updates
+Sections are identified by their `[name]` and `type=` property. This allows:
+- Safe automated updates via section identification
 - Clean removal when extensions deleted
 - Coexistence with manual configurations
 
 ### Files Managed
 - `/etc/asterisk/pjsip.conf` - Endpoint, auth, and AOR sections
-- `/etc/asterisk/extensions.conf` - Internal context dialplan
+- `/etc/asterisk/extensions.conf` - Context-based dialplan
 
 ### Sections Created Per Extension
 ```ini
-; BEGIN MANAGED - Extension 1001
-[1001] (endpoint)
-[1001] (auth)
-[1001] (aor)
-; END MANAGED - Extension 1001
+[101]
+type=endpoint
+...
+
+[101]
+type=auth
+...
+
+[101]
+type=aor
+...
 ```
 
 ## API Changes
@@ -221,7 +227,7 @@ Extension commands now:
 
 ### Issue: Endpoints don't appear in Asterisk
 **Solution**:
-1. Check config was written: `grep "Extension 1001" /etc/asterisk/pjsip.conf`
+1. Check config was written: `grep "Extension 101" /etc/asterisk/pjsip.conf`
 2. Check transport exists: `asterisk -rx "pjsip show transports"`
 3. Reload PJSIP: `asterisk -rx "pjsip reload"`
 4. Run test script: `sudo ./tests/test-pjsip-config.sh`
@@ -236,10 +242,10 @@ Extension commands now:
 
 ### Issue: Can't call between extensions
 **Solution**:
-1. Check dialplan: `asterisk -rx "dialplan show internal"`
-2. Verify context is "internal" in pjsip.conf
+1. Check dialplan: `asterisk -rx "dialplan show from-internal"`
+2. Verify context is "from-internal" in pjsip.conf
 3. Check both extensions are registered
-4. Test from CLI: `asterisk -rx "channel originate PJSIP/1001 extension 1002@internal"`
+4. Test from CLI: `asterisk -rx "channel originate PJSIP/101 extension 102@from-internal"`
 
 ## Future Improvements
 

@@ -267,7 +267,7 @@ bind=0.0.0.0:5060
 
 [101]
 type=endpoint
-context=internal
+context=from-internal
 `
 
 	err := os.WriteFile(testFile, []byte(initial), 0644)
@@ -390,10 +390,9 @@ func TestCreateTransportSections(t *testing.T) {
 	}
 }
 
-func TestParseExistingConfigWithoutManagedComments(t *testing.T) {
-	// Test that we can correctly parse a config that doesn't have BEGIN/END MANAGED markers
+func TestParseExistingConfig(t *testing.T) {
+	// Test that we can correctly parse a config using section-based identification
 	content := `; Existing asterisk config
-; Without RayanPBX markers
 
 [global]
 type=global
@@ -482,7 +481,7 @@ func TestPreserveKeyOrder(t *testing.T) {
 	
 	// Add properties in specific order
 	section.SetProperty("type", "endpoint")
-	section.SetProperty("context", "internal")
+	section.SetProperty("context", "from-internal")
 	section.SetProperty("disallow", "all")
 	section.SetProperty("allow", "ulaw")
 	section.SetProperty("transport", "transport-udp")

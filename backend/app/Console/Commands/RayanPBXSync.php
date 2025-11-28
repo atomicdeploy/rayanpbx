@@ -98,7 +98,7 @@ class RayanPBXSync extends Command
                         'extension_number' => $extNumber,
                         'name' => $astExt['caller_id'] ?? "Extension {$extNumber}",
                         'secret' => $astExt['secret'] ?? '',
-                        'context' => $astExt['context'] ?? 'internal',
+                        'context' => $astExt['context'] ?? 'from-internal',
                         'transport' => $astExt['transport'] ?? 'transport-udp',
                         'max_contacts' => $astExt['max_contacts'] ?? 1,
                         'qualify_frequency' => $astExt['qualify_frequency'] ?? 60,
@@ -187,7 +187,7 @@ class RayanPBXSync extends Command
     {
         $differences = [];
         
-        if ($dbExt->context !== ($astExt['context'] ?? 'internal')) {
+        if ($dbExt->context !== ($astExt['context'] ?? 'from-internal')) {
             $differences[] = "context differs";
         }
         

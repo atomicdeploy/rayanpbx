@@ -426,16 +426,24 @@ func SaveVoIPPhone(db *sql.DB, phone *VoIPPhoneDB) error {
 		return fmt.Errorf("database connection is nil")
 	}
 	
+	// Handle empty MAC - convert to nil for unique constraint
+	var macValue interface{}
+	if phone.MAC == "" {
+		macValue = nil
+	} else {
+		macValue = phone.MAC
+	}
+	
 	// Check if phone already exists
 	var existingID int64
 	err := db.QueryRow("SELECT id FROM voip_phones WHERE ip = ?", phone.IP).Scan(&existingID)
 	
 	if err == sql.ErrNoRows {
-		// Insert new phone
+		// Insert new phone - use NULL for empty MAC to avoid unique constraint issues
 		query := `INSERT INTO voip_phones (ip, mac, extension, name, vendor, model, firmware, 
 		          status, discovery_type, user_agent, cti_enabled, snmp_enabled, last_seen, created_at, updated_at)
 		          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())`
-		result, err := db.Exec(query, phone.IP, phone.MAC, phone.Extension, phone.Name,
+		result, err := db.Exec(query, phone.IP, macValue, phone.Extension, phone.Name,
 			phone.Vendor, phone.Model, phone.Firmware, phone.Status, phone.DiscoveryType,
 			phone.UserAgent, phone.CTIEnabled, phone.SNMPEnabled)
 		if err != nil {
@@ -448,7 +456,7 @@ func SaveVoIPPhone(db *sql.DB, phone *VoIPPhoneDB) error {
 		query := `UPDATE voip_phones SET mac = ?, extension = ?, name = ?, vendor = ?, model = ?,
 		          firmware = ?, status = ?, discovery_type = ?, user_agent = ?, cti_enabled = ?,
 		          snmp_enabled = ?, last_seen = NOW(), updated_at = NOW() WHERE id = ?`
-		_, err = db.Exec(query, phone.MAC, phone.Extension, phone.Name, phone.Vendor, phone.Model,
+		_, err = db.Exec(query, macValue, phone.Extension, phone.Name, phone.Vendor, phone.Model,
 			phone.Firmware, phone.Status, phone.DiscoveryType, phone.UserAgent, phone.CTIEnabled,
 			phone.SNMPEnabled, phone.ID)
 		if err != nil {
@@ -461,12 +469,21 @@ func SaveVoIPPhone(db *sql.DB, phone *VoIPPhoneDB) error {
 	return nil
 }
 
-// DeleteVoIPPhone deletes a VoIP phone from the database
+// DeleteVoIPPhone deletes a VoIP phone from the database by ID
 func DeleteVoIPPhone(db *sql.DB, id int64) error {
 	if db == nil {
 		return fmt.Errorf("database connection is nil")
 	}
 	_, err := db.Exec("DELETE FROM voip_phones WHERE id = ?", id)
+	return err
+}
+
+// DeleteVoIPPhoneByIP deletes a VoIP phone from the database by IP address
+func DeleteVoIPPhoneByIP(db *sql.DB, ip string) error {
+	if db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	_, err := db.Exec("DELETE FROM voip_phones WHERE ip = ?", ip)
 	return err
 }
 

@@ -2518,9 +2518,9 @@ cmd_help() {
         echo -e "  ${DIM}# Launch TUI interface${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli tui${NC}\n"
         echo -e "  ${DIM}# Test SIP registration${NC}"
-        echo -e "  ${YELLOW}rayanpbx-cli sip-test register 1001 mypassword${NC}\n"
+        echo -e "  ${YELLOW}rayanpbx-cli sip-test register 101 mypassword${NC}\n"
         echo -e "  ${DIM}# Test call between extensions${NC}"
-        echo -e "  ${YELLOW}rayanpbx-cli sip-test call 1001 pass1 1002 pass2${NC}\n"
+        echo -e "  ${YELLOW}rayanpbx-cli sip-test call 101 pass1 102 pass2${NC}\n"
         echo -e "  ${DIM}# Reset all configuration (dangerous!)${NC}"
         echo -e "  ${YELLOW}rayanpbx-cli system reset${NC}\n"
         

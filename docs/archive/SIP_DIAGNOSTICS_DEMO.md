@@ -12,24 +12,24 @@
 
 ```
 ╭────────────────────────────────────────────────────────────────╮
-│ 📞 Extension Info & Diagnostics: 1001                         │
+│ 📞 Extension Info & Diagnostics: 101                         │
 ╰────────────────────────────────────────────────────────────────╯
 
 📋 Extension Details:
-  • Number: 1001
+  • Number: 101
   • Name: John Doe
   • Status: ✅ Enabled
 
 🔍 Real-time Registration Status:
   🟢 Status: Registered
-  Contact: sip:1001@192.168.1.50:5060;transport=UDP
+  Contact: sip:101@192.168.1.50:5060;transport=UDP
   Status: Available 10.0.0.1:5060 expires 3600
 
 📱 SIP Client Setup Guide:
   Configure your SIP phone/softphone with these settings:
 
   Required Configuration:
-    • Extension/Username: 1001
+    • Extension/Username: 101
     • Password: (your configured secret)
     • SIP Server: (your PBX server IP or hostname)
     • Port: 5060 (default)
@@ -78,7 +78,7 @@
 
 Enter the following details:
 
-Extension Number: 1001
+Extension Number: 101
 Password: _
 Server (optional): 127.0.0.1
 ```
@@ -102,11 +102,11 @@ Server (optional): 127.0.0.1
 
 #### 1. Header
 ```
-✓ Extension 1001 Diagnostics
+✓ Extension 101 Diagnostics
 ```
 or (if offline)
 ```
-⚠️ Extension 1001 Setup & Troubleshooting
+⚠️ Extension 101 Setup & Troubleshooting
 ```
 
 #### 2. Real-time Registration Status
@@ -114,7 +114,7 @@ or (if offline)
 ┌─────────────────────────────────────────────────────────┐
 │ 🟢 Registered - Real-time Status                        │
 │                                                          │
-│ Contact: sip:1001@192.168.1.50:5060;transport=UDP      │
+│ Contact: sip:101@192.168.1.50:5060;transport=UDP      │
 │ Expires: 3600 seconds                                   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -127,7 +127,7 @@ or (if offline)
 │ Configure your SIP phone/softphone with these settings: │
 │                                                          │
 │ ┌────────────────────────────────────────────────┐     │
-│ │ Extension/Username:  1001                       │     │
+│ │ Extension/Username:  101                       │     │
 │ │ Password:            (your configured secret)   │     │
 │ │ SIP Server:          192.168.1.100             │     │
 │ │ Port:                5060                       │     │
@@ -222,7 +222,7 @@ Authorization: Bearer {jwt_token}
 {
   "extension": {
     "id": 1,
-    "extension_number": "1001",
+    "extension_number": "101",
     "name": "John Doe",
     "enabled": true,
     "context": "from-internal",
@@ -235,7 +235,7 @@ Authorization: Bearer {jwt_token}
     "details": {
       "contacts": [
         {
-          "uri": "sip:1001@192.168.1.50:5060;transport=UDP",
+          "uri": "sip:101@192.168.1.50:5060;transport=UDP",
           "expires": "3600",
           "qualify": "Available"
         }
@@ -244,8 +244,8 @@ Authorization: Bearer {jwt_token}
   },
   "endpoint_details": { ... },
   "setup_guide": {
-    "extension": "1001",
-    "username": "1001",
+    "extension": "101",
+    "username": "101",
     "server": "192.168.1.100",
     "port": 5060,
     "transport": "UDP",

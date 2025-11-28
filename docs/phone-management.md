@@ -209,9 +209,9 @@ curl -X POST "http://your-server:8000/api/phones/tr069/manage" \
     "sip_config": {
       "server": "your-pbx-server",
       "port": "5060",
-      "username": "1001",
+      "username": "101",
       "password": "secret123",
-      "extension": "1001"
+      "extension": "101"
     }
   }'
 ```
@@ -237,7 +237,7 @@ Content-Type: application/json
 {
   "event": "registration",
   "data": {
-    "extension": "1001",
+    "extension": "101",
     "ip": "192.168.1.100",
     "timestamp": "2024-01-01T12:00:00Z"
   }
@@ -324,7 +324,7 @@ curl -X POST "http://your-server:8000/api/phones/tr069/manage" \
     "account_number": 1,
     "sip_config": {
       "server": "pbx.example.com",
-      "username": "1001",
+      "username": "101",
       "password": "secret123"
     }
   }'

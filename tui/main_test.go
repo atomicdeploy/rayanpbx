@@ -1335,4 +1335,158 @@ t.Errorf("Expected extensionSyncInfos[%d] to be %s, got %s",
 i, expected, m.extensionSyncInfos[i].ExtensionNumber)
 }
 }
+
+// TestGetSelectedExtensionWithSyncInfos tests that getSelectedExtension returns
+// the correct extension when extensionSyncInfos is populated
+func TestGetSelectedExtensionWithSyncInfos(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Create test extensions
+	ext1 := Extension{ExtensionNumber: "100", Name: "Test 100", ID: 1}
+	ext2 := Extension{ExtensionNumber: "200", Name: "Test 200", ID: 2}
+	ext3 := Extension{ExtensionNumber: "300", Name: "Test 300", ID: 3}
+	
+	// Order in extensions slice: 100, 200, 300 (DB order)
+	m.extensions = []Extension{ext1, ext2, ext3}
+	
+	// Order in extensionSyncInfos: 300, 200, 100 (different order, simulating unsorted map)
+	m.extensionSyncInfos = []ExtensionSyncInfo{
+		{ExtensionNumber: "300", DBExtension: &ext3, Source: SourceBoth},
+		{ExtensionNumber: "200", DBExtension: &ext2, Source: SourceBoth},
+		{ExtensionNumber: "100", DBExtension: &ext1, Source: SourceBoth},
+	}
+	
+	// Test 1: Select first item in the display list (should be extension 300)
+	m.selectedExtensionIdx = 0
+	selected := m.getSelectedExtension()
+	if selected == nil {
+		t.Fatal("Expected to get selected extension, got nil")
+	}
+	if selected.ExtensionNumber != "300" {
+		t.Errorf("Expected extension 300 at index 0, got %s", selected.ExtensionNumber)
+	}
+	
+	// Test 2: Select second item (should be extension 200)
+	m.selectedExtensionIdx = 1
+	selected = m.getSelectedExtension()
+	if selected == nil {
+		t.Fatal("Expected to get selected extension, got nil")
+	}
+	if selected.ExtensionNumber != "200" {
+		t.Errorf("Expected extension 200 at index 1, got %s", selected.ExtensionNumber)
+	}
+	
+	// Test 3: Select third item (should be extension 100)
+	m.selectedExtensionIdx = 2
+	selected = m.getSelectedExtension()
+	if selected == nil {
+		t.Fatal("Expected to get selected extension, got nil")
+	}
+	if selected.ExtensionNumber != "100" {
+		t.Errorf("Expected extension 100 at index 2, got %s", selected.ExtensionNumber)
+	}
+}
+
+// TestGetSelectedExtensionWithAsteriskOnly tests that getSelectedExtension returns
+// nil for extensions that are only in Asterisk (not in DB)
+func TestGetSelectedExtensionWithAsteriskOnly(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Create a DB extension
+	dbExt := Extension{ExtensionNumber: "100", Name: "Test 100", ID: 1}
+	
+	m.extensions = []Extension{dbExt}
+	
+	// Create sync infos with one DB extension and one Asterisk-only extension
+	m.extensionSyncInfos = []ExtensionSyncInfo{
+		{ExtensionNumber: "100", DBExtension: &dbExt, Source: SourceBoth},
+		{ExtensionNumber: "200", DBExtension: nil, Source: SourceAsterisk}, // Asterisk only
+	}
+	
+	// Test selecting the Asterisk-only extension
+	m.selectedExtensionIdx = 1
+	selected := m.getSelectedExtension()
+	if selected != nil {
+		t.Errorf("Expected nil for Asterisk-only extension, got %+v", selected)
+	}
+	
+	// hasSelectedExtension should return false
+	if m.hasSelectedExtension() {
+		t.Error("Expected hasSelectedExtension() to return false for Asterisk-only extension")
+	}
+}
+
+// TestGetSelectedExtensionFallback tests that getSelectedExtension falls back
+// to the extensions slice when extensionSyncInfos is empty
+func TestGetSelectedExtensionFallback(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Create test extensions
+	ext1 := Extension{ExtensionNumber: "100", Name: "Test 100", ID: 1}
+	ext2 := Extension{ExtensionNumber: "200", Name: "Test 200", ID: 2}
+	
+	m.extensions = []Extension{ext1, ext2}
+	m.extensionSyncInfos = nil // Empty sync infos
+	
+	// Select first extension
+	m.selectedExtensionIdx = 0
+	selected := m.getSelectedExtension()
+	if selected == nil {
+		t.Fatal("Expected to get selected extension, got nil")
+	}
+	if selected.ExtensionNumber != "100" {
+		t.Errorf("Expected extension 100, got %s", selected.ExtensionNumber)
+	}
+	
+	// Select second extension
+	m.selectedExtensionIdx = 1
+	selected = m.getSelectedExtension()
+	if selected == nil {
+		t.Fatal("Expected to get selected extension, got nil")
+	}
+	if selected.ExtensionNumber != "200" {
+		t.Errorf("Expected extension 200, got %s", selected.ExtensionNumber)
+	}
+}
+
+// TestGetSelectedExtensionIndex tests that getSelectedExtensionIndex returns
+// the correct index in the extensions slice
+func TestGetSelectedExtensionIndex(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Create test extensions
+	ext1 := Extension{ExtensionNumber: "100", Name: "Test 100", ID: 1}
+	ext2 := Extension{ExtensionNumber: "200", Name: "Test 200", ID: 2}
+	ext3 := Extension{ExtensionNumber: "300", Name: "Test 300", ID: 3}
+	
+	// Order in extensions slice: 100, 200, 300
+	m.extensions = []Extension{ext1, ext2, ext3}
+	
+	// Order in extensionSyncInfos: 300, 100, 200 (different order)
+	m.extensionSyncInfos = []ExtensionSyncInfo{
+		{ExtensionNumber: "300", DBExtension: &ext3, Source: SourceBoth},
+		{ExtensionNumber: "100", DBExtension: &ext1, Source: SourceBoth},
+		{ExtensionNumber: "200", DBExtension: &ext2, Source: SourceBoth},
+	}
+	
+	// Select first item in sync infos (extension 300, which is at index 2 in extensions)
+	m.selectedExtensionIdx = 0
+	idx := m.getSelectedExtensionIndex()
+	if idx != 2 {
+		t.Errorf("Expected getSelectedExtensionIndex() = 2, got %d", idx)
+	}
+	
+	// Select second item in sync infos (extension 100, which is at index 0 in extensions)
+	m.selectedExtensionIdx = 1
+	idx = m.getSelectedExtensionIndex()
+	if idx != 0 {
+		t.Errorf("Expected getSelectedExtensionIndex() = 0, got %d", idx)
+	}
+	
+	// Select third item in sync infos (extension 200, which is at index 1 in extensions)
+	m.selectedExtensionIdx = 2
+	idx = m.getSelectedExtensionIndex()
+	if idx != 1 {
+		t.Errorf("Expected getSelectedExtensionIndex() = 1, got %d", idx)
+	}
 }

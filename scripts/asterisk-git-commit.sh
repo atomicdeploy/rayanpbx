@@ -8,7 +8,7 @@
 #   description: Brief description of what was changed
 #
 # Examples:
-#   asterisk-git-commit.sh "extension-create" "Created extension 1001 (John Doe)"
+#   asterisk-git-commit.sh "extension-create" "Created extension 101 (John Doe)"
 #   asterisk-git-commit.sh "trunk-update" "Updated trunk settings for provider X"
 #   asterisk-git-commit.sh "config-edit" "Modified pjsip.conf transport settings"
 
@@ -321,7 +321,7 @@ main() {
             echo "  VERBOSE        Enable verbose output (true/false)"
             echo ""
             echo "Examples:"
-            echo "  asterisk-git-commit.sh commit extension-create 'Added extension 1001'"
+            echo "  asterisk-git-commit.sh commit extension-create 'Added extension 101'"
             echo "  asterisk-git-commit.sh history 20"
             echo "  asterisk-git-commit.sh revert abc123"
             ;;

@@ -105,7 +105,7 @@ class ExtensionSyncServiceProvider extends ServiceProvider
                             'extension_number' => $extNumber,
                             'name' => $astExt['caller_id'] ?? "Extension {$extNumber}",
                             'secret' => $astExt['secret'] ?? '',
-                            'context' => $astExt['context'] ?? 'internal',
+                            'context' => $astExt['context'] ?? 'from-internal',
                             'transport' => $astExt['transport'] ?? 'transport-udp',
                             'max_contacts' => $astExt['max_contacts'] ?? 1,
                             'qualify_frequency' => $astExt['qualify_frequency'] ?? 60,
@@ -213,7 +213,7 @@ class ExtensionSyncServiceProvider extends ServiceProvider
                 if (!isset($extensions[$currentSection])) {
                     $extensions[$currentSection] = [
                         'extension_number' => $currentSection,
-                        'context' => 'internal',
+                        'context' => 'from-internal',
                         'transport' => 'transport-udp',
                         'max_contacts' => 1,
                         'qualify_frequency' => 60,
@@ -305,8 +305,8 @@ class ExtensionSyncServiceProvider extends ServiceProvider
         $differences = [];
         
         // Compare context
-        if ($dbExt->context !== ($astExt['context'] ?? 'internal')) {
-            $differences[] = "context: DB={$dbExt->context}, Asterisk=" . ($astExt['context'] ?? 'internal');
+        if ($dbExt->context !== ($astExt['context'] ?? 'from-internal')) {
+            $differences[] = "context: DB={$dbExt->context}, Asterisk=" . ($astExt['context'] ?? 'from-internal');
         }
         
         // Compare transport

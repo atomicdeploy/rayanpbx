@@ -70,7 +70,7 @@ Requires JWT authentication via Sanctum middleware.
 {
   "extension": {
     "id": 1,
-    "extension_number": "1001",
+    "extension_number": "101",
     "name": "John Doe",
     "enabled": true,
     ...
@@ -83,8 +83,8 @@ Requires JWT authentication via Sanctum middleware.
   },
   "endpoint_details": {...},
   "setup_guide": {
-    "extension": "1001",
-    "username": "1001",
+    "extension": "101",
+    "username": "101",
     "server": "192.168.1.100",
     "port": 5060,
     "transport": "UDP",
