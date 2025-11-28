@@ -7,6 +7,11 @@ use Exception;
 class SystemctlService
 {
     /**
+     * Base command for executing Asterisk CLI commands
+     */
+    private const ASTERISK_CLI_COMMAND = 'asterisk -rx';
+
+    /**
      * Unified HTTP client for making outbound requests (e.g., AI solutions)
      */
     private HttpClientService $httpClient;
@@ -245,13 +250,13 @@ class SystemctlService
         // Use escapeshellarg to properly escape the command argument
         // This prevents issues where escapeshellcmd would escape characters
         // inside the Asterisk CLI command
-        $escapedCommand = 'asterisk -rx '.escapeshellarg($command);
+        $escapedCommand = self::ASTERISK_CLI_COMMAND.' '.escapeshellarg($command);
         exec($escapedCommand.' 2>&1', $output, $returnCode);
 
         if ($returnCode !== 0 && $returnCode !== 3) { // 3 = inactive service
             $outputStr = implode("\n", $output);
             $errorDetails = $this->getErrorDetails($returnCode, $outputStr);
-            throw new Exception("Command failed with code {$returnCode}: asterisk -rx \"{$command}\"\n{$errorDetails}");
+            throw new Exception("Command failed with code {$returnCode}: ".self::ASTERISK_CLI_COMMAND." \"{$command}\"\n{$errorDetails}");
         }
 
         return implode("\n", $output);

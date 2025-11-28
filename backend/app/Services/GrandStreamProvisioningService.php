@@ -22,6 +22,11 @@ class GrandStreamProvisioningService
     protected HttpClientService $httpClient;
 
     /**
+     * Systemctl service for Asterisk CLI commands
+     */
+    protected SystemctlService $systemctl;
+
+    /**
      * Regex pattern to match GrandStream phone models
      * GrandStream models start with: GXP, GRP, GXV, DP, WP, GAC, or HT
      */
@@ -53,10 +58,12 @@ class GrandStreamProvisioningService
      * Create a new GrandStreamProvisioningService instance
      *
      * @param  HttpClientService|null  $httpClient  Optional HTTP client for dependency injection/testing
+     * @param  SystemctlService|null  $systemctl  Optional systemctl service for dependency injection/testing
      */
-    public function __construct(?HttpClientService $httpClient = null)
+    public function __construct(?HttpClientService $httpClient = null, ?SystemctlService $systemctl = null)
     {
         $this->httpClient = $httpClient ?? new HttpClientService;
+        $this->systemctl = $systemctl ?? new SystemctlService;
     }
 
     /**
@@ -1362,11 +1369,10 @@ class GrandStreamProvisioningService
     protected function getRegisteredPhonesFromAsterisk()
     {
         try {
-            // Use escapeshellarg for proper escaping of the command argument
-            $command = 'asterisk -rx '.escapeshellarg('pjsip show endpoints');
-            $output = shell_exec($command);
+            // Use SystemctlService for consistent Asterisk CLI command execution
+            $output = $this->systemctl->execAsteriskCLI('pjsip show endpoints');
 
-            if (! $output) {
+            if (empty($output)) {
                 return [];
             }
 
