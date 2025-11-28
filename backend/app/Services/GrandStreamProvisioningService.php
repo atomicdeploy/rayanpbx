@@ -255,7 +255,7 @@ class GrandStreamProvisioningService
      */
     public function discoverPhones($network = '192.168.1.0/24')
     {
-        Log::info("Discovering phones on network: $network");
+        Log::info("Discovering phones on the network");
 
         $devices = [];
 
@@ -294,7 +294,7 @@ class GrandStreamProvisioningService
             'count' => count($devices),
             'devices' => $devices,
             'phones' => $registeredPhones,
-            'network' => $network,
+            ...array_filter(['network' => $network]),
         ];
     }
 
@@ -1026,6 +1026,8 @@ class GrandStreamProvisioningService
         if ($returnCode !== 0) {
             throw new \Exception('Nmap is not installed');
         }
+
+        Log::info("Running nmap scan on network: {$network}");
 
         // Scan for common VoIP ports
         $output = [];
