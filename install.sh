@@ -254,6 +254,9 @@ show_help() {
     echo -e "    ${DIM}# Skip Asterisk installation${RESET}"
     echo -e "    ${WHITE}sudo ./install.sh --skip=asterisk,asterisk-ami${RESET}"
     echo ""
+    echo -e "    ${DIM}# Skip Git dirty state check (use with caution!)${RESET}"
+    echo -e "    ${WHITE}sudo ./install.sh --skip=conf-git${RESET}"
+    echo ""
     echo -e "    ${DIM}# List all available steps${RESET}"
     echo -e "    ${WHITE}./install.sh --list-steps${RESET}"
     echo ""
@@ -2977,6 +2980,69 @@ if next_step "Asterisk Config Version Control" "conf-git"; then
         # Check if already a Git repository
         if [ -d "$ASTERISK_CONFIG_DIR/.git" ]; then
             print_success "Git repository already initialized in $ASTERISK_CONFIG_DIR"
+            
+            # CRITICAL: Check if repository has uncommitted changes (dirty state)
+            # This is a fatal error - we must abort installation if there are uncommitted changes
+            print_progress "Checking for uncommitted changes in $ASTERISK_CONFIG_DIR..."
+            
+            cd "$ASTERISK_CONFIG_DIR" || {
+                print_error "Failed to change to $ASTERISK_CONFIG_DIR"
+                exit 1
+            }
+            
+            # Check git status for uncommitted changes
+            # The 2>&1 redirect ensures we capture any git errors too
+            GIT_STATUS_OUTPUT=$(git status --porcelain 2>&1)
+            GIT_STATUS_EXIT=$?
+            
+            # Check if git status command succeeded
+            if [ $GIT_STATUS_EXIT -ne 0 ]; then
+                print_warning "Git status check failed: $GIT_STATUS_OUTPUT"
+                print_info "Continuing with installation - repository may need attention"
+            elif [ -n "$GIT_STATUS_OUTPUT" ]; then
+                # Repository is dirty - this is a critical error
+                echo ""
+                echo -e "${BG_RED}${WHITE}${BOLD}                                                                    ${RESET}"
+                echo -e "${BG_RED}${WHITE}${BOLD}  ⛔ CRITICAL ERROR: /etc/asterisk HAS UNCOMMITTED CHANGES!         ${RESET}"
+                echo -e "${BG_RED}${WHITE}${BOLD}                                                                    ${RESET}"
+                echo ""
+                print_error "The /etc/asterisk directory has uncommitted changes that must be resolved before installation can continue."
+                echo ""
+                echo -e "${YELLOW}${BOLD}Uncommitted changes found:${RESET}"
+                echo -e "${DIM}────────────────────────────────────────────────────────────────────${RESET}"
+                git status --short
+                echo -e "${DIM}────────────────────────────────────────────────────────────────────${RESET}"
+                echo ""
+                
+                # Count the number of changed files (only count non-empty lines)
+                CHANGE_COUNT=$(echo "$GIT_STATUS_OUTPUT" | grep -c '.' || echo "0")
+                echo -e "${YELLOW}Total: $CHANGE_COUNT uncommitted change(s)${RESET}"
+                echo ""
+                
+                echo -e "${CYAN}${BOLD}📋 How to resolve this:${RESET}"
+                echo ""
+                echo -e "  ${GREEN}Option 1:${RESET} ${BOLD}Commit the changes${RESET}"
+                echo -e "    ${DIM}cd /etc/asterisk${RESET}"
+                echo -e "    ${DIM}git add -A${RESET}"
+                echo -e "    ${DIM}git commit -m 'Manual changes before RayanPBX installation'${RESET}"
+                echo ""
+                echo -e "  ${GREEN}Option 2:${RESET} ${BOLD}Discard the changes${RESET} (if not needed)"
+                echo -e "    ${DIM}cd /etc/asterisk${RESET}"
+                echo -e "    ${DIM}git checkout .${RESET}"
+                echo -e "    ${DIM}git clean -fd${RESET}"
+                echo ""
+                echo -e "  ${GREEN}Option 3:${RESET} ${BOLD}Skip this check${RESET} (use with caution!)"
+                echo -e "    ${WHITE}sudo ./install.sh --skip=conf-git${RESET}"
+                echo -e "    ${DIM}⚠️  Warning: This may leave your configuration in an inconsistent state${RESET}"
+                echo ""
+                
+                echo -e "${RED}${BOLD}Installation aborted.${RESET}"
+                echo -e "${DIM}Please resolve the uncommitted changes and run the installer again.${RESET}"
+                echo ""
+                exit 1
+            else
+                print_success "Repository is clean - no uncommitted changes"
+            fi
         else
             print_progress "Initializing Git repository in $ASTERISK_CONFIG_DIR..."
             
@@ -3006,6 +3072,7 @@ if next_step "Asterisk Config Version Control" "conf-git"; then
 backups/
 backup/
 *.backup
+*.backup.*
 *.bak
 *.old
 
