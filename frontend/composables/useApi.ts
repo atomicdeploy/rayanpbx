@@ -134,6 +134,37 @@ export const useApi = () => {
       return apiFetch(`/console/output?lines=${lines}`)
     },
     
+    /**
+     * Create an EventSource for live console streaming
+     * This provides similar output to `asterisk -rvvvvvvvvv`
+     */
+    createLiveConsoleStream(verbosity: number = 5): EventSource | null {
+      if (!authStore.token) {
+        return null
+      }
+      
+      const url = `${config.public.apiBase}/console/live?verbosity=${verbosity}`
+      
+      // EventSource doesn't support custom headers, so we need to use fetch + ReadableStream
+      // For SSE with auth, we'll return null here and let the component handle it
+      // The component will need to use a custom approach
+      return null
+    },
+    
+    /**
+     * Get the URL for live console streaming (for SSE connection)
+     */
+    getLiveConsoleUrl(verbosity: number = 5): string {
+      return `${config.public.apiBase}/console/live?verbosity=${verbosity}`
+    },
+    
+    /**
+     * Get recent Asterisk errors
+     */
+    async getConsoleErrors(lines: number = 500) {
+      return apiFetch(`/console/errors?lines=${lines}`)
+    },
+    
     async getConsoleCommands() {
       return apiFetch('/console/commands')
     },

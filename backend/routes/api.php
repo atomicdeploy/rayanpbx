@@ -124,6 +124,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // Asterisk Console
     Route::post('/console/execute', [ConsoleController::class, 'execute']);
     Route::get('/console/output', [ConsoleController::class, 'output']);
+    Route::get('/console/live', [ConsoleController::class, 'live']);
+    Route::get('/console/errors', [ConsoleController::class, 'errors']);
     Route::get('/console/commands', [ConsoleController::class, 'commands']);
     Route::get('/console/version', [ConsoleController::class, 'version']);
     Route::get('/console/calls', [ConsoleController::class, 'calls']);

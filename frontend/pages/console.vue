@@ -20,6 +20,77 @@
     </nav>
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <!-- Live Console Toggle -->
+      <div class="card mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold flex items-center">
+            <span class="text-2xl mr-2">📡</span>
+            Live Console
+            <span v-if="liveMode" class="ml-3 px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded text-sm animate-pulse">
+              🔴 LIVE
+            </span>
+          </h2>
+          <div class="flex items-center space-x-4">
+            <label class="flex items-center space-x-2">
+              <span class="text-sm text-gray-600 dark:text-gray-400">Verbosity:</span>
+              <select v-model="verbosity" class="input py-1 px-2 text-sm w-20" :disabled="liveMode">
+                <option v-for="v in 10" :key="v" :value="v">{{ v }}</option>
+              </select>
+            </label>
+            <button
+              @click="toggleLiveMode"
+              :class="liveMode ? 'btn bg-red-600 hover:bg-red-700 text-white' : 'btn btn-primary'"
+            >
+              {{ liveMode ? '⏹️ Stop' : '▶️ Start Live' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Console Box -->
+        <div class="live-console-container">
+          <div class="live-console-header">
+            ╭────────────────────────────────────────────────────────────────────────────────╮
+            <span v-if="liveMode" class="text-green-400 ml-4">● Connected (verbosity: {{ verbosity }})</span>
+            <span v-else class="text-gray-500 ml-4">○ Disconnected</span>
+          </div>
+          <div class="live-console-output" ref="liveConsoleOutput">
+            <div v-if="liveOutput.length === 0" class="text-center py-4 text-gray-500">
+              │ {{ liveMode ? 'Waiting for output...' : 'Click "Start Live" to stream Asterisk console' }} │
+            </div>
+            <div v-else>
+              <div
+                v-for="(line, index) in liveOutput"
+                :key="index"
+                class="live-console-line"
+                :class="getLiveLineClass(line)"
+              >
+                <span class="console-border">│</span>
+                <span v-if="line.timestamp" class="text-gray-500 text-xs mr-2">[{{ formatTimestamp(line.timestamp) }}]</span>
+                <span v-if="line.level" class="uppercase text-xs font-bold mr-2" :class="getLevelBadgeClass(line.level)">{{ line.level }}</span>
+                <span v-if="line.source" class="text-cyan-400 text-xs mr-2">{{ line.source }}:</span>
+                <span class="console-content">{{ line.message }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="live-console-footer">
+            ╰────────────────────────────────────────────────────────────────────────────────╯
+          </div>
+        </div>
+
+        <!-- Error Summary -->
+        <div v-if="recentErrors.length > 0" class="mt-4">
+          <h4 class="text-sm font-semibold mb-2 text-red-600 dark:text-red-400 flex items-center">
+            <span class="mr-2">⚠️</span>
+            Recent Errors ({{ recentErrors.length }})
+          </h4>
+          <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 max-h-32 overflow-y-auto">
+            <div v-for="(error, idx) in recentErrors" :key="idx" class="text-sm text-red-700 dark:text-red-300 font-mono mb-1">
+              {{ error.message }}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Console Output Card -->
       <div class="card mb-6">
         <div class="flex items-center justify-between mb-4">
@@ -213,7 +284,16 @@ const asteriskVersion = ref('')
 const activeCalls = ref<any[]>([])
 const endpoints = ref<any[]>([])
 
+// Live console state
+const liveMode = ref(false)
+const verbosity = ref(5)
+const liveOutput = ref<any[]>([])
+const recentErrors = ref<any[]>([])
+const eventSource = ref<EventSource | null>(null)
+const maxLiveLines = 500
+
 const consoleOutput = ref<HTMLElement>()
+const liveConsoleOutput = ref<HTMLElement>()
 
 const quickCommands = [
   { label: '📊 Core Show Calls', command: 'core show calls', description: 'Show active calls' },
@@ -240,6 +320,155 @@ const getLineClass = (line: any) => {
     default:
       return 'text-green-600 dark:text-green-400'
   }
+}
+
+const getLiveLineClass = (line: any) => {
+  if (line.isError) return 'bg-red-900/20'
+  if (!line.level) return ''
+  
+  switch (line.level.toLowerCase()) {
+    case 'error':
+      return 'text-red-400 bg-red-900/20'
+    case 'warning':
+    case 'warn':
+      return 'text-yellow-400'
+    case 'notice':
+      return 'text-blue-400'
+    case 'debug':
+      return 'text-gray-500'
+    default:
+      return 'text-green-400'
+  }
+}
+
+const getLevelBadgeClass = (level: string) => {
+  switch (level.toLowerCase()) {
+    case 'error':
+      return 'text-red-400'
+    case 'warning':
+    case 'warn':
+      return 'text-yellow-400'
+    case 'notice':
+      return 'text-blue-400'
+    case 'debug':
+      return 'text-gray-500'
+    default:
+      return 'text-green-400'
+  }
+}
+
+const formatTimestamp = (timestamp: string) => {
+  // Return just the time portion for compact display
+  if (timestamp.includes(' ')) {
+    return timestamp.split(' ')[1] || timestamp
+  }
+  return timestamp
+}
+
+const toggleLiveMode = async () => {
+  if (liveMode.value) {
+    // Stop live mode
+    stopLiveStream()
+  } else {
+    // Start live mode
+    await startLiveStream()
+  }
+}
+
+const startLiveStream = async () => {
+  liveMode.value = true
+  liveOutput.value = []
+  
+  try {
+    // Fetch using fetch API with auth header for SSE
+    const config = useRuntimeConfig()
+    const url = `${config.public.apiBase}/console/live?verbosity=${verbosity.value}`
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`,
+        'Accept': 'text/event-stream',
+      },
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+    
+    if (!reader) {
+      throw new Error('No reader available')
+    }
+    
+    // Read the stream
+    while (liveMode.value) {
+      const { done, value } = await reader.read()
+      
+      if (done) {
+        break
+      }
+      
+      const text = decoder.decode(value)
+      const lines = text.split('\n')
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6))
+            handleLiveData(data)
+          } catch (e) {
+            // Ignore parsing errors
+          }
+        }
+      }
+    }
+    
+    reader.cancel()
+  } catch (error: any) {
+    console.error('Live stream error:', error)
+    liveOutput.value.push({
+      type: 'error',
+      message: `Connection error: ${error.message}`,
+      timestamp: new Date().toISOString(),
+      isError: true,
+    })
+    liveMode.value = false
+  }
+}
+
+const stopLiveStream = () => {
+  liveMode.value = false
+}
+
+const handleLiveData = (data: any) => {
+  // Add to live output
+  liveOutput.value.push(data)
+  
+  // Keep only last N lines
+  if (liveOutput.value.length > maxLiveLines) {
+    liveOutput.value = liveOutput.value.slice(-maxLiveLines)
+  }
+  
+  // Track errors
+  if (data.isError || data.level === 'error' || data.level === 'warning') {
+    recentErrors.value.push(data)
+    if (recentErrors.value.length > 20) {
+      recentErrors.value = recentErrors.value.slice(-20)
+    }
+  }
+  
+  // Auto-scroll
+  scrollLiveToBottom()
+}
+
+const scrollLiveToBottom = () => {
+  nextTick(() => {
+    if (liveConsoleOutput.value) {
+      liveConsoleOutput.value.scrollTop = liveConsoleOutput.value.scrollHeight
+    }
+  })
 }
 
 const fetchOutput = async () => {
@@ -370,6 +599,17 @@ const fetchEndpoints = async () => {
   }
 }
 
+const fetchRecentErrors = async () => {
+  try {
+    const response = await api.apiFetch('/console/errors?lines=500')
+    if (response.success && response.errors) {
+      recentErrors.value = response.errors.slice(-20)
+    }
+  } catch (error) {
+    console.error('Error fetching errors:', error)
+  }
+}
+
 onMounted(async () => {
   await authStore.checkAuth()
   if (!authStore.isAuthenticated) {
@@ -381,12 +621,17 @@ onMounted(async () => {
   await fetchOutput()
   await fetchActiveCalls()
   await fetchEndpoints()
+  await fetchRecentErrors()
   
   // Auto-refresh every 5 seconds
   setInterval(() => {
     fetchActiveCalls()
     fetchEndpoints()
   }, 5000)
+})
+
+onUnmounted(() => {
+  stopLiveStream()
 })
 </script>
 
@@ -428,6 +673,38 @@ onMounted(async () => {
 
 .console-content {
   @apply flex-1;
+}
+
+/* Live Console Styles */
+.live-console-container {
+  @apply bg-black text-green-400 font-mono text-sm rounded-lg overflow-hidden border border-green-800;
+}
+
+.live-console-header,
+.live-console-footer {
+  @apply text-green-600 px-4 py-1 flex items-center;
+}
+
+.live-console-output {
+  @apply max-h-80 overflow-y-auto px-2 py-2;
+  scrollbar-width: thin;
+  scrollbar-color: #22c55e #000;
+}
+
+.live-console-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+.live-console-output::-webkit-scrollbar-track {
+  @apply bg-gray-900;
+}
+
+.live-console-output::-webkit-scrollbar-thumb {
+  @apply bg-green-800 rounded;
+}
+
+.live-console-line {
+  @apply flex items-start leading-relaxed py-0.5;
 }
 
 .btn-sm {
