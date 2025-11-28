@@ -284,7 +284,7 @@ jobs:
         run: |
           # Test dry-run mode (should indicate dry-run is enabled)
           output=$(timeout 5 ./install.sh --dry-run --ci --verbose 2>&1 || true)
-          if echo "$output" | grep -qi "dry.run"; then
+          if echo "$output" | grep -qi "dry-run"; then
             echo "✅ --dry-run flag working"
           else
             echo "❌ --dry-run flag failed"
