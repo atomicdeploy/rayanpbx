@@ -236,7 +236,7 @@ type model struct {
 	codecSelectedIndex  int          // Currently selected codec in the list
 	codecOrderModified  bool         // Whether the order has been changed
 	
-	directCallManaer      *DirectCallManager // For direct SIP calls and console intercom
+	directCallManager      *DirectCallManager // For direct SIP calls and console intercom
 	
 	// Menu position memory (preserve cursor position when navigating back)
 	mainMenuCursor        int
