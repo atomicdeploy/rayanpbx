@@ -33,7 +33,7 @@ RayanPBX now provides comprehensive PJSIP management that:
 1. Navigate to Extensions page (`http://your-server:3000/extensions`)
 2. Click "Add Extension"
 3. Fill in the details:
-   - **Extension Number**: e.g., `1001`
+   - **Extension Number**: e.g., `101`
    - **Name**: User's name
    - **Secret**: Strong password (min 8 characters)
    - **Context**: `internal` (default)
@@ -56,7 +56,7 @@ curl -X POST http://localhost:8000/api/extensions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
-    "extension_number": "1001",
+    "extension_number": "101",
     "name": "John Doe",
     "secret": "SecurePass123",
     "enabled": true,
@@ -71,7 +71,7 @@ curl -X POST http://localhost:8000/api/extensions \
 
 ```bash
 cd /opt/rayanpbx/backend
-php artisan rayanpbx:extension create 1001 --name="John Doe" --secret="SecurePass123"
+php artisan rayanpbx:extension create 101 --name="John Doe" --secret="SecurePass123"
 ```
 
 ## Verification
@@ -99,14 +99,14 @@ curl http://localhost:8000/api/extensions/asterisk/endpoints \
 ```bash
 asterisk -rvvv
 > pjsip show endpoints
-> pjsip show endpoint 1001
+> pjsip show endpoint 101
 ```
 
 Expected output:
 ```
-Endpoint:  <Endpoint/1001>  Unavailable   0 of 1
-    Aor:  1001                   0
-  Contact:  1001/sip:1001@192.168.1.100:5060  Avail
+Endpoint:  <Endpoint/101>  Unavailable   0 of 1
+    Aor:  101                   0
+  Contact:  101/sip:101@192.168.1.100:5060  Avail
    Transport:  transport-udp             udp      0      0  0.0.0.0:5060
 ```
 
@@ -120,11 +120,11 @@ asterisk -rvvv
 You should see:
 ```
 [ Context 'internal' created by 'pbx_config' ]
-  '1001' =>         1. NoOp(Call to extension 1001)
-                    2. Dial(PJSIP/1001,30)
+  '101' =>         1. NoOp(Call to extension 101)
+                    2. Dial(PJSIP/101,30)
                     3. Hangup()
   
-  '_1XXX' =>        1. NoOp(Extension to extension call: ${EXTEN})
+  '_1XX' =>         1. NoOp(Extension to extension call: ${EXTEN})
                     2. Dial(PJSIP/${EXTEN},30)
                     3. Hangup()
 ```
@@ -143,8 +143,8 @@ protocol=udp
 bind=0.0.0.0:5060
 ; END MANAGED - RayanPBX Transport
 
-; BEGIN MANAGED - Extension 1001
-[1001]
+; BEGIN MANAGED - Extension 101
+[101]
 type=endpoint
 context=internal
 disallow=all
@@ -152,22 +152,22 @@ allow=ulaw
 allow=alaw
 allow=g722
 transport=udp
-auth=1001
-aors=1001
+auth=101
+aors=101
 direct_media=no
 
-[1001]
+[101]
 type=auth
 auth_type=userpass
-username=1001
+username=101
 password=SecurePass123
 
-[1001]
+[101]
 type=aor
 max_contacts=1
 remove_existing=yes
 qualify_frequency=60
-; END MANAGED - Extension 1001
+; END MANAGED - Extension 101
 ```
 
 ### Dialplan Configuration (`/etc/asterisk/extensions.conf`)
@@ -175,16 +175,16 @@ qualify_frequency=60
 ```ini
 ; BEGIN MANAGED - RayanPBX Internal Extensions
 [internal]
-exten => 1001,1,NoOp(Call to extension 1001)
- same => n,Dial(PJSIP/1001,30)
+exten => 101,1,NoOp(Call to extension 101)
+ same => n,Dial(PJSIP/101,30)
  same => n,Hangup()
 
-exten => 1002,1,NoOp(Call to extension 1002)
- same => n,Dial(PJSIP/1002,30)
+exten => 102,1,NoOp(Call to extension 102)
+ same => n,Dial(PJSIP/102,30)
  same => n,Hangup()
 
 ; Pattern match for all extensions
-exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})
+exten => _1XX,1,NoOp(Extension to extension call: ${EXTEN})
  same => n,Dial(PJSIP/${EXTEN},30)
  same => n,Hangup()
 ; END MANAGED - RayanPBX Internal Extensions
@@ -231,9 +231,9 @@ Starting AMI Event Monitor...
 Monitoring for PJSIP registrations, calls, and other events
 Press Ctrl+C to stop
 
-✅ Extension 1001 registered
-🔔 Extension 1002 ringing from 1001
-📞 Call ended: PJSIP/1002-00000001 - Normal Clearing
+✅ Extension 101 registered
+🔔 Extension 102 ringing from 101
+📞 Call ended: PJSIP/102-00000001 - Normal Clearing
 ```
 
 ### API Endpoints for Events
@@ -252,7 +252,7 @@ curl http://localhost:8000/api/events/calls \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 
 # Get specific extension status
-curl http://localhost:8000/api/events/extension/1001 \
+curl http://localhost:8000/api/events/extension/101 \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
@@ -282,7 +282,7 @@ When you create an extension, RayanPBX automatically generates:
 
 3. **Dialplan Hints**:
    ```ini
-   exten => 1001,hint,PJSIP/1001  ; Maps extension to PJSIP endpoint
+   exten => 101,hint,PJSIP/101  ; Maps extension to PJSIP endpoint
    ```
 
 ### Verifying Presence Support
@@ -294,8 +294,8 @@ asterisk -rx "core show hints"
 
 Expected output:
 ```
-1001@internal         : PJSIP/1001        State:Unavailable   Watchers  0
-1002@internal         : PJSIP/1002        State:Idle          Watchers  1
+101@internal         : PJSIP/101        State:Unavailable   Watchers  0
+102@internal         : PJSIP/102        State:Idle          Watchers  1
 ```
 
 Check subscriptions:
@@ -308,7 +308,7 @@ asterisk -rx "pjsip show subscriptions inbound"
 Example for GrandStream phones:
 1. Go to **Accounts** → **Account X** → **BLF Keys**
 2. Set **Mode**: Speed Dial + BLF
-3. Set **Value**: Extension number (e.g., `1002`)
+3. Set **Value**: Extension number (e.g., `102`)
 4. Set **Account**: Your SIP account
 
 ### Troubleshooting Presence (489 Bad Event)
@@ -334,7 +334,7 @@ If you see "489 Bad Event" responses in SIP logs:
 
 4. **Check endpoint subscribe_context**:
    ```bash
-   asterisk -rx "pjsip show endpoint 1001" | grep subscribe
+   asterisk -rx "pjsip show endpoint 101" | grep subscribe
    ```
 
 ### Presence Event Limitations
@@ -354,7 +354,7 @@ If your Asterisk build doesn't include these modules, presence publishing may no
 1. **Configuration not written**
    ```bash
    # Check if config file was updated
-   grep "Extension 1001" /etc/asterisk/pjsip.conf
+   grep "Extension 101" /etc/asterisk/pjsip.conf
    ```
 
 2. **Asterisk not reloaded**
@@ -388,7 +388,7 @@ If your Asterisk build doesn't include these modules, presence publishing may no
 **From MicroSIP or other SIP client:**
 
 1. **Check credentials**
-   - Username: `1001`
+   - Username: `101`
    - Password: The secret you set
    - Domain: Your server IP
    - Port: `5060`
@@ -431,7 +431,7 @@ If your Asterisk build doesn't include these modules, presence publishing may no
 3. **Test call from CLI**
    ```bash
    asterisk -rvvv
-   > channel originate PJSIP/1001 extension 1002@internal
+   > channel originate PJSIP/101 extension 102@internal
    ```
 
 4. **Check for errors**
@@ -468,24 +468,24 @@ chmod 644 /etc/asterisk/pjsip.conf
 ### 1. Create Extensions
 
 ```bash
-# Extension 1001
+# Extension 101
 curl -X POST http://localhost:8000/api/extensions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "extension_number": "1001",
+    "extension_number": "101",
     "name": "Alice",
     "secret": "Alice123Pass",
     "enabled": true,
     "context": "internal"
   }'
 
-# Extension 1002
+# Extension 102
 curl -X POST http://localhost:8000/api/extensions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "extension_number": "1002",
+    "extension_number": "102",
     "name": "Bob",
     "secret": "Bob456Pass",
     "enabled": true,
@@ -501,22 +501,22 @@ asterisk -rx "pjsip show endpoints"
 
 Should show:
 ```
-Endpoint:  <Endpoint/1001>  Unavailable   0 of 1
-Endpoint:  <Endpoint/1002>  Unavailable   0 of 1
+Endpoint:  <Endpoint/101>  Unavailable   0 of 1
+Endpoint:  <Endpoint/102>  Unavailable   0 of 1
 ```
 
 ### 3. Configure MicroSIP
 
-**For Extension 1001:**
-- Account name: Alice (1001)
+**For Extension 101:**
+- Account name: Alice (101)
 - SIP Server: your-server-ip
 - SIP Proxy: your-server-ip:5060
-- Username: 1001
+- Username: 101
 - Password: Alice123Pass
 - Domain: your-server-ip
 
-**For Extension 1002:**
-- Same as above but with 1002 credentials
+**For Extension 102:**
+- Same as above but with 102 credentials
 
 ### 4. Verify Registration
 
@@ -527,20 +527,20 @@ asterisk -rx "pjsip show endpoints"
 
 Should now show:
 ```
-Endpoint:  <Endpoint/1001>  Available   1 of 1
-Endpoint:  <Endpoint/1002>  Available   1 of 1
+Endpoint:  <Endpoint/101>  Available   1 of 1
+Endpoint:  <Endpoint/102>  Available   1 of 1
 ```
 
 MicroSIP should show green "Online" status.
 
 ### 5. Test Call
 
-From 1001, dial: `1002`
+From 101, dial: `102`
 
 Should see in RayanPBX event monitor:
 ```
-🔔 Extension 1002 ringing from 1001
-📞 Call ended: PJSIP/1002-00000001 - Normal Clearing
+🔔 Extension 102 ringing from 101
+📞 Call ended: PJSIP/102-00000001 - Normal Clearing
 ```
 
 ## Additional Resources

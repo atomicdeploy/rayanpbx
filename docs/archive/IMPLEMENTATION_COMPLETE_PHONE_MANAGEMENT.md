@@ -181,10 +181,10 @@ Route::post('/grandstream/provision-direct', [GrandStreamController::class, 'pro
 ### TUI Display
 When phone row is selected in TUI:
 ```
-📱 Phone Details: 1001
+📱 Phone Details: 101
 
 📊 Basic Information:
-  Extension: 1001
+  Extension: 101
   IP Address: 192.168.1.100
   Status: Registered
   User Agent: Grandstream GXP1630
@@ -196,7 +196,7 @@ When phone row is selected in TUI:
   Uptime: 5 days
 
 📞 SIP Accounts:
-  🟢 Account 1: 1001 (Registered)
+  🟢 Account 1: 101 (Registered)
 
 🌐 Network Information:
   IP: 192.168.1.100

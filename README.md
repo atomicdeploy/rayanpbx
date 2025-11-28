@@ -264,7 +264,7 @@ php artisan rayanpbx:service restart asterisk
 
 # Manage extensions
 php artisan rayanpbx:extension list
-php artisan rayanpbx:extension create 1001
+php artisan rayanpbx:extension create 101
 
 # Manage trunks
 php artisan rayanpbx:trunk list

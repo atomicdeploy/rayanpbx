@@ -27,13 +27,13 @@ A comprehensive bash script that provides:
 ./scripts/sip-test-suite.sh install pjsua
 
 # Test registration
-./scripts/sip-test-suite.sh register 1001 password
+./scripts/sip-test-suite.sh register 101 password
 
 # Test call
-./scripts/sip-test-suite.sh call 1001 pass1 1002 pass2
+./scripts/sip-test-suite.sh call 101 pass1 102 pass2
 
 # Full test suite
-./scripts/sip-test-suite.sh full 1001 pass1 1002 pass2
+./scripts/sip-test-suite.sh full 101 pass1 102 pass2
 ```
 
 ### 2. Backend API Endpoints
@@ -57,9 +57,9 @@ Extended `rayanpbx-cli.sh` with new `sip-test` command group:
 # CLI commands
 rayanpbx-cli sip-test tools
 rayanpbx-cli sip-test install pjsua
-rayanpbx-cli sip-test register 1001 password
-rayanpbx-cli sip-test call 1001 pass1 1002 pass2
-rayanpbx-cli sip-test full 1001 pass1 1002 pass2
+rayanpbx-cli sip-test register 101 password
+rayanpbx-cli sip-test call 101 pass1 102 pass2
+rayanpbx-cli sip-test full 101 pass1 102 pass2
 ```
 
 Features:
@@ -210,17 +210,17 @@ The implementation covers all requested test scenarios:
 
 2. **Test extension registration:**
    ```bash
-   rayanpbx-cli sip-test register 1001 mypassword
+   rayanpbx-cli sip-test register 101 mypassword
    ```
 
 3. **Test call between extensions:**
    ```bash
-   rayanpbx-cli sip-test call 1001 pass1 1002 pass2
+   rayanpbx-cli sip-test call 101 pass1 102 pass2
    ```
 
 4. **Run full test suite:**
    ```bash
-   rayanpbx-cli sip-test full 1001 pass1 1002 pass2
+   rayanpbx-cli sip-test full 101 pass1 102 pass2
    ```
 
 ### Via TUI
@@ -235,7 +235,7 @@ The implementation covers all requested test scenarios:
 # Test registration
 curl -X POST http://localhost:8000/api/sip-test/registration \
   -H "Content-Type: application/json" \
-  -d '{"extension":"1001","password":"pass"}'
+  -d '{"extension":"101","password":"pass"}'
 ```
 
 ## Acceptance Criteria Status

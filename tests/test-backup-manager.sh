@@ -61,15 +61,15 @@ type=transport
 protocol=udp
 bind=0.0.0.0:5060
 
-[1001]
+[101]
 type=endpoint
 context=internal
 EOF
     
     cat > "$MOCK_ASTERISK_DIR/extensions.conf" << 'EOF'
 [internal]
-exten => 1001,1,Dial(PJSIP/1001,30)
-exten => 1001,n,Hangup()
+exten => 101,1,Dial(PJSIP/101,30)
+exten => 101,n,Hangup()
 EOF
     
     print_info "Test directory: $TEST_DIR"

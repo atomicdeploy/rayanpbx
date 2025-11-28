@@ -110,28 +110,28 @@ rayanpbx-cli sip-test tools
 #### Test Registration
 ```bash
 # Test on local server (127.0.0.1)
-rayanpbx-cli sip-test register 1001 mypassword
+rayanpbx-cli sip-test register 101 mypassword
 
 # Test on remote server
-rayanpbx-cli sip-test register 1001 mypassword 192.168.1.100
+rayanpbx-cli sip-test register 101 mypassword 192.168.1.100
 ```
 
 #### Test Call Between Extensions
 ```bash
 # Test call on local server
-rayanpbx-cli sip-test call 1001 pass1 1002 pass2
+rayanpbx-cli sip-test call 101 pass1 102 pass2
 
 # Test call on remote server
-rayanpbx-cli sip-test call 1001 pass1 1002 pass2 192.168.1.100
+rayanpbx-cli sip-test call 101 pass1 102 pass2 192.168.1.100
 ```
 
 #### Run Full Test Suite
 ```bash
 # Run all tests with two extensions
-rayanpbx-cli sip-test full 1001 pass1 1002 pass2
+rayanpbx-cli sip-test full 101 pass1 102 pass2
 
 # Run all tests on remote server
-rayanpbx-cli sip-test full 1001 pass1 1002 pass2 192.168.1.100
+rayanpbx-cli sip-test full 101 pass1 102 pass2 192.168.1.100
 ```
 
 ### TUI Testing
@@ -187,19 +187,19 @@ For automation or advanced usage, call the script directly:
 /opt/rayanpbx/scripts/sip-test-suite.sh tools
 
 # Test registration
-/opt/rayanpbx/scripts/sip-test-suite.sh register 1001 password
+/opt/rayanpbx/scripts/sip-test-suite.sh register 101 password
 
 # Test call
-/opt/rayanpbx/scripts/sip-test-suite.sh call 1001 pass1 1002 pass2
+/opt/rayanpbx/scripts/sip-test-suite.sh call 101 pass1 102 pass2
 
 # Full test suite
-/opt/rayanpbx/scripts/sip-test-suite.sh full 1001 pass1 1002 pass2
+/opt/rayanpbx/scripts/sip-test-suite.sh full 101 pass1 102 pass2
 
 # With verbose output
-/opt/rayanpbx/scripts/sip-test-suite.sh -v register 1001 password
+/opt/rayanpbx/scripts/sip-test-suite.sh -v register 101 password
 
 # With custom server and port
-/opt/rayanpbx/scripts/sip-test-suite.sh -s 192.168.1.100 -p 5060 register 1001 password
+/opt/rayanpbx/scripts/sip-test-suite.sh -s 192.168.1.100 -p 5060 register 101 password
 ```
 
 ## Test Types
@@ -309,7 +309,7 @@ rayanpbx-cli sip-test install pjsua
 
 **Solutions**:
 1. Create extension via Web UI or CLI
-2. Verify endpoint: `asterisk -rx "pjsip show endpoint 1001"`
+2. Verify endpoint: `asterisk -rx "pjsip show endpoint 101"`
 3. Reload PJSIP: `asterisk -rx "pjsip reload"`
 
 ### Debugging Tips
@@ -326,11 +326,11 @@ rayanpbx-cli asterisk command "pjsip set logger on"
 #### Check extension status
 ```bash
 # Via Asterisk CLI
-asterisk -rx "pjsip show endpoint 1001"
+asterisk -rx "pjsip show endpoint 101"
 asterisk -rx "pjsip show registrations"
 
 # Via RayanPBX CLI
-rayanpbx-cli extension status 1001
+rayanpbx-cli extension status 101
 ```
 
 #### View Asterisk logs
@@ -346,17 +346,17 @@ grep -i error /var/log/asterisk/full
 
 ### Example 1: Test New Extension
 
-After creating a new extension 1001, test it:
+After creating a new extension 101, test it:
 
 ```bash
 # 1. Check if Asterisk sees the endpoint
-rayanpbx-cli asterisk command "pjsip show endpoint 1001"
+rayanpbx-cli asterisk command "pjsip show endpoint 101"
 
 # 2. Test registration
-rayanpbx-cli sip-test register 1001 secretpass
+rayanpbx-cli sip-test register 101 secretpass
 
 # 3. If successful, test with another extension
-rayanpbx-cli sip-test call 1001 secretpass 1002 otherpass
+rayanpbx-cli sip-test call 101 secretpass 102 otherpass
 ```
 
 ### Example 2: Troubleshoot Registration Issues
@@ -365,7 +365,7 @@ Extension won't register from phone:
 
 ```bash
 # 1. Test registration from server
-rayanpbx-cli sip-test register 1001 password
+rayanpbx-cli sip-test register 101 password
 
 # 2. If server test passes, issue is with phone or network
 # 3. If server test fails, check Asterisk configuration
@@ -402,13 +402,13 @@ Test extensions on a remote RayanPBX server:
 
 ```bash
 # Test registration on remote server
-rayanpbx-cli sip-test register 1001 password 192.168.1.100
+rayanpbx-cli sip-test register 101 password 192.168.1.100
 
 # Test call on remote server
-rayanpbx-cli sip-test call 1001 pass1 1002 pass2 192.168.1.100
+rayanpbx-cli sip-test call 101 pass1 102 pass2 192.168.1.100
 
 # Full suite on remote server
-rayanpbx-cli sip-test full 1001 pass1 1002 pass2 192.168.1.100
+rayanpbx-cli sip-test full 101 pass1 102 pass2 192.168.1.100
 ```
 
 ### Example 5: Automated Testing Script
@@ -424,7 +424,7 @@ set -e
 echo "Starting SIP extension tests..."
 
 # Test critical extensions
-EXTENSIONS=("1001:pass1" "1002:pass2" "1003:pass3")
+EXTENSIONS=("101:pass1" "102:pass2" "103:pass3")
 
 for ext_info in "${EXTENSIONS[@]}"; do
     IFS=':' read -r ext pass <<< "$ext_info"
@@ -439,8 +439,8 @@ for ext_info in "${EXTENSIONS[@]}"; do
 done
 
 # Test call between two extensions
-echo "Testing call: 1001 -> 1002..."
-if rayanpbx-cli sip-test call 1001 pass1 1002 pass2; then
+echo "Testing call: 101 -> 102..."
+if rayanpbx-cli sip-test call 101 pass1 102 pass2; then
     echo "✅ Call test: PASS"
 else
     echo "❌ Call test: FAIL"
@@ -471,19 +471,19 @@ curl -X GET http://localhost:8000/api/sip-test/tools
 # Test registration
 curl -X POST http://localhost:8000/api/sip-test/registration \
   -H "Content-Type: application/json" \
-  -d '{"extension":"1001","password":"pass","server":"127.0.0.1"}'
+  -d '{"extension":"101","password":"pass","server":"127.0.0.1"}'
 
 # Test call
 curl -X POST http://localhost:8000/api/sip-test/call \
   -H "Content-Type: application/json" \
-  -d '{"from_extension":"1001","from_password":"pass1",
-       "to_extension":"1002","to_password":"pass2"}'
+  -d '{"from_extension":"101","from_password":"pass1",
+       "to_extension":"102","to_password":"pass2"}'
 
 # Full test suite
 curl -X POST http://localhost:8000/api/sip-test/full \
   -H "Content-Type: application/json" \
-  -d '{"extension1":"1001","password1":"pass1",
-       "extension2":"1002","password2":"pass2"}'
+  -d '{"extension1":"101","password1":"pass1",
+       "extension2":"102","password2":"pass2"}'
 ```
 
 ## Related Documentation
