@@ -96,24 +96,24 @@ echo -e "${CYAN}3. Checking extensions.conf...${NC}"
 if [[ -f /etc/asterisk/extensions.conf ]]; then
     echo -e "${GREEN}   ✓ extensions.conf exists${NC}"
     
-    # Check for internal context
-    if grep -q "\[internal\]" /etc/asterisk/extensions.conf; then
-        echo -e "${GREEN}   ✓ Internal context found${NC}"
+    # Check for from-internal context
+    if grep -q "\[from-internal\]" /etc/asterisk/extensions.conf; then
+        echo -e "${GREEN}   ✓ from-internal context found${NC}"
     else
-        echo -e "${YELLOW}   ⚠ Internal context not found${NC}"
-        echo -e "${YELLOW}   Adding internal context...${NC}"
+        echo -e "${YELLOW}   ⚠ from-internal context not found${NC}"
+        echo -e "${YELLOW}   Adding from-internal context...${NC}"
         
         cat >> /etc/asterisk/extensions.conf << 'EOF'
 
 ; RayanPBX Internal Extensions
-[internal]
+[from-internal]
 ; Pattern match for all extensions
 exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})
  same => n,Dial(PJSIP/${EXTEN},30)
  same => n,Hangup()
 
 EOF
-        echo -e "${GREEN}   ✓ Internal context added${NC}"
+        echo -e "${GREEN}   ✓ from-internal context added${NC}"
     fi
 else
     echo -e "${RED}   ✗ extensions.conf not found${NC}"
