@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -324,6 +325,19 @@ func (esm *ExtensionSyncManager) CompareExtensions() ([]ExtensionSyncInfo, error
 		
 		syncInfos = append(syncInfos, info)
 	}
+	
+	// Sort by extension number (numerically if possible, otherwise lexicographically)
+	sort.Slice(syncInfos, func(i, j int) bool {
+		numI, errI := strconv.Atoi(syncInfos[i].ExtensionNumber)
+		numJ, errJ := strconv.Atoi(syncInfos[j].ExtensionNumber)
+		
+		// If both are numeric, compare numerically
+		if errI == nil && errJ == nil {
+			return numI < numJ
+		}
+		// Otherwise, compare lexicographically
+		return syncInfos[i].ExtensionNumber < syncInfos[j].ExtensionNumber
+	})
 	
 	return syncInfos, nil
 }
