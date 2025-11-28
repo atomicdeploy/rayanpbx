@@ -4,6 +4,8 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Extension;
+use App\Adapters\AsteriskAdapter;
+use App\Services\PjsipService;
 use Illuminate\Support\Facades\Validator;
 use Exception;
 
@@ -14,24 +16,30 @@ class RayanPBXExtension extends Command
      *
      * @var string
      */
-    protected $signature = 'rayanpbx:extension {action} {extension?} {--name=} {--email=} {--secret=} {--context=default} {--all}';
+    protected $signature = 'rayanpbx:extension {action} {extension?} {--name=} {--email=} {--secret=} {--context=default} {--all} {--apply}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Manage SIP extensions (list|create|delete|enable|disable|show)';
+    protected $description = 'Manage SIP extensions (list|create|delete|enable|disable|toggle|show|verify|diagnose)';
+
+    private $asterisk;
+    private $pjsip;
 
     /**
      * Execute the console command.
      */
     public function handle()
     {
+        $this->asterisk = app(AsteriskAdapter::class);
+        $this->pjsip = app(PjsipService::class);
+        
         $action = $this->argument('action');
         $extensionNumber = $this->argument('extension');
 
-        $validActions = ['list', 'create', 'delete', 'enable', 'disable', 'show'];
+        $validActions = ['list', 'create', 'delete', 'enable', 'disable', 'toggle', 'show', 'verify', 'diagnose'];
 
         if (!in_array($action, $validActions)) {
             $this->error("Invalid action: {$action}");
@@ -56,8 +64,17 @@ class RayanPBXExtension extends Command
                 case 'disable':
                     return $this->toggleExtension($extensionNumber, false);
                     
+                case 'toggle':
+                    return $this->toggleExtensionAuto($extensionNumber);
+                    
                 case 'show':
                     return $this->showExtension($extensionNumber);
+                    
+                case 'verify':
+                    return $this->verifyExtension($extensionNumber);
+                    
+                case 'diagnose':
+                    return $this->diagnoseExtension($extensionNumber);
             }
         } catch (Exception $e) {
             $this->error('Error: ' . $e->getMessage());
@@ -220,11 +237,274 @@ class RayanPBXExtension extends Command
 
         $action = $enable ? 'enabled' : 'disabled';
         $this->info("✓ Extension {$extensionNumber} {$action} successfully");
-        $this->newLine();
-        $this->info('Please run the following command to apply the configuration:');
-        $this->line('  php artisan rayanpbx:config reload');
+        
+        // Auto-apply Asterisk configuration
+        return $this->applyAsteriskConfig($extension);
+    }
+    
+    /**
+     * Toggle extension (flip current enabled state)
+     */
+    private function toggleExtensionAuto(?string $extensionNumber): int
+    {
+        if (!$extensionNumber) {
+            $extensionNumber = $this->ask("Extension number to toggle");
+        }
 
+        $extension = Extension::where('extension_number', $extensionNumber)->first();
+
+        if (!$extension) {
+            $this->error("Extension {$extensionNumber} not found");
+            return 1;
+        }
+
+        $newState = !$extension->enabled;
+        $extension->enabled = $newState;
+        $extension->save();
+
+        $action = $newState ? 'enabled' : 'disabled';
+        $this->info("✓ Extension {$extensionNumber} toggled to {$action}");
+        
+        // Auto-apply Asterisk configuration
+        return $this->applyAsteriskConfig($extension);
+    }
+    
+    /**
+     * Apply Asterisk configuration for an extension
+     */
+    private function applyAsteriskConfig(Extension $extension): int
+    {
+        $this->newLine();
+        $this->info('Applying Asterisk configuration...');
+        
+        try {
+            if ($extension->enabled) {
+                // Generate and write PJSIP config
+                $this->asterisk->ensureTransportConfig();
+                $config = $this->asterisk->generatePjsipEndpoint($extension);
+                $success = $this->asterisk->writePjsipConfig($config, "Extension {$extension->extension_number}");
+                
+                if (!$success) {
+                    $this->warn('  ⚠ Failed to write PJSIP configuration');
+                }
+            } else {
+                // Comment out PJSIP config (preserve it but disable)
+                $success = $this->asterisk->commentOutPjsipConfig("Extension {$extension->extension_number}");
+                
+                if (!$success) {
+                    $this->warn('  ⚠ Failed to disable PJSIP configuration');
+                }
+            }
+            
+            // Regenerate dialplan for all enabled extensions
+            $allExtensions = Extension::where('enabled', true)->get();
+            $dialplanConfig = $this->asterisk->generateInternalDialplan($allExtensions);
+            $dialplanSuccess = $this->asterisk->writeDialplanConfig($dialplanConfig, "RayanPBX Internal Extensions");
+            
+            if (!$dialplanSuccess) {
+                $this->warn('  ⚠ Failed to write dialplan configuration');
+            }
+            
+            // Reload Asterisk
+            $reloadSuccess = $this->asterisk->reload();
+            
+            if ($reloadSuccess) {
+                $this->info('  ✓ Asterisk configuration applied successfully');
+            } else {
+                $this->warn('  ⚠ Failed to reload Asterisk - try manually: asterisk -rx "pjsip reload"');
+            }
+            
+            // Verify endpoint was created in Asterisk
+            $verified = $this->asterisk->verifyEndpointExists($extension->extension_number);
+            
+            if ($extension->enabled) {
+                if ($verified) {
+                    $this->info('  ✓ Extension verified in Asterisk');
+                } else {
+                    $this->warn('  ⚠ Extension not found in Asterisk - may need manual verification');
+                }
+            }
+            
+            return 0;
+        } catch (Exception $e) {
+            $this->error('  ✗ Error applying configuration: ' . $e->getMessage());
+            return 1;
+        }
+    }
+    
+    /**
+     * Verify extension in Asterisk
+     */
+    private function verifyExtension(?string $extensionNumber): int
+    {
+        if (!$extensionNumber) {
+            $extensionNumber = $this->ask('Extension number to verify');
+        }
+
+        $extension = Extension::where('extension_number', $extensionNumber)->first();
+
+        if (!$extension) {
+            $this->error("Extension {$extensionNumber} not found in database");
+            return 1;
+        }
+
+        $this->info("Verifying Extension: {$extensionNumber}");
+        $this->newLine();
+        
+        // Check database status
+        $this->line("📦 Database Status:");
+        $this->line("   Enabled: " . ($extension->enabled ? '✓ Yes' : '✗ No'));
+        $this->line("   Name: {$extension->name}");
+        $this->line("   Context: {$extension->context}");
+        
+        $this->newLine();
+        
+        // Check Asterisk endpoint
+        $this->line("🔧 Asterisk Status:");
+        $endpointDetails = $this->asterisk->getPjsipEndpoint($extensionNumber);
+        
+        if ($endpointDetails !== null) {
+            $this->line("   Endpoint exists: ✓ Yes");
+            $this->line("   State: " . ($endpointDetails['state'] ?? 'Unknown'));
+            
+            if (!empty($endpointDetails['contacts'])) {
+                $this->line("   Contacts: " . count($endpointDetails['contacts']));
+                foreach ($endpointDetails['contacts'] as $contact) {
+                    $status = $contact['status'] ?? 'Unknown';
+                    $uri = $contact['uri'] ?? 'N/A';
+                    $icon = $status === 'Available' ? '🟢' : '⚫';
+                    $this->line("     {$icon} {$uri} ({$status})");
+                }
+            } else {
+                $this->line("   Contacts: 0 (not registered)");
+            }
+        } else {
+            $this->warn("   Endpoint exists: ✗ No");
+            
+            if ($extension->enabled) {
+                $this->warn("   ⚠ Extension is enabled but not in Asterisk!");
+                $this->line("   Run: php artisan rayanpbx:sync db-to-asterisk {$extensionNumber}");
+            }
+        }
+        
+        // Check registration status
+        $registrationStatus = $this->asterisk->getEndpointRegistrationStatus($extensionNumber);
+        
+        $this->newLine();
+        $this->line("📞 Registration Status:");
+        if ($registrationStatus['registered']) {
+            $this->line("   Registered: 🟢 Yes");
+        } else {
+            $this->line("   Registered: ⚫ No");
+        }
+        
         return 0;
+    }
+    
+    /**
+     * Diagnose extension issues
+     */
+    private function diagnoseExtension(?string $extensionNumber): int
+    {
+        if (!$extensionNumber) {
+            $extensionNumber = $this->ask('Extension number to diagnose');
+        }
+
+        $extension = Extension::where('extension_number', $extensionNumber)->first();
+
+        $this->info("🔍 Diagnosing Extension: {$extensionNumber}");
+        $this->newLine();
+        
+        $issues = [];
+        $tips = [];
+        
+        // Check database
+        $this->line("📦 Database Check:");
+        if (!$extension) {
+            $this->warn("   ✗ Extension not found in database");
+            $issues[] = "Extension not in database";
+            
+            // Check if it exists in Asterisk
+            $endpointDetails = $this->asterisk->getPjsipEndpoint($extensionNumber);
+            if ($endpointDetails !== null) {
+                $tips[] = "Extension exists in Asterisk but not in database. Run: php artisan rayanpbx:sync asterisk-to-db {$extensionNumber}";
+            }
+        } else {
+            $this->line("   ✓ Found in database");
+            $this->line("   Enabled: " . ($extension->enabled ? '✓' : '✗'));
+            
+            if (!$extension->enabled) {
+                $issues[] = "Extension is disabled in database";
+                $tips[] = "Enable the extension: php artisan rayanpbx:extension enable {$extensionNumber}";
+            }
+        }
+        
+        $this->newLine();
+        
+        // Check Asterisk configuration
+        $this->line("🔧 Asterisk Configuration Check:");
+        $endpointDetails = $this->asterisk->getPjsipEndpoint($extensionNumber);
+        
+        if ($endpointDetails !== null) {
+            $this->line("   ✓ Endpoint configured in Asterisk");
+        } else {
+            $this->warn("   ✗ Endpoint not found in Asterisk");
+            $issues[] = "Endpoint not configured in Asterisk";
+            
+            if ($extension && $extension->enabled) {
+                $tips[] = "Sync extension to Asterisk: php artisan rayanpbx:sync db-to-asterisk {$extensionNumber}";
+            }
+        }
+        
+        // Check registration
+        $this->newLine();
+        $this->line("📞 Registration Check:");
+        $registrationStatus = $this->pjsip->validateExtensionRegistration($extensionNumber);
+        
+        if ($registrationStatus['registered']) {
+            $this->line("   ✓ Extension is registered");
+            if ($registrationStatus['ip_address']) {
+                $this->line("   IP: {$registrationStatus['ip_address']}:{$registrationStatus['port']}");
+            }
+            if ($registrationStatus['user_agent']) {
+                $this->line("   User Agent: {$registrationStatus['user_agent']}");
+            }
+        } else {
+            $this->warn("   ✗ Extension is not registered");
+            $issues[] = "No SIP client registered";
+            
+            if (!empty($registrationStatus['errors'])) {
+                foreach ($registrationStatus['errors'] as $error) {
+                    $this->warn("     - {$error}");
+                }
+            }
+            
+            $tips[] = "Configure a SIP client with the extension credentials";
+            $tips[] = "Check firewall settings for SIP port 5060";
+        }
+        
+        // Summary
+        $this->newLine();
+        $this->info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        
+        if (empty($issues)) {
+            $this->info("✅ No issues found - Extension appears healthy");
+        } else {
+            $this->warn("⚠️  Issues Found: " . count($issues));
+            foreach ($issues as $issue) {
+                $this->line("   - {$issue}");
+            }
+            
+            if (!empty($tips)) {
+                $this->newLine();
+                $this->info("💡 Suggested Actions:");
+                foreach ($tips as $tip) {
+                    $this->line("   - {$tip}");
+                }
+            }
+        }
+        
+        return empty($issues) ? 0 : 1;
     }
 
     /**
