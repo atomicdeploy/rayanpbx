@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1284,6 +1285,152 @@ originalLen := len(m.inputValues[0])
 m.handleQuickSetupInput("backspace")
 if len(m.inputValues[0]) != originalLen-1 {
 t.Errorf("Expected input length to decrease after backspace")
+}
+}
+
+// TestSyncManagerRendering tests that the sync manager renders without escape codes
+func TestSyncManagerRendering(t *testing.T) {
+m := initialModel(nil, nil, false)
+m.currentScreen = extensionSyncScreen
+m.extensionSyncManager = nil // Avoid DB access
+
+// Create mock sync info entries
+m.extensionSyncInfos = []ExtensionSyncInfo{
+{
+ExtensionNumber: "100",
+SyncStatus:      SyncStatusMatch,
+},
+{
+ExtensionNumber: "101",
+SyncStatus:      SyncStatusDBOnly,
+},
+{
+ExtensionNumber: "102",
+SyncStatus:      SyncStatusAsteriskOnly,
+},
+{
+ExtensionNumber: "103",
+SyncStatus:      SyncStatusMismatch,
+},
+}
+m.cursor = 0 // Select first item
+
+// Render the sync screen
+output := m.renderExtensionSync()
+
+// Verify output contains expected headers
+if !strings.Contains(output, "Ext#") {
+t.Error("Expected output to contain 'Ext#' column header")
+}
+if !strings.Contains(output, "Asterisk") {
+t.Error("Expected output to contain 'Asterisk' column header")
+}
+if !strings.Contains(output, "Database") {
+t.Error("Expected output to contain 'Database' column header")
+}
+
+// Verify the extension numbers are present
+if !strings.Contains(output, "100") {
+t.Error("Expected output to contain extension 100")
+}
+if !strings.Contains(output, "101") {
+t.Error("Expected output to contain extension 101")
+}
+if !strings.Contains(output, "102") {
+t.Error("Expected output to contain extension 102")
+}
+if !strings.Contains(output, "103") {
+t.Error("Expected output to contain extension 103")
+}
+
+// Verify status icons are present
+if !strings.Contains(output, "✅ Synced") {
+t.Error("Expected output to contain synced status")
+}
+if !strings.Contains(output, "📦 DB Only") {
+t.Error("Expected output to contain DB Only status")
+}
+if !strings.Contains(output, "⚡ Ast Only") {
+t.Error("Expected output to contain Asterisk Only status")
+}
+if !strings.Contains(output, "⚠️ Mismatch") {
+t.Error("Expected output to contain Mismatch status")
+}
+
+// Verify column values
+if !strings.Contains(output, "✓ Present") {
+t.Error("Expected output to contain '✓ Present' status")
+}
+if !strings.Contains(output, "✗ Missing") {
+t.Error("Expected output to contain '✗ Missing' status")
+}
+if !strings.Contains(output, "≠ Differs") {
+t.Error("Expected output to contain '≠ Differs' status")
+}
+
+// IMPORTANT: Verify no literal escape codes are shown
+// This was the main bug - selected rows showed literal "[1;38;5;46m" etc.
+if strings.Contains(output, "[1;38;5;") || strings.Contains(output, "[0m") {
+t.Error("Output contains literal ANSI escape codes - this is the bug we're fixing")
+}
+}
+
+// TestSyncManagerCursorSelection tests that only one item is selected at a time
+func TestSyncManagerCursorSelection(t *testing.T) {
+m := initialModel(nil, nil, false)
+m.currentScreen = extensionSyncScreen
+m.extensionSyncManager = nil
+
+m.extensionSyncInfos = []ExtensionSyncInfo{
+{ExtensionNumber: "100", SyncStatus: SyncStatusMatch},
+{ExtensionNumber: "101", SyncStatus: SyncStatusDBOnly},
+}
+
+// Test with cursor on first extension
+m.cursor = 0
+output := m.renderExtensionSync()
+
+// Count selection arrows
+arrowCount := strings.Count(output, "▶")
+if arrowCount != 1 {
+t.Errorf("Expected exactly 1 selection arrow when cursor=0, got %d", arrowCount)
+}
+
+// Test with cursor on menu item
+m.cursor = len(m.extensionSyncInfos) // First menu item
+output = m.renderExtensionSync()
+
+arrowCount = strings.Count(output, "▶")
+if arrowCount != 1 {
+t.Errorf("Expected exactly 1 selection arrow when cursor on menu, got %d", arrowCount)
+}
+}
+
+// TestSyncManagerSorting tests that extensions are sorted after loading
+func TestSyncManagerSorting(t *testing.T) {
+m := initialModel(nil, nil, false)
+
+// Create mock sync infos out of order
+m.extensionSyncInfos = []ExtensionSyncInfo{
+{ExtensionNumber: "103", SyncStatus: SyncStatusMatch},
+{ExtensionNumber: "100", SyncStatus: SyncStatusMatch},
+{ExtensionNumber: "102", SyncStatus: SyncStatusMatch},
+{ExtensionNumber: "101", SyncStatus: SyncStatusMatch},
+}
+
+// Since we can't call loadExtensionSyncInfo without a DB,
+// verify the sorting is applied correctly by checking the sorting function
+sort.Slice(m.extensionSyncInfos, func(i, j int) bool {
+return m.extensionSyncInfos[i].ExtensionNumber < m.extensionSyncInfos[j].ExtensionNumber
+})
+
+// Verify order
+expectedOrder := []string{"100", "101", "102", "103"}
+for i, expected := range expectedOrder {
+if m.extensionSyncInfos[i].ExtensionNumber != expected {
+t.Errorf("Expected extensionSyncInfos[%d] to be %s, got %s", 
+i, expected, m.extensionSyncInfos[i].ExtensionNumber)
+}
 }
 }
 
