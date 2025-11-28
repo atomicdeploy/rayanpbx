@@ -3264,8 +3264,10 @@ if next_step "Environment Configuration" "env-config"; then
     print_progress "Setting up backend environment..."
     
     setup_backend_env_symlink() {
-        local root_env="/opt/rayanpbx/.env"
-        local backend_env="/opt/rayanpbx/backend/.env"
+        # Use current working directory to derive paths (should be /opt/rayanpbx at this point)
+        local base_dir="$(pwd)"
+        local root_env="${base_dir}/.env"
+        local backend_env="${base_dir}/backend/.env"
         
         # Check if backend/.env exists
         if [ -L "$backend_env" ]; then
@@ -3331,11 +3333,29 @@ if next_step "Environment Configuration" "env-config"; then
                             return 0
                             ;;
                         2)
-                            # Show differences
+                            # Show differences with smarter truncation
                             echo ""
                             echo -e "${CYAN}${BOLD}Differences (--- backend/.env, +++ parent .env):${RESET}"
                             echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-                            diff -u "$backend_env" "$root_env" 2>/dev/null | head -50 || true
+                            
+                            # Get total diff line count
+                            local diff_output
+                            diff_output=$(diff -u "$backend_env" "$root_env" 2>/dev/null || true)
+                            local total_lines=$(echo "$diff_output" | wc -l)
+                            
+                            if [ "$total_lines" -le 60 ]; then
+                                # Show entire diff if it's small enough
+                                echo "$diff_output"
+                            else
+                                # Show first 25 lines, then a separator, then last 25 lines
+                                echo "$diff_output" | head -25
+                                echo ""
+                                echo -e "${DIM}... ($(($total_lines - 50)) lines omitted) ...${RESET}"
+                                echo -e "${DIM}To see full diff: diff -u $backend_env $root_env${RESET}"
+                                echo ""
+                                echo "$diff_output" | tail -25
+                            fi
+                            
                             echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
                             echo ""
                             echo -e "${YELLOW}${BOLD}Now choose:${RESET}"
@@ -3377,10 +3397,15 @@ if next_step "Environment Configuration" "env-config"; then
     if ! grep -q "^APP_KEY=.\{10,\}" .env; then
         print_progress "Generating Laravel application key..."
         cd /opt/rayanpbx/backend
-        if php artisan key:generate --force --no-interaction 2>&1; then
+        local keygen_output
+        keygen_output=$(php artisan key:generate --force --no-interaction 2>&1)
+        local keygen_exit=$?
+        if [ $keygen_exit -eq 0 ]; then
             print_success "Laravel APP_KEY generated successfully"
+            print_verbose "$keygen_output"
         else
             print_warning "Could not generate APP_KEY via artisan, generating manually..."
+            print_verbose "artisan key:generate output: $keygen_output"
             cd /opt/rayanpbx
             APP_KEY="base64:$(openssl rand -base64 32)"
             sed -i "s|^APP_KEY=.*|APP_KEY=$APP_KEY|" .env

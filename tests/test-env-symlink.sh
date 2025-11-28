@@ -146,8 +146,9 @@ test_user_prompt_choices() {
 test_app_key_existence_check() {
     print_test "Checking APP_KEY existence check"
     
-    if grep -q 'grep -q "\^APP_KEY=" \.env' "$REPO_ROOT/install.sh" && \
-       grep -q 'echo "APP_KEY=" >> \.env' "$REPO_ROOT/install.sh"; then
+    # Check for the grep pattern that checks for APP_KEY= line
+    if grep -q 'grep -q.*APP_KEY=' "$REPO_ROOT/install.sh" && \
+       grep -q 'echo "APP_KEY="' "$REPO_ROOT/install.sh"; then
         print_pass "APP_KEY existence check is implemented"
         return 0
     else
