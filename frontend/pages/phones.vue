@@ -1175,8 +1175,12 @@ async function authenticateToPhone(showErrors = true) {
       // Now fetch full status and start polling
       await refreshPhoneStatus()
       await refreshCTIStatus()
-      // Load codec configuration
-      await refreshCodecConfig()
+      // Load codec configuration - don't fail auth if codec loading fails
+      try {
+        await refreshCodecConfig()
+      } catch (e) {
+        console.log('Codec configuration loading failed, continuing without it')
+      }
       
       // Start real-time status polling
       if (ctiRefreshInterval) {
@@ -1233,8 +1237,12 @@ async function verifyAndApplyCredentials() {
       // Refresh phone data
       await refreshPhoneStatus()
       await refreshCTIStatus()
-      // Load codec configuration
-      await refreshCodecConfig()
+      // Load codec configuration - don't fail auth if codec loading fails
+      try {
+        await refreshCodecConfig()
+      } catch (e) {
+        console.log('Codec configuration loading failed, continuing without it')
+      }
       
       // Start polling
       if (ctiRefreshInterval) clearInterval(ctiRefreshInterval)

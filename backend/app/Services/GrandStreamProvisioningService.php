@@ -49,7 +49,7 @@ class GrandStreamProvisioningService
         '0'  => 'PCMU',
         '8'  => 'PCMA',
         '2'  => 'G.726-32',
-        '9'  => 'G.722(wide band)',
+        '9'  => 'G.722 (wide band)',
         '98' => 'iLBC',
     ];
 
