@@ -36,7 +36,7 @@ RayanPBX now provides comprehensive PJSIP management that:
    - **Extension Number**: e.g., `1001`
    - **Name**: User's name
    - **Secret**: Strong password (min 8 characters)
-   - **Context**: `internal` (default)
+   - **Context**: `from-internal` (default)
    - **Transport**: `udp` (default)
    - **Max Contacts**: `1` (default)
 
@@ -60,7 +60,7 @@ curl -X POST http://localhost:8000/api/extensions \
     "name": "John Doe",
     "secret": "SecurePass123",
     "enabled": true,
-    "context": "internal",
+    "context": "from-internal",
     "transport": "udp",
     "codecs": ["ulaw", "alaw", "g722"],
     "max_contacts": 1
@@ -114,12 +114,12 @@ Endpoint:  <Endpoint/1001>  Unavailable   0 of 1
 
 ```bash
 asterisk -rvvv
-> dialplan show internal
+> dialplan show from-internal
 ```
 
 You should see:
 ```
-[ Context 'internal' created by 'pbx_config' ]
+[ Context 'from-internal' created by 'pbx_config' ]
   '1001' =>         1. NoOp(Call to extension 1001)
                     2. Dial(PJSIP/1001,30)
                     3. Hangup()
@@ -146,7 +146,7 @@ bind=0.0.0.0:5060
 ; BEGIN MANAGED - Extension 1001
 [1001]
 type=endpoint
-context=internal
+context=from-internal
 disallow=all
 allow=ulaw
 allow=alaw
@@ -174,7 +174,7 @@ qualify_frequency=60
 
 ```ini
 ; BEGIN MANAGED - RayanPBX Internal Extensions
-[internal]
+[from-internal]
 exten => 1001,1,NoOp(Call to extension 1001)
  same => n,Dial(PJSIP/1001,30)
  same => n,Hangup()
@@ -294,8 +294,8 @@ asterisk -rx "core show hints"
 
 Expected output:
 ```
-1001@internal         : PJSIP/1001        State:Unavailable   Watchers  0
-1002@internal         : PJSIP/1002        State:Idle          Watchers  1
+1001@from-internal         : PJSIP/1001        State:Unavailable   Watchers  0
+1002@from-internal         : PJSIP/1002        State:Idle          Watchers  1
 ```
 
 Check subscriptions:
@@ -422,16 +422,16 @@ If your Asterisk build doesn't include these modules, presence publishing may no
 
 1. **Check dialplan**
    ```bash
-   asterisk -rx "dialplan show internal"
+   asterisk -rx "dialplan show from-internal"
    ```
 
 2. **Check context in pjsip.conf**
-   Each endpoint should have `context=internal`
+   Each endpoint should have `context=from-internal`
 
 3. **Test call from CLI**
    ```bash
    asterisk -rvvv
-   > channel originate PJSIP/1001 extension 1002@internal
+   > channel originate PJSIP/1001 extension 1002@from-internal
    ```
 
 4. **Check for errors**
@@ -477,7 +477,7 @@ curl -X POST http://localhost:8000/api/extensions \
     "name": "Alice",
     "secret": "Alice123Pass",
     "enabled": true,
-    "context": "internal"
+    "context": "from-internal"
   }'
 
 # Extension 1002
@@ -489,7 +489,7 @@ curl -X POST http://localhost:8000/api/extensions \
     "name": "Bob",
     "secret": "Bob456Pass",
     "enabled": true,
-    "context": "internal"
+    "context": "from-internal"
   }'
 ```
 

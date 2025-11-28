@@ -150,7 +150,7 @@ sudo ./tests/test-pjsip-config.sh
 ### Manual Testing Steps
 1. Create extension via API or Web UI
 2. Verify with: `asterisk -rx "pjsip show endpoints"`
-3. Check dialplan: `asterisk -rx "dialplan show internal"`
+3. Check dialplan: `asterisk -rx "dialplan show from-internal"`
 4. Configure MicroSIP with extension credentials
 5. Verify registration: Extension should show "Available" state
 6. Test call: Dial another extension number
@@ -236,10 +236,10 @@ Extension commands now:
 
 ### Issue: Can't call between extensions
 **Solution**:
-1. Check dialplan: `asterisk -rx "dialplan show internal"`
-2. Verify context is "internal" in pjsip.conf
+1. Check dialplan: `asterisk -rx "dialplan show from-internal"`
+2. Verify context is "from-internal" in pjsip.conf
 3. Check both extensions are registered
-4. Test from CLI: `asterisk -rx "channel originate PJSIP/1001 extension 1002@internal"`
+4. Test from CLI: `asterisk -rx "channel originate PJSIP/1001 extension 1002@from-internal"`
 
 ## Future Improvements
 
