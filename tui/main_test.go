@@ -1335,6 +1335,7 @@ t.Errorf("Expected extensionSyncInfos[%d] to be %s, got %s",
 i, expected, m.extensionSyncInfos[i].ExtensionNumber)
 }
 }
+}
 
 // TestGetSelectedExtensionWithSyncInfos tests that getSelectedExtension returns
 // the correct extension when extensionSyncInfos is populated

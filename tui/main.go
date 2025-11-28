@@ -4221,10 +4221,24 @@ func (m model) renderExtensionSync() string {
 		}
 	}
 	
-	// Show extension list with sync status as a table with two columns
+	// Show extension list with sync status as a table with columns
 	content += infoStyle.Render("📋 Extensions Status:") + "\n"
-	content += helpStyle.Render("  Ext#       Asterisk          Database          Status") + "\n"
-	content += helpStyle.Render("  ─────────────────────────────────────────────────────") + "\n"
+	
+	// Define column widths for consistent alignment
+	colWidths := []int{10, 16, 16, 12}
+	colHeaders := []string{"Ext#", "Asterisk", "Database", "Status"}
+	
+	// Build header row with padding
+	headerRow := "  "
+	separatorRow := "  "
+	for i, header := range colHeaders {
+		headerRow += fmt.Sprintf("%-*s", colWidths[i], header)
+		for j := 0; j < colWidths[i]; j++ {
+			separatorRow += "─"
+		}
+	}
+	content += helpStyle.Render(headerRow) + "\n"
+	content += helpStyle.Render(separatorRow) + "\n"
 	
 	if len(m.extensionSyncInfos) == 0 {
 		content += "  📭 No extensions found\n\n"
@@ -4262,16 +4276,15 @@ func (m model) renderExtensionSync() string {
 				databaseCol = "≠ Differs"
 			}
 			
-			// Format row: don't use nested styles to avoid escape code issues
-			// When selected, apply style to the plain text only
-			extNum := fmt.Sprintf("%-8s", info.ExtensionNumber)
-			asteriskCol = fmt.Sprintf("%-16s", asteriskCol)
-			databaseCol = fmt.Sprintf("%-16s", databaseCol)
+			// Format row using column widths for alignment
+			extNum := fmt.Sprintf("%-*s", colWidths[0], info.ExtensionNumber)
+			asteriskCol = fmt.Sprintf("%-*s", colWidths[1], asteriskCol)
+			databaseCol = fmt.Sprintf("%-*s", colWidths[2], databaseCol)
 			
 			var line string
 			if isSelected {
 				// Build plain text line without nested styles
-				line = fmt.Sprintf("%s %s  %s  %s  %s",
+				line = fmt.Sprintf("%s %s%s%s%s",
 					cursor,
 					extNum,
 					asteriskCol,
@@ -4280,7 +4293,7 @@ func (m model) renderExtensionSync() string {
 				)
 				content += selectedItemStyle.Render(line) + "\n"
 			} else {
-				line = fmt.Sprintf("%s %s  %s  %s  %s\n",
+				line = fmt.Sprintf("%s %s%s%s%s\n",
 					cursor,
 					successStyle.Render(extNum),
 					asteriskCol,
