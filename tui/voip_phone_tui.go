@@ -134,16 +134,10 @@ func (m model) renderVoIPPhones() string {
 			ext = ext[:10]
 		}
 		
-		// Display name or IP - prefer friendly name if available
-		displayName := phone.IP
-		// Check if there's a friendly name stored (we use UserAgent as fallback display for now)
-		// If UserAgent contains a space, the first part before space is usually the name
-		if strings.Contains(phone.UserAgent, " ") {
-			parts := strings.SplitN(phone.UserAgent, " ", 2)
-			// If first part looks like a name (not vendor), use it
-			if parts[0] != "" && !isVoIPVendor(parts[0]) {
-				displayName = parts[0]
-			}
+		// Display name - prefer friendly name if set, otherwise fall back to IP
+		displayName := phone.Name
+		if displayName == "" {
+			displayName = phone.IP
 		}
 		if len(displayName) > 18 {
 			displayName = displayName[:18] + ".."
@@ -165,18 +159,6 @@ func (m model) renderVoIPPhones() string {
 	content += "\n" + helpStyle.Render("   📡 = LLDP discovered")
 	
 	return menuStyle.Render(content)
-}
-
-// isVoIPVendor checks if a string is a known VoIP vendor name
-func isVoIPVendor(s string) bool {
-	vendors := []string{"grandstream", "yealink", "polycom", "cisco", "snom", "panasonic", "fanvil", "unknown"}
-	sLower := strings.ToLower(s)
-	for _, v := range vendors {
-		if strings.Contains(sLower, v) {
-			return true
-		}
-	}
-	return false
 }
 
 // renderVoIPPhoneDetails renders detailed information about a selected phone
@@ -497,6 +479,9 @@ func (m *model) loadRegisteredPhones() {
 					if dbp.UserAgent != "" {
 						existing.UserAgent = dbp.UserAgent
 					}
+					if dbp.Name != "" {
+						existing.Name = dbp.Name
+					}
 					phoneMap[dbp.IP] = existing
 				} else {
 					// Add database-only phone
@@ -505,6 +490,7 @@ func (m *model) loadRegisteredPhones() {
 						IP:        dbp.IP,
 						Status:    dbp.Status,
 						UserAgent: dbp.UserAgent,
+						Name:      dbp.Name,
 					}
 				}
 			}
@@ -574,8 +560,8 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 	case voipPhonesScreen:
 		switch key {
 		case "up", "k":
-			// Check for auto-refresh on any key press
-			m.checkAutoRefresh()
+			// Process any pending discovered phones
+			m.processPendingDiscoveredPhones()
 			
 			if m.selectedPhoneIdx > 0 {
 				m.selectedPhoneIdx--
@@ -583,8 +569,8 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 				m.selectedPhoneIdx = len(m.voipPhones) - 1
 			}
 		case "down", "j":
-			// Check for auto-refresh on any key press
-			m.checkAutoRefresh()
+			// Process any pending discovered phones
+			m.processPendingDiscoveredPhones()
 			
 			if m.selectedPhoneIdx < len(m.voipPhones)-1 {
 				m.selectedPhoneIdx++

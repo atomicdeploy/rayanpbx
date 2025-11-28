@@ -175,6 +175,13 @@ export const useApi = () => {
       return apiFetch(`/phones/${identifier}`)
     },
 
+    async addPhone(data: { ip: string, credentials?: any, name?: string }) {
+      return apiFetch('/phones', {
+        method: 'POST',
+        body: data,
+      })
+    },
+
     async authenticatePhone(ip: string, credentials: any = null) {
       return apiFetch('/phones/authenticate', {
         method: 'POST',
