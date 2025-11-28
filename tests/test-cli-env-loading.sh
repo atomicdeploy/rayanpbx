@@ -25,7 +25,8 @@ print_info() {
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI_SCRIPT="$SCRIPT_DIR/rayanpbx-cli.sh"
+RAYANPBX_ROOT="$(dirname "$SCRIPT_DIR")"
+CLI_SCRIPT="$RAYANPBX_ROOT/scripts/rayanpbx-cli.sh"
 
 print_info "Testing rayanpbx-cli.sh .env loading functionality"
 print_info "CLI Script: $CLI_SCRIPT"
