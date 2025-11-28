@@ -186,8 +186,10 @@ func ParseAsteriskConfigContent(content string, filePath string) (*AsteriskConfi
 			} else if currentSection == nil {
 				// Comments before any section after header
 				pendingComments = append(pendingComments, line)
-			} else if currentSection != nil && !currentSection.Commented {
-				// Body comments within an active section (preserve them)
+			} else if currentSection != nil {
+				// Body comments within a section (preserve them for all sections)
+				// For active sections, these are comments between properties
+				// For commented sections, these are non-property comment lines
 				currentSection.BodyComments = append(currentSection.BodyComments, line)
 			}
 			continue

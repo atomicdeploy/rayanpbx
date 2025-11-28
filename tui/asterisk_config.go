@@ -788,9 +788,15 @@ func (acm *AsteriskConfigManager) GetAsteriskGitStatus() (bool, string, error) {
 		return false, "Clean (all changes committed)", nil
 	}
 
-	// Count uncommitted files
+	// Count uncommitted changes (each line in git status --porcelain represents a change)
 	lines := strings.Split(status, "\n")
-	return true, fmt.Sprintf("Dirty (%d uncommitted files)", len(lines)), nil
+	changeCount := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			changeCount++
+		}
+	}
+	return true, fmt.Sprintf("Dirty (%d uncommitted change(s))", changeCount), nil
 }
 
 // IsAsteriskRepoDirty returns true if /etc/asterisk has uncommitted changes
