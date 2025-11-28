@@ -469,12 +469,21 @@ func SaveVoIPPhone(db *sql.DB, phone *VoIPPhoneDB) error {
 	return nil
 }
 
-// DeleteVoIPPhone deletes a VoIP phone from the database
+// DeleteVoIPPhone deletes a VoIP phone from the database by ID
 func DeleteVoIPPhone(db *sql.DB, id int64) error {
 	if db == nil {
 		return fmt.Errorf("database connection is nil")
 	}
 	_, err := db.Exec("DELETE FROM voip_phones WHERE id = ?", id)
+	return err
+}
+
+// DeleteVoIPPhoneByIP deletes a VoIP phone from the database by IP address
+func DeleteVoIPPhoneByIP(db *sql.DB, ip string) error {
+	if db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	_, err := db.Exec("DELETE FROM voip_phones WHERE ip = ?", ip)
 	return err
 }
 

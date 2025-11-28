@@ -416,7 +416,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		   m.currentScreen == voipPhoneControlScreen || m.currentScreen == voipPhoneProvisionScreen {
 			// Handle VoIP-specific keys first
 			switch msg.String() {
-			case "a", "m", "c", "r", "p", "e", "A", "left", "right", "h", "l":
+			case "a", "m", "c", "r", "p", "e", "A", "d", "left", "right", "h", "l":
 				m.handleVoIPPhonesKeyPress(msg.String())
 				return m, nil
 			}

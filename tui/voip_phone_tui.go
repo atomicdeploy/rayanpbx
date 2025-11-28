@@ -187,8 +187,9 @@ func (m model) renderVoIPPhones() string {
 	}
 	
 	content += "\n" + helpStyle.Render("📌 Tips:") + "\n"
-	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View details    c  Control menu") + "\n"
-	content += helpStyle.Render("   a    Add manually    A      Add all         ESC  Back")
+	content += helpStyle.Render("   ↑/↓  Select phone    Enter  View/Edit    c  Control menu") + "\n"
+	content += helpStyle.Render("   a    Add manually    d      Delete       A  Add all discovered") + "\n"
+	content += helpStyle.Render("   r    Refresh         ESC    Back")
 	content += "\n" + helpStyle.Render("   📡 = LLDP discovered")
 	
 	return menuStyle.Render(content)
@@ -637,8 +638,15 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 			
 			// Show phone details or go to add credentials if no phones
 			if len(m.voipPhones) > 0 {
-				// Check if this phone has credentials, if not redirect to add credentials
 				phone := m.voipPhones[m.selectedPhoneIdx]
+				
+				// For discovered phones (no extension), go to add/edit menu
+				if phone.Status == "discovered" || phone.Extension == "" {
+					m.initManualIPInputWithIP(phone.IP)
+					return
+				}
+				
+				// Check if this phone has credentials
 				hasCredentials := false
 				if m.phoneCredentials != nil {
 					if creds, ok := m.phoneCredentials[phone.IP]; ok && creds["password"] != "" {
@@ -663,6 +671,11 @@ func (m *model) handleVoIPPhonesKeyPress(key string) {
 		case "A":
 			// Add all discovered phones
 			m.addAllDiscoveredPhones()
+		case "d":
+			// Delete/remove selected phone
+			if len(m.voipPhones) > 0 {
+				m.deleteSelectedPhone()
+			}
 		case "r":
 			// Process any pending discovered phones first
 			m.processPendingDiscoveredPhones()
@@ -922,6 +935,48 @@ func (m *model) addAllDiscoveredPhones() {
 	} else {
 		m.successMsg = "All discovered phones are already in the list"
 	}
+}
+
+// deleteSelectedPhone deletes the currently selected phone from the list and database
+func (m *model) deleteSelectedPhone() {
+	if m.selectedPhoneIdx >= len(m.voipPhones) || len(m.voipPhones) == 0 {
+		m.errorMsg = "No phone selected to delete"
+		return
+	}
+	
+	phone := m.voipPhones[m.selectedPhoneIdx]
+	
+	// Delete from database
+	if m.db != nil {
+		err := DeleteVoIPPhoneByIP(m.db, phone.IP)
+		if err != nil {
+			m.errorMsg = fmt.Sprintf("Failed to delete phone from database: %v", err)
+			return
+		}
+	}
+	
+	// Remove from in-memory list
+	m.voipPhones = append(m.voipPhones[:m.selectedPhoneIdx], m.voipPhones[m.selectedPhoneIdx+1:]...)
+	
+	// Also remove from discovered phones if present
+	for i, disc := range m.discoveredPhones {
+		if disc.IP == phone.IP {
+			m.discoveredPhones = append(m.discoveredPhones[:i], m.discoveredPhones[i+1:]...)
+			break
+		}
+	}
+	
+	// Remove credentials if stored
+	if m.phoneCredentials != nil {
+		delete(m.phoneCredentials, phone.IP)
+	}
+	
+	// Adjust selected index if needed
+	if m.selectedPhoneIdx >= len(m.voipPhones) && len(m.voipPhones) > 0 {
+		m.selectedPhoneIdx = len(m.voipPhones) - 1
+	}
+	
+	m.successMsg = fmt.Sprintf("Phone %s deleted successfully", phone.IP)
 }
 
 // loadRegisteredPhonesWithDiscovery loads phones and triggers background discovery
