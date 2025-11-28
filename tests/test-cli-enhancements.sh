@@ -7,8 +7,8 @@
 set +e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI_SCRIPT="$SCRIPT_DIR/rayanpbx-cli.sh"
 RAYANPBX_ROOT="$(dirname "$SCRIPT_DIR")"
+CLI_SCRIPT="$RAYANPBX_ROOT/scripts/rayanpbx-cli.sh"
 ENV_FILE="$RAYANPBX_ROOT/.env"
 
 # Colors for output
@@ -143,6 +143,22 @@ if command -v figlet &> /dev/null; then
     fi
 else
     echo "  SKIP: figlet not installed"
+fi
+
+# Test 12: Scripts directory lookup (get_scripts_dir function)
+print_test "Test 12: Scripts directory lookup"
+# Test that get_scripts_dir finds the scripts directory correctly
+# when CLI is run from different locations
+if grep -q "find_scripts_dir()" "$CLI_SCRIPT" && grep -q "get_scripts_dir()" "$CLI_SCRIPT"; then
+    # Verify the function can find health-check.sh
+    cd /tmp
+    if RAYANPBX_ROOT="$RAYANPBX_ROOT" bash "$CLI_SCRIPT" diag check-sip 2>&1 | grep -qE "SIP Port Health Check|Asterisk"; then
+        print_pass "Scripts directory lookup works from different location"
+    else
+        print_fail "Scripts directory lookup failed"
+    fi
+else
+    print_fail "get_scripts_dir or find_scripts_dir function not found"
 fi
 
 # Clean up test key

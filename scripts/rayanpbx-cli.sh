@@ -128,6 +128,38 @@ DEFAULT_AMI_PORT="5038"
 DEFAULT_AMI_USERNAME="admin"
 DEFAULT_AMI_SECRET="rayanpbx_ami_secret"
 
+# Helper function to find the scripts directory
+# Checks multiple locations to support various installation scenarios:
+# 1. Relative to the CLI script location (for development)
+# 2. RAYANPBX_ROOT/scripts (for standard installation)
+# 3. /opt/rayanpbx/scripts (fallback to default installation path)
+find_scripts_dir() {
+    local possible_paths=(
+        "$SCRIPT_DIR"
+        "$RAYANPBX_ROOT/scripts"
+        "/opt/rayanpbx/scripts"
+    )
+    
+    for path in "${possible_paths[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/health-check.sh" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    # Return SCRIPT_DIR as fallback (will fail with appropriate error if script not found)
+    echo "$SCRIPT_DIR"
+    return 1
+}
+
+# Get the scripts directory (cached for efficiency)
+get_scripts_dir() {
+    if [ -z "${SCRIPTS_DIR:-}" ]; then
+        SCRIPTS_DIR=$(find_scripts_dir)
+    fi
+    echo "$SCRIPTS_DIR"
+}
+
 # Helper function to find project root by looking for VERSION file
 find_project_root() {
     local current_dir="$(pwd)"
@@ -880,10 +912,13 @@ cmd_diag_health_check() {
 cmd_diag_check_sip() {
     print_header "📞 SIP Port Health Check"
     
-    local script_path="$SCRIPT_DIR/health-check.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/health-check.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Health check script not found"
+        print_error "Health check script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -897,10 +932,13 @@ cmd_diag_check_ami() {
     
     local auto_fix="${1:-true}"
     
-    local script_path="$SCRIPT_DIR/health-check.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/health-check.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Health check script not found"
+        print_error "Health check script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -924,10 +962,13 @@ cmd_diag_check_ami() {
 
 # Fix AMI credentials - extract from manager.conf and update .env
 cmd_diag_fix_ami() {
-    local script_path="$SCRIPT_DIR/ami-tools.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/ami-tools.sh"
     
     if [ ! -f "$script_path" ]; then
         print_error "AMI tools script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1123,10 +1164,13 @@ cmd_diag_check_laravel() {
     
     print_header "🔍 Laravel Backend Health Check"
     
-    local script_path="$SCRIPT_DIR/health-check.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/health-check.sh"
     
     if [ ! -f "$script_path" ]; then
         print_error "Health check script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1138,10 +1182,13 @@ cmd_diag_check_laravel() {
 cmd_sip_test_tools() {
     print_header "🔧 SIP Testing Tools"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1161,10 +1208,13 @@ cmd_sip_test_register() {
     
     print_header "📞 Testing SIP Registration"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1186,10 +1236,13 @@ cmd_sip_test_call() {
     
     print_header "📞 Testing SIP Call"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1211,10 +1264,13 @@ cmd_sip_test_full() {
     
     print_header "🧪 Running Full SIP Test Suite"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -1233,10 +1289,13 @@ cmd_sip_test_install() {
     
     print_header "📦 Installing SIP Testing Tool"
     
-    local script_path="$SCRIPT_DIR/sip-test-suite.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/sip-test-suite.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "SIP test suite script not found"
+        print_error "SIP test suite script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2312,10 +2371,13 @@ cmd_backup_cleanup() {
 cmd_config_history_status() {
     print_header "📜 Asterisk Configuration Version Control"
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2325,10 +2387,13 @@ cmd_config_history_status() {
 cmd_config_history_list() {
     local count="${1:-10}"
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2344,10 +2409,13 @@ cmd_config_history_show() {
         exit 2
     fi
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2363,10 +2431,13 @@ cmd_config_history_diff() {
         exit 2
     fi
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
@@ -2382,10 +2453,13 @@ cmd_config_history_revert() {
         exit 2
     fi
     
-    local script_path="$SCRIPT_DIR/asterisk-git-commit.sh"
+    local scripts_dir
+    scripts_dir=$(get_scripts_dir)
+    local script_path="$scripts_dir/asterisk-git-commit.sh"
     
     if [ ! -f "$script_path" ]; then
-        print_error "Git commit helper script not found"
+        print_error "Git commit helper script not found at $script_path"
+        print_info "Searched locations: \$SCRIPT_DIR, \$RAYANPBX_ROOT/scripts, /opt/rayanpbx/scripts"
         exit 1
     fi
     
