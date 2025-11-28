@@ -391,9 +391,11 @@ func TestExtensionSelectionAfterCreation(t *testing.T) {
 	}
 
 	// The logic from createExtension() to find and select the new extension
+	found := false
 	for i, ext := range m.extensions {
 		if ext.ExtensionNumber == newExtNumber {
 			m.selectedExtensionIdx = i
+			found = true
 			break
 		}
 	}
@@ -403,10 +405,61 @@ func TestExtensionSelectionAfterCreation(t *testing.T) {
 		t.Errorf("Expected selectedExtensionIdx to be 1 for extension 101, got %d", m.selectedExtensionIdx)
 	}
 
+	// Verify the extension was found
+	if !found {
+		t.Error("Expected new extension to be found in the list")
+	}
+
 	// Verify the selected extension is correct
 	if m.extensions[m.selectedExtensionIdx].ExtensionNumber != "101" {
 		t.Errorf("Expected selected extension to be 101, got %s",
 			m.extensions[m.selectedExtensionIdx].ExtensionNumber)
+	}
+}
+
+// TestExtensionSelectionBoundsCheck tests that selectedExtensionIdx stays within bounds
+func TestExtensionSelectionBoundsCheck(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = extensionsScreen
+
+	// Set a high selectedExtensionIdx (simulating previous state with more extensions)
+	m.selectedExtensionIdx = 10
+
+	// Simulate extension list with fewer items
+	m.extensions = []Extension{
+		{ID: 1, ExtensionNumber: "100", Name: "First"},
+		{ID: 2, ExtensionNumber: "101", Name: "Second"},
+	}
+
+	// Simulate not finding the extension (searching for non-existent "999")
+	newExtNumber := "999"
+	found := false
+	for i, ext := range m.extensions {
+		if ext.ExtensionNumber == newExtNumber {
+			m.selectedExtensionIdx = i
+			found = true
+			break
+		}
+	}
+
+	// Apply bounds checking as in createExtension()
+	if !found && len(m.extensions) > 0 {
+		if m.selectedExtensionIdx >= len(m.extensions) {
+			m.selectedExtensionIdx = len(m.extensions) - 1
+		}
+	} else if len(m.extensions) == 0 {
+		m.selectedExtensionIdx = 0
+	}
+
+	// selectedExtensionIdx should be adjusted to be within bounds (1, since list has 2 items)
+	if m.selectedExtensionIdx >= len(m.extensions) {
+		t.Errorf("selectedExtensionIdx (%d) should be less than extensions length (%d)",
+			m.selectedExtensionIdx, len(m.extensions))
+	}
+
+	// Should be set to last valid index
+	if m.selectedExtensionIdx != 1 {
+		t.Errorf("Expected selectedExtensionIdx to be 1 (last valid index), got %d", m.selectedExtensionIdx)
 	}
 }
 
