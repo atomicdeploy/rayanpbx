@@ -2632,9 +2632,19 @@ func (m *model) createExtension() {
 
 	m.inputMode = false
 
+	// Store the newly created extension number for selection
+	newExtNumber := m.inputValues[extFieldNumber]
+
 	// Reload extensions list
 	if exts, err := GetExtensions(m.db); err == nil {
 		m.extensions = exts
+		// Find and select the newly created extension
+		for i, ext := range m.extensions {
+			if ext.ExtensionNumber == newExtNumber {
+				m.selectedExtensionIdx = i
+				break
+			}
+		}
 	}
 
 	m.currentScreen = extensionsScreen

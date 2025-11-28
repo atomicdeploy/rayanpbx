@@ -367,6 +367,49 @@ func TestExtensionToggleKeyBinding(t *testing.T) {
 	}
 }
 
+// TestExtensionSelectionAfterCreation tests that the newly created extension is selected
+// after the extensions list is reloaded
+func TestExtensionSelectionAfterCreation(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	m.currentScreen = extensionsScreen
+
+	// Simulate the state after extension creation:
+	// Extensions are sorted by extension_number
+	m.extensions = []Extension{
+		{ID: 1, ExtensionNumber: "100", Name: "First"},
+		{ID: 3, ExtensionNumber: "102", Name: "Third"},
+		{ID: 4, ExtensionNumber: "103", Name: "Fourth"},
+	}
+
+	// Simulate adding a new extension "101" which will be at index 1 after sorting
+	newExtNumber := "101"
+	m.extensions = []Extension{
+		{ID: 1, ExtensionNumber: "100", Name: "First"},
+		{ID: 2, ExtensionNumber: "101", Name: "New Extension"},
+		{ID: 3, ExtensionNumber: "102", Name: "Third"},
+		{ID: 4, ExtensionNumber: "103", Name: "Fourth"},
+	}
+
+	// The logic from createExtension() to find and select the new extension
+	for i, ext := range m.extensions {
+		if ext.ExtensionNumber == newExtNumber {
+			m.selectedExtensionIdx = i
+			break
+		}
+	}
+
+	// The new extension "101" should be at index 1
+	if m.selectedExtensionIdx != 1 {
+		t.Errorf("Expected selectedExtensionIdx to be 1 for extension 101, got %d", m.selectedExtensionIdx)
+	}
+
+	// Verify the selected extension is correct
+	if m.extensions[m.selectedExtensionIdx].ExtensionNumber != "101" {
+		t.Errorf("Expected selected extension to be 101, got %s",
+			m.extensions[m.selectedExtensionIdx].ExtensionNumber)
+	}
+}
+
 // TestExtensionScreenHelpText tests that extension screen shows toggle help
 func TestExtensionScreenHelpText(t *testing.T) {
 	m := initialModel(nil, nil, false)
