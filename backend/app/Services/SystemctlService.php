@@ -133,13 +133,13 @@ class SystemctlService
 
         // Get Asterisk CLI output
         try {
-            $coreShow = $this->executeCommand('asterisk -rx "core show version"');
+            $coreShow = $this->execAsteriskCLI('core show version');
             if (preg_match('/Asterisk\s+([\d.]+)/', $coreShow, $matches)) {
                 $status['version'] = $matches[1];
             }
 
             // Get active calls
-            $calls = $this->executeCommand('asterisk -rx "core show calls"');
+            $calls = $this->execAsteriskCLI('core show calls');
             if (preg_match('/(\d+)\s+active call/', $calls, $matches)) {
                 $status['active_calls'] = (int) $matches[1];
             } else {
@@ -147,7 +147,7 @@ class SystemctlService
             }
 
             // Get channels
-            $channels = $this->executeCommand('asterisk -rx "core show channels"');
+            $channels = $this->execAsteriskCLI('core show channels');
             if (preg_match('/(\d+)\s+active channel/', $channels, $matches)) {
                 $status['active_channels'] = (int) $matches[1];
             } else {
@@ -226,7 +226,7 @@ class SystemctlService
     public function reloadAsterisk(): bool
     {
         try {
-            $this->executeCommand('asterisk -rx "core reload"');
+            $this->execAsteriskCLI('core reload');
 
             return true;
         } catch (Exception $e) {
@@ -239,7 +239,22 @@ class SystemctlService
      */
     public function execAsteriskCLI(string $command): string
     {
-        return $this->executeCommand("asterisk -rx \"{$command}\"");
+        $output = [];
+        $returnCode = 0;
+
+        // Use escapeshellarg to properly escape the command argument
+        // This prevents issues where escapeshellcmd would escape characters
+        // inside the Asterisk CLI command
+        $escapedCommand = 'asterisk -rx '.escapeshellarg($command);
+        exec($escapedCommand.' 2>&1', $output, $returnCode);
+
+        if ($returnCode !== 0 && $returnCode !== 3) { // 3 = inactive service
+            $outputStr = implode("\n", $output);
+            $errorDetails = $this->getErrorDetails($returnCode, $outputStr);
+            throw new Exception("Command failed with code {$returnCode}: asterisk -rx \"{$command}\"\n{$errorDetails}");
+        }
+
+        return implode("\n", $output);
     }
 
     /**

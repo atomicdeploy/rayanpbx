@@ -1362,8 +1362,8 @@ class GrandStreamProvisioningService
     protected function getRegisteredPhonesFromAsterisk()
     {
         try {
-            // Use escapeshellcmd for security - no user input is used here
-            $command = escapeshellcmd('asterisk -rx "pjsip show endpoints"');
+            // Use escapeshellarg for proper escaping of the command argument
+            $command = 'asterisk -rx '.escapeshellarg('pjsip show endpoints');
             $output = shell_exec($command);
 
             if (! $output) {
