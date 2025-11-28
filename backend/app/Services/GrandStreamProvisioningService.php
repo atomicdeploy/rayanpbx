@@ -423,14 +423,22 @@ class GrandStreamProvisioningService
             }
         }
 
-        // Throw specific error for permission issues
+        // Throw specific error for permission issues when no devices found
         if ($permissionDenied && empty($allDevices)) {
             throw new \Exception(
                 'LLDP discovery failed due to permission error. '.
-                'The web server user (www-data) needs permission to access /var/run/lldpd.socket. '.
+                'The web server user (typically www-data) needs permission to access /var/run/lldpd.socket. '.
                 'Run: sudo usermod -aG _lldpd www-data && sudo systemctl restart lldpd && sudo systemctl restart rayanpbx-api. '.
                 'Error: '.$permissionErrorMsg
             );
+        }
+
+        // Log warning if permission errors occurred but some devices were still found
+        if ($permissionDenied && ! empty($allDevices)) {
+            Log::warning('LLDP discovery encountered permission errors but some devices were found', [
+                'error' => $permissionErrorMsg,
+                'devices_found' => count($allDevices),
+            ]);
         }
 
         if (empty($allDevices)) {
