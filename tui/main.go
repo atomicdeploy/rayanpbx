@@ -4102,6 +4102,11 @@ func (m *model) loadExtensionSyncInfo() {
 		return
 	}
 	
+	// Sort sync infos by extension number to maintain consistent ordering
+	sort.Slice(syncInfos, func(i, j int) bool {
+		return syncInfos[i].ExtensionNumber < syncInfos[j].ExtensionNumber
+	})
+	
 	m.extensionSyncInfos = syncInfos
 }
 
@@ -4133,59 +4138,72 @@ func (m model) renderExtensionSync() string {
 		}
 	}
 	
-	// Show extension list with sync status
-	content += infoStyle.Render("📋 Extensions Status:") + "\n\n"
+	// Show extension list with sync status as a table with two columns
+	content += infoStyle.Render("📋 Extensions Status:") + "\n"
+	content += helpStyle.Render("  Ext#       Asterisk          Database          Status") + "\n"
+	content += helpStyle.Render("  ─────────────────────────────────────────────────────") + "\n"
 	
 	if len(m.extensionSyncInfos) == 0 {
-		content += "📭 No extensions found\n\n"
+		content += "  📭 No extensions found\n\n"
 	} else {
 		for i, info := range m.extensionSyncInfos {
 			cursor := " "
-			if i == m.selectedSyncIdx {
+			// Use m.cursor directly to determine selection, not m.selectedSyncIdx
+			// This ensures only one item is highlighted at a time
+			isSelected := m.cursor == i
+			if isSelected {
 				cursor = "▶"
 			}
 			
-			// Build status indicator
+			// Build status indicator and column values
 			var statusIcon string
-			var statusText string
+			var asteriskCol string
+			var databaseCol string
+			
 			switch info.SyncStatus {
 			case SyncStatusMatch:
-				statusIcon = "✅"
-				statusText = "Synced"
+				statusIcon = "✅ Synced"
+				asteriskCol = "✓ Present"
+				databaseCol = "✓ Present"
 			case SyncStatusDBOnly:
-				statusIcon = "📦"
-				statusText = "DB Only"
+				statusIcon = "📦 DB Only"
+				asteriskCol = "✗ Missing"
+				databaseCol = "✓ Present"
 			case SyncStatusAsteriskOnly:
-				statusIcon = "⚡"
-				statusText = "Asterisk Only"
+				statusIcon = "⚡ Ast Only"
+				asteriskCol = "✓ Present"
+				databaseCol = "✗ Missing"
 			case SyncStatusMismatch:
-				statusIcon = "⚠️"
-				statusText = "Mismatch"
+				statusIcon = "⚠️  Mismatch"
+				asteriskCol = "≠ Differs"
+				databaseCol = "≠ Differs"
 			}
 			
-			// Get name
-			name := fmt.Sprintf("Extension %s", info.ExtensionNumber)
-			if info.DBExtension != nil && info.DBExtension.Name != "" {
-				name = info.DBExtension.Name
-			}
+			// Format row: don't use nested styles to avoid escape code issues
+			// When selected, apply style to the plain text only
+			extNum := fmt.Sprintf("%-8s", info.ExtensionNumber)
+			asteriskCol = fmt.Sprintf("%-16s", asteriskCol)
+			databaseCol = fmt.Sprintf("%-16s", databaseCol)
 			
-			line := fmt.Sprintf("%s %s %s - %s (%s)\n",
-				cursor,
-				statusIcon,
-				successStyle.Render(info.ExtensionNumber),
-				name,
-				statusText,
-			)
-			
-			if i == m.selectedSyncIdx {
-				content += selectedItemStyle.Render(line)
-				// Show differences if there are any
-				if len(info.Differences) > 0 {
-					for _, diff := range info.Differences {
-						content += helpStyle.Render(fmt.Sprintf("   └─ %s", diff)) + "\n"
-					}
-				}
+			var line string
+			if isSelected {
+				// Build plain text line without nested styles
+				line = fmt.Sprintf("%s %s  %s  %s  %s",
+					cursor,
+					extNum,
+					asteriskCol,
+					databaseCol,
+					statusIcon,
+				)
+				content += selectedItemStyle.Render(line) + "\n"
 			} else {
+				line = fmt.Sprintf("%s %s  %s  %s  %s\n",
+					cursor,
+					successStyle.Render(extNum),
+					asteriskCol,
+					databaseCol,
+					statusIcon,
+				)
 				content += line
 			}
 		}
@@ -4198,11 +4216,14 @@ func (m model) renderExtensionSync() string {
 	for i, item := range m.extensionSyncMenu {
 		cursor := " "
 		menuIdx := len(m.extensionSyncInfos) + i
-		if m.cursor == menuIdx {
+		isSelected := m.cursor == menuIdx
+		if isSelected {
 			cursor = "▶"
-			item = selectedItemStyle.Render(item)
+			// Apply style to plain text only, not to already-styled content
+			content += fmt.Sprintf("%s %s\n", cursor, selectedItemStyle.Render(item))
+		} else {
+			content += fmt.Sprintf("%s %s\n", cursor, item)
 		}
-		content += fmt.Sprintf("%s %s\n", cursor, item)
 	}
 	
 	return menuStyle.Render(content)
