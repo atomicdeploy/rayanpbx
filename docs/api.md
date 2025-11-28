@@ -208,24 +208,28 @@ ws.onmessage = (event) => {
 
 ### PJSIP Config (`/etc/asterisk/pjsip.conf`)
 
-Managed sections are wrapped with markers:
+RayanPBX uses proper INI section manipulation for configuration management:
 ```ini
-; BEGIN MANAGED - {identifier}
-[section]
+[section-name]
+type=endpoint
 config=value
-; END MANAGED - {identifier}
+...
 ```
 
-**Do not edit managed sections manually** - they will be overwritten.
+Sections are identified by their `[name]` and `type=` property. RayanPBX will add, update, or remove sections as needed.
+
+**Note**: You can add your own custom sections alongside RayanPBX-managed ones.
 
 ### Dialplan (`/etc/asterisk/extensions.conf`)
 
-Same marker system:
+Same section-based approach:
 ```ini
-; BEGIN MANAGED - RayanPBX Internal Extensions
 [from-internal]
 exten => 101,1,Dial(PJSIP/101)
-; END MANAGED - RayanPBX Internal Extensions
+ same => n,Hangup()
+
+[outbound-routes]
+exten => _9X.,1,Dial(PJSIP/${EXTEN:1}@trunk)
 ```
 
 ## Testing Endpoints

@@ -390,10 +390,9 @@ func TestCreateTransportSections(t *testing.T) {
 	}
 }
 
-func TestParseExistingConfigWithoutManagedComments(t *testing.T) {
-	// Test that we can correctly parse a config that doesn't have BEGIN/END MANAGED markers
+func TestParseExistingConfig(t *testing.T) {
+	// Test that we can correctly parse a config using section-based identification
 	content := `; Existing asterisk config
-; Without RayanPBX markers
 
 [global]
 type=global
