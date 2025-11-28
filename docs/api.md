@@ -25,7 +25,7 @@ Authorization: Bearer {token}
   "name": "User Name",
   "secret": "SecurePassword123",
   "enabled": true,
-  "context": "internal",
+  "context": "from-internal",
   "transport": "udp",
   "codecs": ["ulaw", "alaw", "g722"],
   "max_contacts": 1,
@@ -223,7 +223,7 @@ config=value
 Same marker system:
 ```ini
 ; BEGIN MANAGED - RayanPBX Internal Extensions
-[internal]
+[from-internal]
 exten => 101,1,Dial(PJSIP/101)
 ; END MANAGED - RayanPBX Internal Extensions
 ```
@@ -242,10 +242,10 @@ asterisk -rx "pjsip show endpoints"
 asterisk -rx "pjsip show registrations"
 
 # Test dialplan
-asterisk -rx "dialplan show internal"
+asterisk -rx "dialplan show from-internal"
 
 # Originate test call
-asterisk -rx "channel originate PJSIP/101 extension 102@internal"
+asterisk -rx "channel originate PJSIP/1001 extension 102@from-internal"
 ```
 
 ### From API

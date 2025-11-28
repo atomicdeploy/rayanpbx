@@ -63,11 +63,11 @@ bind=0.0.0.0:5060
 
 [101]
 type=endpoint
-context=internal
+context=from-internal
 EOF
     
     cat > "$MOCK_ASTERISK_DIR/extensions.conf" << 'EOF'
-[internal]
+[from-internal]
 exten => 101,1,Dial(PJSIP/101,30)
 exten => 101,n,Hangup()
 EOF
