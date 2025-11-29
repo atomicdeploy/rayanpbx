@@ -4,6 +4,22 @@
 ; This file shows what RayanPBX generates for extensions and trunks
 ; Includes all improvements from configuration analysis
 ;=============================================================================
+;
+; SECTION NAMING CONVENTION
+; -------------------------
+; For SIP USER EXTENSIONS: All related sections (endpoint, auth, aor) use the
+; SAME name (e.g., [101]). This is the Asterisk-recommended approach because:
+;   1. Registration matching requires the aor name to match the SIP URI user part
+;   2. Simplifies configuration and troubleshooting
+;   3. Sections are distinguished by their "type=" property, not their name
+;
+; Alternative naming like [101-auth] or [auth101] is only appropriate for SIP
+; trunks where IP-based matching is used. SIP trunks use "identify" sections
+; (type=identify) to match incoming calls by IP address rather than SIP URI,
+; so their section names don't need to match a user's registration.
+;
+; See: https://docs.asterisk.org/Configuration/Channel-Drivers/SIP/Configuring-res_pjsip/PJSIP-Configuration-Sections-and-Relationships/
+;=============================================================================
 
 ;-----------------------------------------------------------------------------
 ; Transport Configuration
@@ -148,11 +164,25 @@ match=tel07.fp.shatel.ir
 ; ✅ qualify_frequency for health monitoring
 ; ✅ remove_existing in AOR for clean registration
 ; ✅ mailboxes for voicemail integration
-; ✅ Consistent section naming
+; ✅ Consistent section naming (same name for endpoint/auth/aor)
 ; ✅ Explicit port numbers in contacts
 ; ✅ subscribe_context for SIP presence/BLF support
 ; ✅ device_state_busy_at for accurate busy status
 ; ✅ support_outbound in AOR for presence publishing
+;
+; SECTION NAMING RATIONALE:
+; -------------------------
+; User extensions use SAME section names (e.g., [101] for endpoint, auth, aor):
+;   - Required for inbound registration matching (SIP URI username maps to aor name)
+;   - This is the Asterisk-recommended best practice for user extensions
+;   - Sections are distinguished by their "type=" property
+;
+; SIP trunks can use unique names (e.g., [trunk-endpoint], [trunk-auth]):
+;   - Trunks use IP matching via "identify" sections, not user registration
+;   - Unique names provide clarity for complex multi-trunk setups
+;
+; DO NOT use styles like [101-auth] for user extensions as this breaks
+; registration matching. See Asterisk PJSIP documentation for details.
 ;
 ; Presence/Event Support Notes:
 ; - subscribe_context: Enables BLF (Busy Lamp Field) and presence subscriptions
