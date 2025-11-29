@@ -32,6 +32,38 @@ class GrandStreamProvisioningService
      */
     protected const GRANDSTREAM_MODEL_PATTERN = '/\b(gxp|grp|gxv|dp|wp|gac|ht)\d+[a-z0-9]*/i';
 
+    /**
+     * SIP Codec priority P-value parameters (P57-P62, P46)
+     * P57: Choice 1 (highest priority)
+     * P58: Choice 2
+     * P59: Choice 3
+     * P60: Choice 4
+     * P61: Choice 5
+     * P62: Choice 6
+     * P46: Choice 7 (lowest priority)
+     */
+    public const CODEC_PRIORITY_P_VALUES = ['P57', 'P58', 'P59', 'P60', 'P61', 'P62', 'P46'];
+
+    /**
+     * Available SIP codecs with their IDs and names
+     * Based on GrandStream phone configuration values
+     */
+    public const AVAILABLE_CODECS = [
+        '18' => 'G.729A/B',
+        '4'  => 'G.723.1',
+        '0'  => 'PCMU',
+        '8'  => 'PCMA',
+        '2'  => 'G.726-32',
+        '9'  => 'G.722 (wide band)',
+        '98' => 'iLBC',
+    ];
+
+    /**
+     * Recommended codec order based on audio quality
+     * Order: G.729A/B (best compression), G.723.1, PCMU, PCMA, G.726-32, G.722 (HD), iLBC
+     */
+    public const RECOMMENDED_CODEC_ORDER = ['18', '4', '0', '8', '2', '9', '98'];
+
     protected $supportedModels = [
         'GXP1625' => [
             'lines' => 2,
@@ -1981,6 +2013,162 @@ class GrandStreamProvisioningService
             'account_number' => $accountNumber,
             'extension_provisioned' => true,
             'action_urls_result' => $actionUrlResult,
+        ];
+    }
+
+    // ========================================================================
+    // SIP Codec Priority Configuration
+    // ========================================================================
+
+    /**
+     * Get the list of available codecs with their IDs and names
+     */
+    public function getAvailableCodecs(): array
+    {
+        return self::AVAILABLE_CODECS;
+    }
+
+    /**
+     * Get the recommended codec order
+     */
+    public function getRecommendedCodecOrder(): array
+    {
+        return self::RECOMMENDED_CODEC_ORDER;
+    }
+
+    /**
+     * Get current codec priority configuration from phone
+     *
+     * @param  string  $ip  Phone IP address
+     * @param  array  $credentials  Admin credentials
+     * @return array Result with codec priorities
+     */
+    public function getCodecConfig($ip, $credentials = [])
+    {
+        $result = $this->getPhoneConfig($ip, $credentials);
+
+        if (! $result['success']) {
+            return [
+                'success' => false,
+                'error' => 'Unable to fetch current information',
+                'message' => $result['error'] ?? 'Failed to get phone configuration',
+            ];
+        }
+
+        $config = $result['config'] ?? [];
+
+        // Extract codec priorities from config
+        $codecPriorities = [];
+        foreach (self::CODEC_PRIORITY_P_VALUES as $index => $pValue) {
+            $codecId = $config[$pValue] ?? null;
+            if ($codecId !== null) {
+                $codecPriorities[] = [
+                    'priority' => $index + 1,
+                    'p_value' => $pValue,
+                    'codec_id' => (string) $codecId,
+                    'codec_name' => self::AVAILABLE_CODECS[(string) $codecId] ?? "Unknown ($codecId)",
+                ];
+            }
+        }
+
+        // If we couldn't get any codec info, return error
+        if (empty($codecPriorities)) {
+            return [
+                'success' => false,
+                'error' => 'Unable to fetch current information',
+                'message' => 'No codec configuration found in phone response',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'ip' => $ip,
+            'codec_priorities' => $codecPriorities,
+            'available_codecs' => self::AVAILABLE_CODECS,
+            'recommended_order' => self::RECOMMENDED_CODEC_ORDER,
+        ];
+    }
+
+    /**
+     * Set codec priority configuration on phone
+     *
+     * @param  string  $ip  Phone IP address
+     * @param  array  $codecOrder  Array of codec IDs in priority order
+     * @param  array  $credentials  Admin credentials
+     * @return array Result of the operation
+     */
+    public function setCodecConfig($ip, $codecOrder, $credentials = [])
+    {
+        // Validate codec IDs
+        foreach ($codecOrder as $codecId) {
+            if (! isset(self::AVAILABLE_CODECS[(string) $codecId])) {
+                return [
+                    'success' => false,
+                    'error' => "Invalid codec ID: $codecId",
+                    'message' => 'One or more codec IDs are not valid',
+                ];
+            }
+        }
+
+        // Build configuration parameters
+        $config = [];
+        $pValues = self::CODEC_PRIORITY_P_VALUES;
+
+        for ($i = 0; $i < count($pValues) && $i < count($codecOrder); $i++) {
+            $config[$pValues[$i]] = (string) $codecOrder[$i];
+        }
+
+        // Apply configuration to phone
+        $result = $this->setPhoneConfig($ip, $config, $credentials);
+
+        if (! $result['success']) {
+            return $result;
+        }
+
+        Log::info('Codec priorities updated', [
+            'ip' => $ip,
+            'codecs' => $codecOrder,
+        ]);
+
+        return [
+            'success' => true,
+            'ip' => $ip,
+            'message' => 'Codec priorities updated successfully',
+            'applied_order' => $codecOrder,
+        ];
+    }
+
+    /**
+     * Apply recommended codec order to phone
+     *
+     * @param  string  $ip  Phone IP address
+     * @param  array  $credentials  Admin credentials
+     * @return array Result of the operation
+     */
+    public function applyRecommendedCodecOrder($ip, $credentials = [])
+    {
+        return $this->setCodecConfig($ip, self::RECOMMENDED_CODEC_ORDER, $credentials);
+    }
+
+    /**
+     * Get codec configuration info for API response
+     * This provides all available codecs, recommended order, and P-value mappings
+     */
+    public function getCodecConfigInfo(): array
+    {
+        return [
+            'available_codecs' => self::AVAILABLE_CODECS,
+            'recommended_order' => self::RECOMMENDED_CODEC_ORDER,
+            'p_values' => self::CODEC_PRIORITY_P_VALUES,
+            'priority_labels' => [
+                'P57' => 'Choice 1 (Highest)',
+                'P58' => 'Choice 2',
+                'P59' => 'Choice 3',
+                'P60' => 'Choice 4',
+                'P61' => 'Choice 5',
+                'P62' => 'Choice 6',
+                'P46' => 'Choice 7 (Lowest)',
+            ],
         ];
     }
 }
