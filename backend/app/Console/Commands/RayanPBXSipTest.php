@@ -150,18 +150,30 @@ class RayanPBXSipTest extends Command
     
     /**
      * Install a single SIP testing tool
+     * Note: Installation requires root privileges. Run this command as root or with sudo.
      */
     private function installSingleTool(string $tool): int
     {
         $this->info("Installing {$tool}...");
+        $this->warn("⚠️  Note: Installation requires root privileges.");
         
         if (!file_exists($this->scriptPath)) {
             $this->error("SIP test suite script not found at: {$this->scriptPath}");
+            $this->line("You can install manually using your package manager:");
+            $this->line("  apt-get install {$tool} (Debian/Ubuntu)");
+            $this->line("  yum install {$tool} (RHEL/CentOS)");
             return 1;
         }
         
+        // Check if we have root privileges
+        $uid = posix_getuid();
+        if ($uid !== 0) {
+            $this->warn("Running without root privileges. Installation may fail.");
+            $this->line("Consider running: sudo php artisan rayanpbx:sip-test install {$tool}");
+        }
+        
+        // Run installation script (requires root - user should run with sudo if needed)
         $result = Process::run([
-            'sudo',
             'bash',
             $this->scriptPath,
             'install',
@@ -174,6 +186,8 @@ class RayanPBXSipTest extends Command
         } else {
             $this->error("✗ Failed to install {$tool}");
             $this->line($result->errorOutput());
+            $this->newLine();
+            $this->line("💡 Try running as root: sudo php artisan rayanpbx:sip-test install {$tool}");
             return 1;
         }
     }
@@ -373,12 +387,16 @@ class RayanPBXSipTest extends Command
         $this->newLine();
         
         if (!file_exists($this->scriptPath)) {
-            // Use Asterisk CLI to check
+            // Use Asterisk CLI to check via Process facade
             $this->line("Checking Asterisk SIP status...");
             
-            $output = shell_exec("asterisk -rx 'pjsip show transports' 2>&1");
+            $result = Process::timeout(10)->run([
+                'asterisk', '-rx', 'pjsip show transports'
+            ]);
             
-            if ($output && !str_contains($output, 'No objects')) {
+            $output = $result->output();
+            
+            if ($result->successful() && $output && !str_contains($output, 'No objects')) {
                 $this->line($output);
                 $this->info("✓ PJSIP transports are configured");
                 return 0;

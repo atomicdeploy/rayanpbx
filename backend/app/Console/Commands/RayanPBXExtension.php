@@ -286,6 +286,10 @@ class RayanPBXExtension extends Command
                 
                 if (!$success) {
                     $this->warn('  ⚠ Failed to write PJSIP configuration');
+                    $this->line('    Possible causes:');
+                    $this->line('      - Permission denied writing to /etc/asterisk/pjsip.conf');
+                    $this->line('      - Asterisk configuration directory not accessible');
+                    $this->line('    Try: sudo chown www-data /etc/asterisk/pjsip.conf');
                 }
             } else {
                 // Comment out PJSIP config (preserve it but disable)
@@ -293,6 +297,8 @@ class RayanPBXExtension extends Command
                 
                 if (!$success) {
                     $this->warn('  ⚠ Failed to disable PJSIP configuration');
+                    $this->line('    The extension may not have been configured in Asterisk.');
+                    $this->line('    This is normal if the extension was never enabled before.');
                 }
             }
             
@@ -303,6 +309,7 @@ class RayanPBXExtension extends Command
             
             if (!$dialplanSuccess) {
                 $this->warn('  ⚠ Failed to write dialplan configuration');
+                $this->line('    Check /etc/asterisk/extensions.conf permissions.');
             }
             
             // Reload Asterisk
@@ -311,7 +318,10 @@ class RayanPBXExtension extends Command
             if ($reloadSuccess) {
                 $this->info('  ✓ Asterisk configuration applied successfully');
             } else {
-                $this->warn('  ⚠ Failed to reload Asterisk - try manually: asterisk -rx "pjsip reload"');
+                $this->warn('  ⚠ Failed to reload Asterisk via AMI');
+                $this->line('    The configuration was written but Asterisk was not reloaded.');
+                $this->line('    Reload manually: asterisk -rx "pjsip reload"');
+                $this->line('    Or check that Asterisk AMI is configured in your .env file.');
             }
             
             // Verify endpoint was created in Asterisk
@@ -321,7 +331,9 @@ class RayanPBXExtension extends Command
                 if ($verified) {
                     $this->info('  ✓ Extension verified in Asterisk');
                 } else {
-                    $this->warn('  ⚠ Extension not found in Asterisk - may need manual verification');
+                    $this->warn('  ⚠ Extension not found in Asterisk');
+                    $this->line('    This may happen if Asterisk reload is still in progress.');
+                    $this->line('    Wait a moment and run: php artisan rayanpbx:extension verify ' . $extension->extension_number);
                 }
             }
             
