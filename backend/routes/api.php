@@ -218,6 +218,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/grandstream/snmp/disable', [GrandStreamController::class, 'disableSNMP']);
     Route::post('/grandstream/snmp/status', [GrandStreamController::class, 'getSNMPStatus']);
     
+    // GrandStream SIP Codec Priority Configuration
+    Route::get('/grandstream/codecs/info', [GrandStreamController::class, 'getCodecInfo']);
+    Route::post('/grandstream/codecs/get', [GrandStreamController::class, 'getCodecConfig']);
+    Route::post('/grandstream/codecs/set', [GrandStreamController::class, 'setCodecConfig']);
+    Route::post('/grandstream/codecs/apply-recommended', [GrandStreamController::class, 'applyRecommendedCodecOrder']);
+    
     // Unified Phone Management API
     Route::get('/phones', [PhoneController::class, 'index']);
     Route::post('/phones', [PhoneController::class, 'store']); // Add new phone
