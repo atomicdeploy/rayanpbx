@@ -630,15 +630,10 @@ class AsteriskAdapter
         }
 
         // Add generalized pattern matching for extension-to-extension calls
-        // This supports both 3-digit (100-199) and 4-digit (1000-1999) extensions
+        // RayanPBX uses 3-digit extensions (100-199)
         $config .= "; Generalized dialplan - Pattern match for extension ranges\n";
         $config .= "; _1XX matches 100-199 (3-digit extensions starting with 1)\n";
         $config .= "exten => _1XX,1,NoOp(Extension to extension call: \${EXTEN})\n";
-        $config .= " same => n,Dial(PJSIP/\${EXTEN},30)\n";
-        $config .= " same => n,Hangup()\n\n";
-        
-        $config .= "; _1XXX matches 1000-1999 (4-digit extensions starting with 1)\n";
-        $config .= "exten => _1XXX,1,NoOp(Extension to extension call: \${EXTEN})\n";
         $config .= " same => n,Dial(PJSIP/\${EXTEN},30)\n";
         $config .= " same => n,Hangup()\n";
 

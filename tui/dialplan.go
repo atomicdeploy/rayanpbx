@@ -107,11 +107,6 @@ func (m *model) createDefaultDialplanPattern() {
 exten => _1XX,1,NoOp(Extension to extension call: ${EXTEN})
  same => n,Dial(PJSIP/${EXTEN},30)
  same => n,Hangup()
-
-; _1XXX matches 1000-1999 (4-digit extensions starting with 1)
-exten => _1XXX,1,NoOp(Extension to extension call: ${EXTEN})
- same => n,Dial(PJSIP/${EXTEN},30)
- same => n,Hangup()
 `
 	m.dialplanPreview = defaultPattern
 	m.dialplanOutput = fmt.Sprintf("Default dialplan pattern:\n\n%s\n\nSelect 'Apply to Asterisk' to save this configuration.", defaultPattern)
@@ -174,7 +169,6 @@ func (m *model) showDialplanPatternHelp() {
 ║  ────────────────                                                             ║
 ║  100       - Matches exactly 100                                              ║
 ║  _1XX      - Matches 100-199 (3 digits starting with 1)                       ║
-║  _1XXX     - Matches 1000-1999 (4 digits starting with 1)                     ║
 ║  _NXX      - Matches 200-999                                                  ║
 ║  _9X.      - Matches 9 followed by any number of digits (outbound)            ║
 ║  _0X.      - Matches 0 followed by any number of digits                       ║

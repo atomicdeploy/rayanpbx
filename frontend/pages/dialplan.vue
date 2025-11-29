@@ -298,7 +298,6 @@
                 <tbody>
                   <tr><td class="font-mono font-bold py-1">100</td><td>Matches exactly 100</td></tr>
                   <tr><td class="font-mono font-bold py-1">_1XX</td><td>Matches 100-199 (3 digits starting with 1)</td></tr>
-                  <tr><td class="font-mono font-bold py-1">_1XXX</td><td>Matches 1000-1999 (4 digits starting with 1)</td></tr>
                   <tr><td class="font-mono font-bold py-1">_NXX</td><td>Matches 200-999</td></tr>
                   <tr><td class="font-mono font-bold py-1">_9X.</td><td>Matches 9 followed by any number of digits</td></tr>
                   <tr><td class="font-mono font-bold py-1">_0X.</td><td>Matches 0 followed by any number of digits</td></tr>

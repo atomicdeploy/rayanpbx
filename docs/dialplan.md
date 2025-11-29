@@ -91,7 +91,6 @@ Navigate to **Dialplan Management** from the main menu.
 |---------|-------------|
 | `100` | Matches exactly 100 |
 | `_1XX` | Matches 100-199 (3-digit extensions starting with 1) |
-| `_1XXX` | Matches 1000-1999 (4-digit extensions starting with 1) |
 | `_NXX` | Matches 200-999 |
 | `_9X.` | Matches 9 followed by any number of digits (outbound) |
 | `_0X.` | Matches 0 followed by any number of digits |
@@ -191,8 +190,7 @@ curl -X POST http://localhost:8000/api/dialplan \
    ```
 
 2. Verify pattern matches your extensions:
-   - 3-digit extensions (100-199): Use `_1XX`
-   - 4-digit extensions (1000-1999): Use `_1XXX`
+   - RayanPBX uses 3-digit extensions (100-199): Use `_1XX`
 
 3. Check Asterisk logs:
    ```bash
