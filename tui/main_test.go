@@ -169,7 +169,8 @@ func TestMenuIndexConstants(t *testing.T) {
 	m := initialModel(nil, nil, false)
 	
 	// Test main menu indices match the menu items count
-	mainMenuExpectedCount := 15 // MainMenuExit + 1
+	// Using the constant + 1 ensures the test stays in sync automatically
+	mainMenuExpectedCount := MainMenuExit + 1
 	if len(m.menuItems) != mainMenuExpectedCount {
 		t.Errorf("Main menu has %d items but MainMenuExit constant expects %d items", len(m.menuItems), mainMenuExpectedCount)
 	}
@@ -207,37 +208,37 @@ func TestMenuIndexConstants(t *testing.T) {
 	}
 	
 	// Test diagnostics menu indices
-	diagMenuExpectedCount := 11 // DiagMenuBackToMain + 1
+	diagMenuExpectedCount := DiagMenuBackToMain + 1
 	if len(m.diagnosticsMenu) != diagMenuExpectedCount {
 		t.Errorf("Diagnostics menu has %d items but DiagMenuBackToMain constant expects %d items", len(m.diagnosticsMenu), diagMenuExpectedCount)
 	}
 	
 	// Test SIP test menu indices
-	sipMenuExpectedCount := 6 // SIPTestMenuBackToDiag + 1
+	sipMenuExpectedCount := SIPTestMenuBackToDiag + 1
 	if len(m.sipTestMenu) != sipMenuExpectedCount {
 		t.Errorf("SIP test menu has %d items but SIPTestMenuBackToDiag constant expects %d items", len(m.sipTestMenu), sipMenuExpectedCount)
 	}
 	
 	// Test Asterisk menu indices
-	asteriskMenuExpectedCount := 14 // AsteriskMenuBackToMain + 1
+	asteriskMenuExpectedCount := AsteriskMenuBackToMain + 1
 	if len(m.asteriskMenu) != asteriskMenuExpectedCount {
 		t.Errorf("Asterisk menu has %d items but AsteriskMenuBackToMain constant expects %d items", len(m.asteriskMenu), asteriskMenuExpectedCount)
 	}
 	
 	// Test Extension sync menu indices
-	extSyncMenuExpectedCount := 6 // ExtSyncMenuBackToExtensions + 1
+	extSyncMenuExpectedCount := ExtSyncMenuBackToExtensions + 1
 	if len(m.extensionSyncMenu) != extSyncMenuExpectedCount {
 		t.Errorf("Extension sync menu has %d items but ExtSyncMenuBackToExtensions constant expects %d items", len(m.extensionSyncMenu), extSyncMenuExpectedCount)
 	}
 	
 	// Test Reset menu indices
-	resetMenuExpectedCount := 3 // ResetMenuBackToSettings + 1
+	resetMenuExpectedCount := ResetMenuBackToSettings + 1
 	if len(m.resetMenu) != resetMenuExpectedCount {
 		t.Errorf("Reset menu has %d items but ResetMenuBackToSettings constant expects %d items", len(m.resetMenu), resetMenuExpectedCount)
 	}
 	
 	// Test Dialplan menu indices
-	dialplanMenuExpectedCount := 7 // DialplanMenuBackToMain + 1
+	dialplanMenuExpectedCount := DialplanMenuBackToMain + 1
 	if len(m.dialplanMenu) != dialplanMenuExpectedCount {
 		t.Errorf("Dialplan menu has %d items but DialplanMenuBackToMain constant expects %d items", len(m.dialplanMenu), dialplanMenuExpectedCount)
 	}
