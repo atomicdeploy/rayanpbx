@@ -163,6 +163,86 @@ func TestDiagnosticsMenuInitialization(t *testing.T) {
 	}
 }
 
+// TestMenuIndexConstants tests that menu index constants match menu item counts
+// This ensures constants stay synchronized when menu items are added or removed.
+func TestMenuIndexConstants(t *testing.T) {
+	m := initialModel(nil, nil, false)
+	
+	// Test main menu indices match the menu items count
+	mainMenuExpectedCount := 15 // MainMenuExit + 1
+	if len(m.menuItems) != mainMenuExpectedCount {
+		t.Errorf("Main menu has %d items but MainMenuExit constant expects %d items", len(m.menuItems), mainMenuExpectedCount)
+	}
+	
+	// Verify specific main menu items are at expected indices
+	mainMenuTests := []struct {
+		index    int
+		contains string
+	}{
+		{MainMenuQuickSetup, "Quick Setup"},
+		{MainMenuExtensions, "Extensions"},
+		{MainMenuTrunks, "Trunks"},
+		{MainMenuDialplan, "Dialplan"},
+		{MainMenuVoIPPhones, "VoIP Phones"},
+		{MainMenuConsolePhone, "Console"},
+		{MainMenuAsterisk, "Asterisk"},
+		{MainMenuDiagnostics, "Diagnostics"},
+		{MainMenuStatus, "Status"},
+		{MainMenuLogs, "Logs"},
+		{MainMenuLiveConsole, "Live"},
+		{MainMenuUsageGuide, "Usage"},
+		{MainMenuConfigManagement, "Configuration"},
+		{MainMenuSystemSettings, "Settings"},
+		{MainMenuExit, "Exit"},
+	}
+	
+	for _, tt := range mainMenuTests {
+		if tt.index >= len(m.menuItems) {
+			t.Errorf("Main menu index %d is out of range (menu has %d items)", tt.index, len(m.menuItems))
+			continue
+		}
+		if !strings.Contains(m.menuItems[tt.index], tt.contains) {
+			t.Errorf("Main menu item at index %d should contain '%s' but got '%s'", tt.index, tt.contains, m.menuItems[tt.index])
+		}
+	}
+	
+	// Test diagnostics menu indices
+	diagMenuExpectedCount := 11 // DiagMenuBackToMain + 1
+	if len(m.diagnosticsMenu) != diagMenuExpectedCount {
+		t.Errorf("Diagnostics menu has %d items but DiagMenuBackToMain constant expects %d items", len(m.diagnosticsMenu), diagMenuExpectedCount)
+	}
+	
+	// Test SIP test menu indices
+	sipMenuExpectedCount := 6 // SIPTestMenuBackToDiag + 1
+	if len(m.sipTestMenu) != sipMenuExpectedCount {
+		t.Errorf("SIP test menu has %d items but SIPTestMenuBackToDiag constant expects %d items", len(m.sipTestMenu), sipMenuExpectedCount)
+	}
+	
+	// Test Asterisk menu indices
+	asteriskMenuExpectedCount := 14 // AsteriskMenuBackToMain + 1
+	if len(m.asteriskMenu) != asteriskMenuExpectedCount {
+		t.Errorf("Asterisk menu has %d items but AsteriskMenuBackToMain constant expects %d items", len(m.asteriskMenu), asteriskMenuExpectedCount)
+	}
+	
+	// Test Extension sync menu indices
+	extSyncMenuExpectedCount := 6 // ExtSyncMenuBackToExtensions + 1
+	if len(m.extensionSyncMenu) != extSyncMenuExpectedCount {
+		t.Errorf("Extension sync menu has %d items but ExtSyncMenuBackToExtensions constant expects %d items", len(m.extensionSyncMenu), extSyncMenuExpectedCount)
+	}
+	
+	// Test Reset menu indices
+	resetMenuExpectedCount := 3 // ResetMenuBackToSettings + 1
+	if len(m.resetMenu) != resetMenuExpectedCount {
+		t.Errorf("Reset menu has %d items but ResetMenuBackToSettings constant expects %d items", len(m.resetMenu), resetMenuExpectedCount)
+	}
+	
+	// Test Dialplan menu indices
+	dialplanMenuExpectedCount := 7 // DialplanMenuBackToMain + 1
+	if len(m.dialplanMenu) != dialplanMenuExpectedCount {
+		t.Errorf("Dialplan menu has %d items but DialplanMenuBackToMain constant expects %d items", len(m.dialplanMenu), dialplanMenuExpectedCount)
+	}
+}
+
 // TestDiagnosticsInputValidation tests input validation for diagnostics operations
 func TestDiagnosticsInputValidation(t *testing.T) {
 	m := initialModel(nil, nil, false)

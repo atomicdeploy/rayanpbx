@@ -116,9 +116,6 @@ const (
 	DefaultDirectMedia        = "no"
 )
 
-// systemSettingsMenuResetIdx is the index of the "Reset All Configuration" option in system settings menu
-const systemSettingsMenuResetIdx = 5
-
 type screen int
 
 const (
@@ -977,11 +974,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.currentScreen == mainMenu {
 				switch m.cursor {
-				case 0:
+				case MainMenuQuickSetup:
 					// Quick Setup wizard
 					m.mainMenuCursor = m.cursor
 					m.initQuickSetup()
-				case 1:
+				case MainMenuExtensions:
 					// Load extensions with sync info
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if exts, err := GetExtensions(m.db); err == nil {
@@ -991,7 +988,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading extensions: %v", err)
 					}
-				case 2:
+				case MainMenuTrunks:
 					// Load trunks
 					m.mainMenuCursor = m.cursor // Save main menu position
 					if trunks, err := GetTrunks(m.db); err == nil {
@@ -1000,19 +997,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
-				case 3:
+				case MainMenuDialplan:
 					// Dialplan Management
 					m.mainMenuCursor = m.cursor
 					m.initDialplanScreen()
-				case 4:
+				case MainMenuVoIPPhones:
 					// VoIP Phones Management
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
-				case 5:
+				case MainMenuConsolePhone:
 					// Console Phone/Intercom
 					m.mainMenuCursor = m.cursor
 					m.initConsolePhoneScreen()
-				case 6:
+				case MainMenuAsterisk:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -1020,7 +1017,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 7:
+				case MainMenuDiagnostics:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -1028,31 +1025,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 8:
+				case MainMenuStatus:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = statusScreen
-				case 9:
+				case MainMenuLogs:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = logsScreen
-				case 10: // Live Asterisk Console
+				case MainMenuLiveConsole:
 					m.mainMenuCursor = m.cursor
 					m.initLiveConsole()
-				case 11:
+				case MainMenuUsageGuide:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 12:
+				case MainMenuConfigManagement:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 13:
+				case MainMenuSystemSettings:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 14:
+				case MainMenuExit:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -1196,7 +1193,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentScreen == resetConfigurationScreen || m.currentScreen == resetConfirmScreen {
 					// Go back to system settings
 					m.currentScreen = systemSettingsScreen
-					m.cursor = systemSettingsMenuResetIdx
+					m.cursor = SysSettingsResetConfig
 					m.errorMsg = ""
 					m.successMsg = ""
 				} else {
@@ -3376,15 +3373,15 @@ func (m *model) handleDiagnosticsMenuSelection() {
 	m.diagnosticsOutput = ""
 
 	switch m.cursor {
-	case 0: // Run System Health Check
+	case DiagMenuHealthCheck:
 		m.diagnosticsOutput = m.diagnosticsManager.GetHealthCheckOutput()
 		m.successMsg = "Health check completed"
-	case 1: // Show System Information
+	case DiagMenuSystemInfo:
 		m.diagnosticsOutput = m.diagnosticsManager.GetSystemInfo()
-	case 2: // Check SIP Port
+	case DiagMenuCheckSIPPort:
 		m.diagnosticsOutput = m.diagnosticsManager.CheckSIPPort(5060)
 		m.successMsg = "SIP port check completed"
-	case 3: // Enable SIP Debugging
+	case DiagMenuEnableSIPDebug:
 		output, err := m.diagnosticsManager.EnableSIPDebugQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to enable SIP debug: %v", err)
@@ -3394,7 +3391,7 @@ func (m *model) handleDiagnosticsMenuSelection() {
 				m.diagnosticsOutput = "SIP Debug Output:\n" + output
 			}
 		}
-	case 4: // Disable SIP Debugging
+	case DiagMenuDisableSIPDebug:
 		output, err := m.diagnosticsManager.DisableSIPDebugQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to disable SIP debug: %v", err)
@@ -3404,34 +3401,34 @@ func (m *model) handleDiagnosticsMenuSelection() {
 				m.diagnosticsOutput = "SIP Debug Output:\n" + output
 			}
 		}
-	case 5: // Test Extension Registration
+	case DiagMenuTestExtension:
 		m.currentScreen = diagTestExtensionScreen
 		m.inputMode = true
 		m.inputFields = []string{"Extension Number"}
 		m.inputValues = []string{""}
 		m.inputCursor = 0
-	case 6: // Test Trunk Connectivity
+	case DiagMenuTestTrunk:
 		m.currentScreen = diagTestTrunkScreen
 		m.inputMode = true
 		m.inputFields = []string{"Trunk Name"}
 		m.inputValues = []string{""}
 		m.inputCursor = 0
-	case 7: // Test Call Routing
+	case DiagMenuTestRouting:
 		m.currentScreen = diagTestRoutingScreen
 		m.inputMode = true
 		m.inputFields = []string{"From Extension", "To Number"}
 		m.inputValues = []string{"", ""}
 		m.inputCursor = 0
-	case 8: // Test Port Connectivity
+	case DiagMenuTestPort:
 		m.currentScreen = diagPortTestScreen
 		m.inputMode = true
 		m.inputFields = []string{"Host", "Port"}
 		m.inputValues = []string{"", DefaultSIPPort}
 		m.inputCursor = 0
-	case 9: // SIP Testing Suite
+	case DiagMenuSIPTestSuite:
 		m.currentScreen = sipTestMenuScreen
 		m.cursor = 0
-	case 10: // Back to Main Menu
+	case DiagMenuBackToMain:
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
@@ -3625,11 +3622,11 @@ func (m *model) handleSipTestMenuSelection() {
 	m.sipTestOutput = ""
 
 	switch m.cursor {
-	case 0: // Check Available Tools
+	case SIPTestMenuCheckTools:
 		m.currentScreen = sipTestToolsScreen
 		// Use our built-in tool detection (more reliable than script)
 		m.sipTestOutput = getSipToolsStatus()
-	case 1: // Install SIP Tool
+	case SIPTestMenuInstallTool:
 		// Automatically detect which tools are missing and offer to install them
 		var missingTools []string
 		var installedTools []string
@@ -3676,25 +3673,25 @@ func (m *model) handleSipTestMenuSelection() {
 		}
 		
 		m.sipTestOutput = output.String()
-	case 2: // Test Registration
+	case SIPTestMenuTestRegister:
 		m.currentScreen = sipTestRegisterScreen
 		m.inputMode = true
 		m.inputFields = []string{"Extension", "Password", "Server"}
 		m.inputValues = []string{"", "", "127.0.0.1"}
 		m.inputCursor = 0
-	case 3: // Test Call
+	case SIPTestMenuTestCall:
 		m.currentScreen = sipTestCallScreen
 		m.inputMode = true
 		m.inputFields = []string{"From Extension", "From Password", "To Extension", "To Password", "Server"}
 		m.inputValues = []string{"", "", "", "", "127.0.0.1"}
 		m.inputCursor = 0
-	case 4: // Run Full Test Suite
+	case SIPTestMenuRunFullSuite:
 		m.currentScreen = sipTestFullScreen
 		m.inputMode = true
 		m.inputFields = []string{"Extension 1", "Password 1", "Extension 2", "Password 2", "Server"}
 		m.inputValues = []string{"", "", "", "", "127.0.0.1"}
 		m.inputCursor = 0
-	case 5: // Back to Diagnostics
+	case SIPTestMenuBackToDiag:
 		m.currentScreen = diagnosticsMenuScreen
 		m.cursor = m.diagnosticsMenuCursor
 	}
@@ -3707,7 +3704,7 @@ func (m *model) handleAsteriskMenuSelection() {
 	m.asteriskOutput = ""
 
 	switch m.cursor {
-	case 0: // Start Asterisk Service
+	case AsteriskMenuStart:
 		output, err := m.asteriskManager.StartServiceQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to start service: %v", err)
@@ -3718,7 +3715,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.successMsg = "Asterisk service started successfully"
 			m.asteriskOutput = output
 		}
-	case 1: // Stop Asterisk Service
+	case AsteriskMenuStop:
 		output, err := m.asteriskManager.StopServiceQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to stop service: %v", err)
@@ -3729,7 +3726,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.successMsg = "Asterisk service stopped successfully"
 			m.asteriskOutput = output
 		}
-	case 2: // Restart Asterisk Service
+	case AsteriskMenuRestart:
 		output, err := m.asteriskManager.RestartServiceQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to restart service: %v", err)
@@ -3740,10 +3737,10 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.successMsg = "Asterisk service restarted successfully"
 			m.asteriskOutput = output
 		}
-	case 3: // Show Service Status
+	case AsteriskMenuShowStatus:
 		m.asteriskOutput = m.asteriskManager.GetServiceStatusOutput()
 		m.successMsg = "Service status displayed"
-	case 4: // Reload PJSIP Configuration
+	case AsteriskMenuReloadPJSIP:
 		output, err := m.asteriskManager.ReloadPJSIPQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload PJSIP: %v", err)
@@ -3753,7 +3750,7 @@ func (m *model) handleAsteriskMenuSelection() {
 				m.asteriskOutput = output
 			}
 		}
-	case 5: // Reload Dialplan
+	case AsteriskMenuReloadDialplan:
 		output, err := m.asteriskManager.ReloadDialplanQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload dialplan: %v", err)
@@ -3763,7 +3760,7 @@ func (m *model) handleAsteriskMenuSelection() {
 				m.asteriskOutput = output
 			}
 		}
-	case 6: // Reload All Modules
+	case AsteriskMenuReloadAll:
 		output, err := m.asteriskManager.ReloadAllQuiet()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to reload modules: %v", err)
@@ -3773,7 +3770,7 @@ func (m *model) handleAsteriskMenuSelection() {
 				m.asteriskOutput = output
 			}
 		}
-	case 7: // Configure PJSIP Transports
+	case AsteriskMenuConfigTransports:
 		err := m.configManager.EnsureTransportConfig()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to configure transports: %v", err)
@@ -3786,7 +3783,7 @@ func (m *model) handleAsteriskMenuSelection() {
 				m.asteriskOutput = "✅ UDP Transport: 0.0.0.0:5060\n✅ TCP Transport: 0.0.0.0:5060\n\nConfiguration reloaded successfully."
 			}
 		}
-	case 8: // Show PJSIP Endpoints
+	case AsteriskMenuShowEndpoints:
 		output, err := m.asteriskManager.ShowEndpoints()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show endpoints: %v", err)
@@ -3794,7 +3791,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP endpoints retrieved"
 		}
-	case 9: // Show PJSIP Transports
+	case AsteriskMenuShowTransports:
 		output, err := m.asteriskManager.ShowTransports()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show transports: %v", err)
@@ -3802,7 +3799,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "PJSIP transports retrieved"
 		}
-	case 10: // Show Active Channels
+	case AsteriskMenuShowChannels:
 		output, err := m.asteriskManager.ShowChannels()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show channels: %v", err)
@@ -3810,7 +3807,7 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Active channels retrieved"
 		}
-	case 11: // Show Registrations
+	case AsteriskMenuShowRegistrations:
 		output, err := m.asteriskManager.ShowPeers()
 		if err != nil {
 			m.errorMsg = fmt.Sprintf("Failed to show registrations: %v", err)
@@ -3818,9 +3815,9 @@ func (m *model) handleAsteriskMenuSelection() {
 			m.asteriskOutput = output
 			m.successMsg = "Registrations retrieved"
 		}
-	case 12: // Live Console
+	case AsteriskMenuLiveConsole:
 		m.initLiveConsole()
-	case 13: // Back to Main Menu
+	case AsteriskMenuBackToMain:
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
@@ -4100,22 +4097,22 @@ func (m *model) renderSystemSettings() string {
 
 func (m *model) handleSystemSettingsAction() tea.Cmd {
 	switch m.cursor {
-	case 0:
+	case SysSettingsToggleMode:
 		// Toggle Mode
 		m.toggleAppMode()
-	case 1:
+	case SysSettingsToggleDebug:
 		// Toggle Debug
 		m.toggleDebugMode()
-	case 2:
+	case SysSettingsSetProduction:
 		// Set to Production
 		m.setMode("production", false)
-	case 3:
+	case SysSettingsSetDevelopment:
 		// Set to Development
 		m.setMode("development", true)
-	case 4:
+	case SysSettingsRunUpgrade:
 		// Run System Upgrade
 		return m.runSystemUpgrade()
-	case 5:
+	case SysSettingsResetConfig:
 		// Reset Configuration - go to reset screen
 		m.currentScreen = resetConfigurationScreen
 		m.cursor = 0
@@ -4125,7 +4122,7 @@ func (m *model) handleSystemSettingsAction() tea.Cmd {
 		if m.resetConfiguration != nil {
 			m.resetSummary, _ = m.resetConfiguration.GetSummary()
 		}
-	case 6:
+	case SysSettingsBackToMain:
 		// Back to main menu
 		m.currentScreen = mainMenu
 		m.cursor = 0
@@ -4531,7 +4528,7 @@ func (m *model) handleExtensionSyncSelection() {
 	}
 	
 	switch menuIdx {
-	case 0: // Sync selected DB → Asterisk
+	case ExtSyncMenuSyncSelectedToAsterisk:
 		if m.selectedSyncIdx < len(m.extensionSyncInfos) {
 			info := m.extensionSyncInfos[m.selectedSyncIdx]
 			if info.DBExtension != nil {
@@ -4547,7 +4544,7 @@ func (m *model) handleExtensionSyncSelection() {
 			}
 		}
 		
-	case 1: // Sync selected Asterisk → DB
+	case ExtSyncMenuSyncSelectedToDB:
 		if m.selectedSyncIdx < len(m.extensionSyncInfos) {
 			info := m.extensionSyncInfos[m.selectedSyncIdx]
 			if info.AsteriskConfig != nil {
@@ -4567,7 +4564,7 @@ func (m *model) handleExtensionSyncSelection() {
 			}
 		}
 		
-	case 2: // Sync all DB → Asterisk
+	case ExtSyncMenuSyncAllToAsterisk:
 		synced, errors := m.extensionSyncManager.SyncAllDatabaseToAsterisk()
 		if len(errors) > 0 {
 			m.errorMsg = fmt.Sprintf("Synced %d, %d errors", synced, len(errors))
@@ -4576,7 +4573,7 @@ func (m *model) handleExtensionSyncSelection() {
 		}
 		m.loadExtensionSyncInfo()
 		
-	case 3: // Sync all Asterisk → DB
+	case ExtSyncMenuSyncAllToDB:
 		synced, errors := m.extensionSyncManager.SyncAllAsteriskToDatabase()
 		if len(errors) > 0 {
 			m.errorMsg = fmt.Sprintf("Synced %d, %d errors", synced, len(errors))
@@ -4589,11 +4586,11 @@ func (m *model) handleExtensionSyncSelection() {
 			m.extensions = exts
 		}
 		
-	case 4: // Refresh
+	case ExtSyncMenuRefresh:
 		m.loadExtensionSyncInfo()
 		m.successMsg = "Sync status refreshed"
 		
-	case 5: // Back to Extensions
+	case ExtSyncMenuBackToExtensions:
 		m.currentScreen = extensionsScreen
 		m.cursor = m.selectedExtensionIdx
 	}
@@ -4652,14 +4649,14 @@ func (m *model) handleResetConfigurationSelection() {
 	m.successMsg = ""
 	
 	switch m.cursor {
-	case 0: // Reset All Configuration - go to confirm screen
+	case ResetMenuResetAll:
 		m.currentScreen = resetConfirmScreen
 		// Refresh summary
 		if m.resetConfiguration != nil {
 			m.resetSummary, _ = m.resetConfiguration.GetSummary()
 		}
 		
-	case 1: // Show Reset Summary
+	case ResetMenuShowSummary:
 		if m.resetConfiguration != nil {
 			summary, err := m.resetConfiguration.GetSummary()
 			if err != nil {
@@ -4670,9 +4667,9 @@ func (m *model) handleResetConfigurationSelection() {
 			}
 		}
 		
-	case 2: // Back to System Settings
+	case ResetMenuBackToSettings:
 		m.currentScreen = systemSettingsScreen
-		m.cursor = systemSettingsMenuResetIdx
+		m.cursor = SysSettingsResetConfig
 	}
 }
 

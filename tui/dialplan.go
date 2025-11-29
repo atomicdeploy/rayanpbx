@@ -43,19 +43,19 @@ func (m *model) handleDialplanScreen(msg tea.KeyMsg) (*model, tea.Cmd) {
 // executeDialplanMenuAction executes the selected dialplan menu action
 func (m *model) executeDialplanMenuAction() {
 	switch m.cursor {
-	case 0: // View Current Dialplan
+	case DialplanMenuViewCurrent:
 		m.viewCurrentDialplan()
-	case 1: // Generate from Extensions
+	case DialplanMenuGenerateFromExtensions:
 		m.generateDialplanFromExtensions()
-	case 2: // Create Default Pattern
+	case DialplanMenuCreateDefaultPattern:
 		m.createDefaultDialplanPattern()
-	case 3: // Apply to Asterisk
+	case DialplanMenuApplyToAsterisk:
 		m.applyDialplanToAsterisk()
-	case 4: // Reload Dialplan
+	case DialplanMenuReloadDialplan:
 		m.reloadDialplan()
-	case 5: // Pattern Help
+	case DialplanMenuPatternHelp:
 		m.showDialplanPatternHelp()
-	case 6: // Back to Main Menu
+	case DialplanMenuBackToMain:
 		m.currentScreen = mainMenu
 		m.cursor = m.mainMenuCursor
 	}
