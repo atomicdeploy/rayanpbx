@@ -166,6 +166,11 @@ remove_existing=yes
 qualify_frequency=60
 ```
 
+**Section Naming Convention**: For user extensions, all related sections (endpoint, auth, aor) use the **same name** (e.g., `[101]`). This is the Asterisk-recommended approach because:
+- Registration matching requires the aor name to match the SIP URI user part
+- Sections are distinguished by their `type=` property, not their name
+- Alternative naming like `[101-auth]` is only appropriate for SIP trunks where IP-based matching is used
+
 Sections are identified by their `[name]` and `type=` property. RayanPBX will add, update, or remove sections as needed.
 
 ### Dialplan Configuration (`/etc/asterisk/extensions.conf`)

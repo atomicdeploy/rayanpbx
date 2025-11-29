@@ -755,3 +755,97 @@ if len(section.BodyComments) != 1 {
 t.Errorf("Expected 1 body comment, got %d", len(section.BodyComments))
 }
 }
+
+
+func TestFindSectionsForExtension(t *testing.T) {
+content := `[101]
+type=endpoint
+context=from-internal
+
+[101-auth]
+type=auth
+password=secret
+
+[101]
+type=aor
+max_contacts=1
+
+[auth102]
+type=auth
+password=secret102
+
+[102]
+type=endpoint
+context=from-internal
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// Find sections for extension 101 (should find [101] sections AND [101-auth])
+ext101Sections := config.FindSectionsForExtension("101")
+if len(ext101Sections) != 3 {
+t.Errorf("Expected 3 sections for ext 101, got %d", len(ext101Sections))
+for _, s := range ext101Sections {
+t.Logf("  Found section: [%s] type=%s", s.Name, s.Type)
+}
+}
+
+// Find sections for extension 102 (should find [auth102] AND [102])
+ext102Sections := config.FindSectionsForExtension("102")
+if len(ext102Sections) != 2 {
+t.Errorf("Expected 2 sections for ext 102, got %d", len(ext102Sections))
+}
+}
+
+func TestRemoveSectionsForExtension(t *testing.T) {
+content := `[transport-udp]
+type=transport
+protocol=udp
+
+[101]
+type=endpoint
+context=from-internal
+
+[101-auth]
+type=auth
+password=secret
+
+[101]
+type=aor
+max_contacts=1
+
+[102]
+type=endpoint
+context=from-internal
+`
+
+config, err := ParseAsteriskConfigContent(content, "/tmp/test.conf")
+if err != nil {
+t.Fatalf("Failed to parse config: %v", err)
+}
+
+// Remove sections for extension 101 (should remove [101] sections AND [101-auth])
+removed := config.RemoveSectionsForExtension("101")
+if removed != 3 {
+t.Errorf("Expected to remove 3 sections for ext 101, removed %d", removed)
+}
+
+// Verify extension 101 sections are gone
+if config.HasSection("101") {
+t.Error("Section [101] should have been removed")
+}
+if config.HasSection("101-auth") {
+t.Error("Section [101-auth] should have been removed")
+}
+
+// Verify transport and 102 still exist
+if !config.HasSection("transport-udp") {
+t.Error("transport-udp should still exist")
+}
+if !config.HasSection("102") {
+t.Error("102 should still exist")
+}
+}

@@ -113,9 +113,13 @@ func (acm *AsteriskConfigManager) WritePjsipConfigSections(sections []*AsteriskS
 		extNumber = strings.TrimPrefix(identifier, "Extension ")
 	}
 
-	// Check if we have existing sections (commented or active)
+	// Check if we have existing sections (commented or active) with standard naming
 	hasActive := config.HasActiveSection(extNumber)
 	hasCommented := config.HasCommentedSection(extNumber)
+
+	// Also check for sections with alternative naming patterns
+	altSections := config.FindSectionsForExtension(extNumber)
+	hasAltNaming := len(altSections) > 0
 
 	if acm.verbose {
 		if hasActive {
@@ -124,13 +128,16 @@ func (acm *AsteriskConfigManager) WritePjsipConfigSections(sections []*AsteriskS
 		if hasCommented {
 			cyan.Printf("   Found existing commented sections for %s, replacing\n", extNumber)
 		}
+		if hasAltNaming {
+			cyan.Printf("   Found %d sections with alternative naming for %s, normalizing\n", len(altSections), extNumber)
+		}
 	}
 
-	// Remove existing sections (both active and commented) for this extension
-	// We replace rather than modify because the new config might have different properties
-	config.RemoveSectionsByName(extNumber)
+	// Remove existing sections for this extension, including alternative naming patterns
+	// This ensures [101-auth], [auth101], etc. are replaced with correctly named [101] sections
+	config.RemoveSectionsForExtension(extNumber)
 
-	// Add new sections
+	// Add new sections (with correct/standard naming)
 	for _, section := range sections {
 		config.AddSection(section)
 	}
@@ -252,8 +259,9 @@ func (acm *AsteriskConfigManager) RemovePjsipConfig(identifier string) error {
 		sectionName = strings.TrimPrefix(identifier, "Extension ")
 	}
 
-	// Remove all sections with this name (endpoint, auth, aor)
-	removed := config.RemoveSectionsByName(sectionName)
+	// Remove all sections for this extension, including alternative naming patterns
+	// This handles cases where user manually created [101-auth] instead of [101]
+	removed := config.RemoveSectionsForExtension(sectionName)
 
 	if removed == 0 {
 		if acm.verbose {

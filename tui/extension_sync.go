@@ -10,6 +10,78 @@ import (
 	"strings"
 )
 
+// Pre-compiled regex patterns for extension number extraction
+// These are compiled once at package initialization for efficiency
+var (
+	// Standard pattern: purely numeric (e.g., "101")
+	extNumericPattern = regexp.MustCompile(`^\d+$`)
+	
+	// Suffix patterns: NUMBER-TYPE (e.g., "101-auth", "101-aor", "101-endpoint")
+	extSuffixPattern = regexp.MustCompile(`^(\d+)[-_]?(auth|aor|endpoint)$`)
+	
+	// Prefix patterns: TYPE-NUMBER or TYPENUMBER (e.g., "auth-101", "auth101", "aor101")
+	extPrefixPattern = regexp.MustCompile(`^(auth|aor|endpoint)[-_]?(\d+)$`)
+)
+
+// extractExtensionNumber extracts the base extension number from various section naming patterns.
+// Handles patterns like:
+//   - "101" -> "101" (standard)
+//   - "101-auth" -> "101" (suffix style)
+//   - "101-aor" -> "101" (suffix style)
+//   - "auth101" -> "101" (prefix style)
+//   - "aor101" -> "101" (prefix style)
+//   - "endpoint101" -> "101" (prefix style)
+//
+// Returns the base extension number and whether this is a valid extension-related section.
+// Non-numeric base names (like trunk names) are not matched.
+func extractExtensionNumber(sectionName string) (string, bool) {
+	// Standard pattern: purely numeric (e.g., "101")
+	if extNumericPattern.MatchString(sectionName) {
+		return sectionName, true
+	}
+
+	// Suffix patterns: NUMBER-TYPE (e.g., "101-auth", "101-aor", "101-endpoint")
+	if matches := extSuffixPattern.FindStringSubmatch(sectionName); matches != nil {
+		return matches[1], true
+	}
+
+	// Prefix patterns: TYPE-NUMBER or TYPENUMBER (e.g., "auth-101", "auth101", "aor101")
+	if matches := extPrefixPattern.FindStringSubmatch(sectionName); matches != nil {
+		return matches[2], true
+	}
+
+	return "", false
+}
+
+// getExtensionSectionPatterns returns all possible section name patterns for an extension.
+// This is used to find and remove sections with alternative naming patterns.
+func getExtensionSectionPatterns(extNumber string) []string {
+	return []string{
+		extNumber,                    // Standard: [101]
+		extNumber + "-auth",          // [101-auth]
+		extNumber + "-aor",           // [101-aor]
+		extNumber + "-endpoint",      // [101-endpoint]
+		extNumber + "_auth",          // [101_auth]
+		extNumber + "_aor",           // [101_aor]
+		extNumber + "_endpoint",      // [101_endpoint]
+		"auth-" + extNumber,          // [auth-101]
+		"aor-" + extNumber,           // [aor-101]
+		"endpoint-" + extNumber,      // [endpoint-101]
+		"auth_" + extNumber,          // [auth_101]
+		"aor_" + extNumber,           // [aor_101]
+		"endpoint_" + extNumber,      // [endpoint_101]
+		"auth" + extNumber,           // [auth101]
+		"aor" + extNumber,            // [aor101]
+		"endpoint" + extNumber,       // [endpoint101]
+	}
+}
+
+// isAlternativeNaming returns true if the section name uses non-standard naming
+// (anything other than just the extension number)
+func isAlternativeNaming(sectionName, extNumber string) bool {
+	return sectionName != extNumber
+}
+
 // codecsToJSONSync converts a comma-separated codec string to JSON array format
 func codecsToJSONSync(codecs string) string {
 	if codecs == "" {
@@ -104,11 +176,15 @@ func (esm *ExtensionSyncManager) ParsePjsipConfig() ([]AsteriskExtension, error)
 }
 
 // parsePjsipContent parses the content of pjsip.conf and extracts extensions
+// This function handles both standard naming (all sections named [101]) and
+// alternative naming patterns ([101-auth], [auth101], etc.) by extracting
+// the base extension number from any recognized pattern.
 func (esm *ExtensionSyncManager) parsePjsipContent(content string) ([]AsteriskExtension, error) {
 	extensions := make(map[string]*AsteriskExtension)
 	
 	lines := strings.Split(content, "\n")
 	var currentSection string
+	var currentExtNumber string // The extracted base extension number
 	var currentType string
 	
 	for _, line := range lines {
@@ -123,6 +199,14 @@ func (esm *ExtensionSyncManager) parsePjsipContent(content string) ([]AsteriskEx
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			currentSection = strings.TrimPrefix(strings.TrimSuffix(line, "]"), "[")
 			currentType = ""
+			
+			// Try to extract extension number from section name
+			// This handles both standard ([101]) and alternative ([101-auth]) naming
+			if extNum, ok := extractExtensionNumber(currentSection); ok {
+				currentExtNumber = extNum
+			} else {
+				currentExtNumber = ""
+			}
 			continue
 		}
 		
@@ -154,16 +238,22 @@ func (esm *ExtensionSyncManager) parsePjsipContent(content string) ([]AsteriskEx
 			continue
 		}
 		
-		// Get or create extension entry
-		ext, exists := extensions[currentSection]
+		// Skip if we couldn't extract an extension number
+		if currentExtNumber == "" {
+			continue
+		}
+		
+		// Get or create extension entry using the extracted extension number
+		// This groups sections with alternative naming back to the base extension
+		ext, exists := extensions[currentExtNumber]
 		if !exists {
 			ext = &AsteriskExtension{
-				ExtensionNumber: currentSection,
+				ExtensionNumber: currentExtNumber,
 				MaxContacts:     1,
 				QualifyFrequency: 60,
 				DirectMedia:     "no",
 			}
-			extensions[currentSection] = ext
+			extensions[currentExtNumber] = ext
 		}
 		
 		// Parse properties based on type
@@ -200,14 +290,11 @@ func (esm *ExtensionSyncManager) parsePjsipContent(content string) ([]AsteriskEx
 		}
 	}
 	
-	// Filter out non-extensions (trunks, etc.)
-	// Extensions typically have numeric names like 101, 102, etc.
+	// Build result - we already filtered to only numeric extension numbers
+	// via extractExtensionNumber, so just collect all entries with a context
 	var result []AsteriskExtension
-	extPattern := regexp.MustCompile(`^\d+$`)
-	
-	for name, ext := range extensions {
-		// Only include numeric extensions (skip trunks and other endpoints)
-		if extPattern.MatchString(name) && ext.Context != "" {
+	for _, ext := range extensions {
+		if ext.Context != "" {
 			result = append(result, *ext)
 		}
 	}

@@ -430,6 +430,52 @@ func (c *AsteriskConfig) HasCommentedSection(name string) bool {
 	return false
 }
 
+// FindSectionsForExtension finds all sections that belong to an extension,
+// including those with alternative naming patterns like [101-auth] or [auth101].
+// This helps identify sections that should be managed together.
+func (c *AsteriskConfig) FindSectionsForExtension(extNumber string) []*AsteriskSection {
+	var result []*AsteriskSection
+	
+	// Get all possible naming patterns for this extension
+	patterns := getExtensionSectionPatterns(extNumber)
+	
+	for _, section := range c.Sections {
+		for _, pattern := range patterns {
+			if section.Name == pattern {
+				result = append(result, section)
+				break
+			}
+		}
+	}
+	
+	return result
+}
+
+// RemoveSectionsForExtension removes all sections that belong to an extension,
+// including those with alternative naming patterns like [101-auth] or [auth101].
+// Returns the number of sections removed.
+func (c *AsteriskConfig) RemoveSectionsForExtension(extNumber string) int {
+	// Get all possible naming patterns and build a lookup map
+	patterns := make(map[string]bool)
+	for _, pattern := range getExtensionSectionPatterns(extNumber) {
+		patterns[pattern] = true
+	}
+	
+	var newSections []*AsteriskSection
+	removed := 0
+	
+	for _, section := range c.Sections {
+		if patterns[section.Name] {
+			removed++
+		} else {
+			newSections = append(newSections, section)
+		}
+	}
+	
+	c.Sections = newSections
+	return removed
+}
+
 // CreatePjsipEndpointSections creates the three sections needed for a PJSIP endpoint
 // Returns endpoint, auth, and aor sections
 func CreatePjsipEndpointSections(extNumber, secret, context, transport string, codecs []string, directMedia string, callerID string, maxContacts int, qualifyFrequency int, voicemailEnabled bool) []*AsteriskSection {
