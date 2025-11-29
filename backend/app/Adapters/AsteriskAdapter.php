@@ -592,6 +592,7 @@ class AsteriskAdapter
 
     /**
      * Generate internal dialplan for extensions
+     * Supports both explicit extension rules and generalized pattern matching
      */
     public function generateInternalDialplan($extensions)
     {
@@ -609,7 +610,8 @@ class AsteriskAdapter
         }
         $config .= "\n";
 
-        // Add individual extension rules
+        // Add individual extension rules (explicit dialplan)
+        $config .= "; Explicit extension rules\n";
         foreach ($extensions as $extension) {
             if (! $extension->enabled) {
                 continue;
@@ -627,9 +629,11 @@ class AsteriskAdapter
             $config .= " same => n,Hangup()\n\n";
         }
 
-        // Add pattern matching for extension-to-extension calls
-        $config .= "; Pattern match for all extensions\n";
-        $config .= "exten => _1XXX,1,NoOp(Extension to extension call: \${EXTEN})\n";
+        // Add generalized pattern matching for extension-to-extension calls
+        // RayanPBX uses 3-digit extensions (100-199)
+        $config .= "; Generalized dialplan - Pattern match for extension ranges\n";
+        $config .= "; _1XX matches 100-199 (3-digit extensions starting with 1)\n";
+        $config .= "exten => _1XX,1,NoOp(Extension to extension call: \${EXTEN})\n";
         $config .= " same => n,Dial(PJSIP/\${EXTEN},30)\n";
         $config .= " same => n,Hangup()\n";
 

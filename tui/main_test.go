@@ -319,8 +319,8 @@ func TestAsteriskMenuNavigation(t *testing.T) {
 	if menuLength == 0 {
 		t.Fatal("asteriskMenu is empty")
 	}
-	
-	// Verify menu has expected number of items (14 items including Configure PJSIP Transports)
+
+	// Verify menu has expected number of items (14 items in asterisk menu including Configure PJSIP Transports)
 	expectedMenuItems := 14
 	if menuLength != expectedMenuItems {
 		t.Errorf("Expected %d menu items, got %d", expectedMenuItems, menuLength)
@@ -545,9 +545,10 @@ func TestMainMenuCursorPreservation(t *testing.T) {
 // TestMenuItemsCount tests that we have the expected number of main menu items
 func TestMenuItemsCount(t *testing.T) {
 	m := initialModel(nil, nil, false)
-	
-	// We expect 14 menu items (including Quick Setup, Console Phone, Live Console and Exit)
-	expectedItems := 14
+
+	// We expect 15 menu items (including Quick Setup, Dialplan, Console Phone, Live Console and Exit)
+	expectedItems := 15
+
 	if len(m.menuItems) != expectedItems {
 		t.Errorf("Expected %d menu items, got %d", expectedItems, len(m.menuItems))
 	}
@@ -557,6 +558,7 @@ func TestMenuItemsCount(t *testing.T) {
 		"Quick Setup",
 		"Extensions",
 		"Trunks",
+		"Dialplan",
 		"VoIP Phones",
 		"Console Phone",
 		"Asterisk",

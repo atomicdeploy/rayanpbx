@@ -130,7 +130,7 @@
       </div>
 
       <!-- Quick Actions -->
-      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
         <NuxtLink to="/extensions" class="card hover:shadow-xl cursor-pointer transition-shadow">
           <div class="text-center">
             <div class="text-5xl mb-4">📱</div>
@@ -144,6 +144,14 @@
             <div class="text-5xl mb-4">☎️</div>
             <h3 class="text-xl font-bold mb-2">{{ $t('nav.phones') }}</h3>
             <p class="text-gray-600 dark:text-gray-400">{{ $t('dashboard.managePhones') }}</p>
+          </div>
+        </NuxtLink>
+
+        <NuxtLink to="/dialplan" class="card hover:shadow-xl cursor-pointer transition-shadow">
+          <div class="text-center">
+            <div class="text-5xl mb-4">📜</div>
+            <h3 class="text-xl font-bold mb-2">Dialplan</h3>
+            <p class="text-gray-600 dark:text-gray-400">Configure call routing</p>
           </div>
         </NuxtLink>
 
