@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\SipTestController;
 use App\Http\Controllers\Api\ExtensionSyncController;
 use App\Http\Controllers\Api\ResetController;
 use App\Http\Controllers\Api\DirectCallController;
+use App\Http\Controllers\Api\DialplanController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -279,6 +280,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/calls/dtmf', [DirectCallController::class, 'sendDTMF']);
     Route::post('/calls/test', [DirectCallController::class, 'testCall']);
     Route::post('/calls/phone', [DirectCallController::class, 'callPhone']);
+    
+    // Dialplan Management
+    Route::get('/dialplan', [DialplanController::class, 'index']);
+    Route::post('/dialplan', [DialplanController::class, 'store']);
+    Route::get('/dialplan/contexts', [DialplanController::class, 'contexts']);
+    Route::get('/dialplan/applications', [DialplanController::class, 'applications']);
+    Route::get('/dialplan/patterns', [DialplanController::class, 'patterns']);
+    Route::get('/dialplan/preview', [DialplanController::class, 'preview']);
+    Route::post('/dialplan/apply', [DialplanController::class, 'apply']);
+    Route::post('/dialplan/defaults', [DialplanController::class, 'createDefaults']);
+    Route::get('/dialplan/live', [DialplanController::class, 'showLive']);
+    Route::get('/dialplan/{id}', [DialplanController::class, 'show']);
+    Route::put('/dialplan/{id}', [DialplanController::class, 'update']);
+    Route::delete('/dialplan/{id}', [DialplanController::class, 'destroy']);
+    Route::post('/dialplan/{id}/toggle', [DialplanController::class, 'toggle']);
 });
 
 // Health check endpoint (public)

@@ -168,6 +168,7 @@ const (
 	resetConfigurationScreen
 	resetConfirmScreen
 	consolePhoneScreen // Console as SIP phone/intercom
+	dialplanScreen     // Dialplan management
 )
 
 type model struct {
@@ -281,6 +282,11 @@ type model struct {
 	liveConsoleVerbosity  int      // Verbosity level (1-10)
 	liveConsoleErrors     []string // Recent errors for display
 	liveConsoleMaxLines   int      // Maximum lines to keep in buffer
+
+	// Dialplan management
+	dialplanMenu          []string // Menu items for dialplan operations
+	dialplanOutput        string   // Output from dialplan operations
+	dialplanPreview       string   // Preview of current dialplan
 }
 
 // isDiagnosticsInputScreen returns true if the current screen is a diagnostics input screen
@@ -352,6 +358,7 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"🚀 Quick Setup",
 			"📱 Extensions Management",
 			"🔗 Trunks Management",
+			"📜 Dialplan Management",
 			"📞 VoIP Phones Management",
 			"🎙️  Console Phone/Intercom",
 			"⚙️  Asterisk Management",
@@ -429,6 +436,15 @@ func initialModel(db *sql.DB, config *Config, verbose bool) model {
 			"📊 Console Status",
 			"⚙️  Configure Console Endpoint",
 			"📋 Show Active Calls",
+			"🔙 Back to Main Menu",
+		},
+		dialplanMenu: []string{
+			"👁️  View Current Dialplan",
+			"📝 Generate from Extensions",
+			"🔧 Create Default Pattern (_1XX)",
+			"📡 Apply to Asterisk",
+			"🔄 Reload Dialplan",
+			"ℹ️  Pattern Help",
 			"🔙 Back to Main Menu",
 		},
 		resetMenu: []string{
@@ -564,6 +580,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.successMsg = ""
 				return m, nil
 			}
+		}
+		
+		// Handle Dialplan screen
+		if m.currentScreen == dialplanScreen {
+			return m.handleDialplanScreen(msg)
 		}
 		
 		// Handle VoIP discovery screen
@@ -972,14 +993,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errorMsg = fmt.Sprintf("Error loading trunks: %v", err)
 					}
 				case 3:
+					// Dialplan Management
+					m.mainMenuCursor = m.cursor
+					m.initDialplanScreen()
+				case 4:
 					// VoIP Phones Management
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.initVoIPPhonesScreen()
-				case 4:
+				case 5:
 					// Console Phone/Intercom
 					m.mainMenuCursor = m.cursor
 					m.initConsolePhoneScreen()
-				case 5:
+				case 6:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = asteriskMenuScreen
 					m.asteriskMenuCursor = 0
@@ -987,7 +1012,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.asteriskOutput = ""
-				case 6:
+				case 7:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = diagnosticsMenuScreen
 					m.diagnosticsMenuCursor = 0
@@ -995,31 +1020,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMsg = ""
 					m.successMsg = ""
 					m.diagnosticsOutput = ""
-				case 7:
-					m.mainMenuCursor = m.cursor // Save main menu position
-					m.currentScreen = statusScreen
 				case 8:
 					m.mainMenuCursor = m.cursor // Save main menu position
+					m.currentScreen = statusScreen
+				case 9:
+					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = logsScreen
-				case 9: // Live Asterisk Console
+				case 10: // Live Asterisk Console
 					m.mainMenuCursor = m.cursor
 					m.initLiveConsole()
-				case 10:
+				case 11:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = usageScreen
 					m.usageCommands = getUsageCommands()
 					m.usageCursor = 0
-				case 11:
+				case 12:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = configManagementScreen
 					initConfigManagement(&m)
 					m.errorMsg = ""
 					m.successMsg = ""
-				case 12:
+				case 13:
 					m.mainMenuCursor = m.cursor // Save main menu position
 					m.currentScreen = systemSettingsScreen
 					m.cursor = 0
-				case 13:
+				case 14:
 					return m, tea.Quit
 				}
 			} else if m.currentScreen == usageScreen {
@@ -1302,6 +1327,8 @@ func (m model) View() string {
 		s += m.renderQuickSetup()
 	case consolePhoneScreen:
 		s += m.renderConsolePhone()
+	case dialplanScreen:
+		s += m.renderDialplanScreen()
 	}
 
 	// Footer with emojis
