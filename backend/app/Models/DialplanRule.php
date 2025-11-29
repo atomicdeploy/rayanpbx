@@ -114,9 +114,26 @@ class DialplanRule extends Model
 
     /**
      * Create an outbound routing rule
+     * 
+     * @param string $name Name for the rule
+     * @param string $prefix Dial prefix (e.g., "9" for 9 + number)
+     * @param string $trunkName Name of the SIP trunk (alphanumeric, underscores, hyphens only)
+     * @param int $stripDigits Number of digits to strip from dialed number
+     * @throws \InvalidArgumentException If trunkName contains invalid characters
      */
     public static function createOutboundRule(string $name, string $prefix, string $trunkName, int $stripDigits = 1): self
     {
+        // Validate trunkName to prevent dialplan injection
+        // Only allow alphanumeric characters, underscores, and hyphens
+        if (!preg_match('/^[a-zA-Z0-9_-]+$/', $trunkName)) {
+            throw new \InvalidArgumentException('Trunk name may only contain alphanumeric characters, underscores, and hyphens');
+        }
+        
+        // Validate prefix
+        if (!preg_match('/^[0-9]+$/', $prefix)) {
+            throw new \InvalidArgumentException('Prefix may only contain digits');
+        }
+        
         $appData = $stripDigits > 0 
             ? 'PJSIP/${EXTEN:' . $stripDigits . '}@' . $trunkName . ',60'
             : 'PJSIP/${EXTEN}@' . $trunkName . ',60';

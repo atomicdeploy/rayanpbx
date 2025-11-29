@@ -5,16 +5,19 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DialplanRule;
 use App\Adapters\AsteriskAdapter;
+use App\Services\AsteriskConsoleService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class DialplanController extends Controller
 {
     private AsteriskAdapter $asterisk;
+    private AsteriskConsoleService $console;
 
-    public function __construct(AsteriskAdapter $asterisk)
+    public function __construct(AsteriskAdapter $asterisk, AsteriskConsoleService $console)
     {
         $this->asterisk = $asterisk;
+        $this->console = $console;
     }
 
     /**
@@ -401,11 +404,11 @@ class DialplanController extends Controller
     public function showLive()
     {
         try {
-            $output = shell_exec('asterisk -rx \'dialplan show\' 2>&1');
+            $result = $this->console->showDialplan();
             
             return response()->json([
                 'success' => true,
-                'dialplan' => $output,
+                'dialplan' => $result['output'] ?? $result['dialplan'] ?? '',
             ]);
         } catch (\Exception $e) {
             return response()->json([

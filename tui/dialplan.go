@@ -65,7 +65,16 @@ func (m *model) executeDialplanMenuAction() {
 func (m *model) viewCurrentDialplan() {
 	output, err := m.asteriskManager.ShowDialplan()
 	if err != nil {
-		m.errorMsg = fmt.Sprintf("Error getting dialplan: %v", err)
+		errStr := err.Error()
+		if strings.Contains(errStr, "not running") || strings.Contains(errStr, "Connection refused") {
+			m.errorMsg = "Asterisk is not running. Start Asterisk first via Asterisk Management."
+		} else if strings.Contains(errStr, "permission denied") {
+			m.errorMsg = "Permission denied. Try running with sudo."
+		} else if strings.Contains(errStr, "command not found") {
+			m.errorMsg = "Asterisk command not found. Is Asterisk installed?"
+		} else {
+			m.errorMsg = fmt.Sprintf("Error getting dialplan: %v", err)
+		}
 		m.dialplanOutput = ""
 		return
 	}
