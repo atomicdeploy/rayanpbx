@@ -771,4 +771,78 @@ class GrandStreamController extends Controller
 
         return response()->json($result);
     }
+
+    // ========================================================================
+    // SIP Codec Priority Configuration
+    // ========================================================================
+
+    /**
+     * Get available codecs and configuration info
+     */
+    public function getCodecInfo()
+    {
+        $info = $this->provisioningService->getCodecConfigInfo();
+
+        return response()->json([
+            'success' => true,
+            ...$info,
+        ]);
+    }
+
+    /**
+     * Get current codec priority configuration from phone
+     */
+    public function getCodecConfig(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->getCodecConfig(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Set codec priority configuration on phone
+     */
+    public function setCodecConfig(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'codec_order' => 'required|array|min:1|max:7',
+            'codec_order.*' => 'required|string',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->setCodecConfig(
+            $request->input('ip'),
+            $request->input('codec_order'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Apply recommended codec order to phone
+     */
+    public function applyRecommendedCodecOrder(Request $request)
+    {
+        $request->validate([
+            'ip' => 'required|ip',
+            'credentials' => 'nullable|array',
+        ]);
+
+        $result = $this->provisioningService->applyRecommendedCodecOrder(
+            $request->input('ip'),
+            $request->input('credentials', [])
+        );
+
+        return response()->json($result);
+    }
 }

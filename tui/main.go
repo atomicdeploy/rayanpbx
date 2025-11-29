@@ -227,7 +227,15 @@ type model struct {
 	currentPhoneStatus     *PhoneStatus
 	phoneCredentials       map[string]map[string]string
 	voipEditingExistingIP  string // If set, we're editing credentials for an existing phone
-	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA, 4=Direct Call)
+
+	voipControlTab         int    // Current tab in control menu (0=Status, 1=Management, 2=Provisioning, 3=CTI/CSTA, 4=Codecs, 5=Direct Call)
+	
+	// SIP Codec Priority configuration
+	currentCodecOrder   []CodecInfo  // Current codec order being displayed/edited
+	originalCodecOrder  []CodecInfo  // Original order (for reset)
+	codecSelectedIndex  int          // Currently selected codec in the list
+	codecOrderModified  bool         // Whether the order has been changed
+	
 	directCallManager      *DirectCallManager // For direct SIP calls and console intercom
 	
 	// Menu position memory (preserve cursor position when navigating back)
